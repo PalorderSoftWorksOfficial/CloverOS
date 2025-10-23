@@ -35,7 +35,7 @@ jobs:
           MANIFEST_FILE="files.manifest"
 
           # Start index.html
-          cat > "$INDEX_FILE" << 'EOF'
+          cat > "$INDEX_FILE" <<'HTML'
 <!DOCTYPE html>
 <html>
 <head>
@@ -54,7 +54,7 @@ pre { line-height:1.6; }
 <h1>Index of CloverOS</h1>
 <hr>
 <pre>
-EOF
+HTML
 
           # Clear/create files.manifest
           > "$MANIFEST_FILE"
@@ -84,13 +84,13 @@ EOF
           done
 
           # Close index.html
-          cat >> "$INDEX_FILE" << 'EOF'
+          cat >> "$INDEX_FILE" <<'HTML'
 </pre>
 <hr>
 <footer>Generated automatically for CloverOS — Dark Mode Enabled</footer>
 </body>
 </html>
-EOF
+HTML
 
           echo "index.html and files.manifest generated successfully."
           echo "---- files.manifest contents ----"
