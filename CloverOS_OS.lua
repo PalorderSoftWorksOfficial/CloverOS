@@ -396,31 +396,34 @@ end
 -- Scan for custom apps and icons
 local function getCustomApps()
     local appList = {}
-    if fs.exists("disk/apps") then
-        for _, file in ipairs(fs.list("disk/apps")) do
-            if file:match("%.lua$") then
-                local appName = file:gsub("%.lua$", "")
-                local iconPath = "disk/apps/" .. appName .. ".ico"
-                local icon = nil
-                if fs.exists(iconPath) then
-                    -- Read icon file (could be text, emoji, or ASCII art)
-                    local f = fs.open(iconPath, "r")
-                    icon = f.readAll()
-                    f.close()
-                end
-                table.insert(appList, {
-                    name = appName,
-                    icon = icon,
-                    run = function()
-                        shell.run("disk/apps/" .. file)
+    local appDirs = {"apps", "disk/apps"}
+
+    for _, dir in ipairs(appDirs) do
+        if fs.exists(dir) then
+            for _, file in ipairs(fs.list(dir)) do
+                if file:match("%.lua$") then
+                    local appName = file:gsub("%.lua$", "")
+                    local iconPath = dir .. "/" .. appName .. ".ico"
+                    local icon = nil
+                    if fs.exists(iconPath) then
+                        local f = fs.open(iconPath, "r")
+                        icon = f.readAll()
+                        f.close()
                     end
-                })
+                    table.insert(appList, {
+                        name = appName,
+                        icon = icon,
+                        run = function()
+                            shell.run(dir .. "/" .. file)
+                        end
+                    })
+                end
             end
         end
     end
+
     return appList
 end
-
 -- App Definitions (including games)
 local icons = {
     {name = "Clock", run = function()
