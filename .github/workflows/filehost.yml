@@ -1,4 +1,4 @@
-name: Deploy CloverOS Static Content
+name: Deploy CloverOS HTML index
 
 on:
   push:
@@ -10,71 +10,41 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
-
 jobs:
-  deploy:
+  deploy-html:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate dark-mode index and files.manifest
+      - name: Generate HTML index
         run: |
-          # Define base directory
           BASE_DIR=$(pwd)
+          echo "<!DOCTYPE html>" > "$BASE_DIR/index.html"
+          echo "<html>" >> "$BASE_DIR/index.html"
+          echo "<head>" >> "$BASE_DIR/index.html"
+          echo "<meta charset='utf-8'>" >> "$BASE_DIR/index.html"
+          echo "<title>Index of CloverOS</title>" >> "$BASE_DIR/index.html"
+          echo "<style>body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; } a { color:#58a6ff; text-decoration:none; } a:hover { text-decoration:underline; } h1 { color:#58a6ff; } hr { border:0; border-top:1px solid #30363d; } pre { line-height:1.6; }</style>" >> "$BASE_DIR/index.html"
+          echo "</head>" >> "$BASE_DIR/index.html"
+          echo "<body>" >> "$BASE_DIR/index.html"
+          echo "<h1>Index of CloverOS</h1>" >> "$BASE_DIR/index.html"
+          echo "<hr>" >> "$BASE_DIR/index.html"
+          echo "<pre>" >> "$BASE_DIR/index.html"
 
-          # Start index.html
-          echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Index of CloverOS</title><style>
-          body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }
-          a { color:#58a6ff; text-decoration:none; }
-          a:hover { text-decoration:underline; }
-          h1 { color:#58a6ff; }
-          hr { border:0; border-top:1px solid #30363d; }
-          pre { line-height:1.6; }
-          </style></head><body><h1>Index of CloverOS</h1><hr><pre>" > "$BASE_DIR/index.html"
+          while read -r file; do
+            echo "<a href=\"$file\">$file</a>" >> "$BASE_DIR/index.html"
+          done < "$BASE_DIR/files.manifest"
 
-          # Clear/create files.manifest
-          > "$BASE_DIR/files.manifest"
+          echo "</pre>" >> "$BASE_DIR/index.html"
+          echo "<hr>" >> "$BASE_DIR/index.html"
+          echo "<footer>Generated automatically for CloverOS — Dark Mode Enabled</footer>" >> "$BASE_DIR/index.html"
+          echo "</body>" >> "$BASE_DIR/index.html"
+          echo "</html>" >> "$BASE_DIR/index.html"
 
-          # Iterate over all files except .git, .github, and index/workflow files
-          find "$BASE_DIR" -type f ! -path "$BASE_DIR/.git/*" ! -path "$BASE_DIR/.github/*" ! -name "index.html" ! -name "*.yml" | sort | while read -r file; do
-            path=$(echo "$file" | sed "s|^$BASE_DIR/||")
-            name=$(basename "$path")
-            base="${name%.*}"
-            [ "$base" = "$name" ] && base="$name"
-            [ -z "$base" ] && continue
-
-            # Add to index.html
-            echo "<a href=\"$path\">$path</a>" >> "$BASE_DIR/index.html"
-
-            # Add to files.manifest
-            echo "$path" >> "$BASE_DIR/files.manifest"
-
-            # Safe extensionless redirect
-            if [ ! -e "$BASE_DIR/$base" ]; then
-              mkdir -p "$BASE_DIR/$base"
-              echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$BASE_DIR/$base/index.html"
-            fi
-          done
-
-          # Close index.html
-          echo "</pre><hr><footer>Generated automatically for CloverOS — Dark Mode Enabled</footer></body></html>" >> "$BASE_DIR/index.html"
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload HTML artifact
+        uses: actions/upload-artifact@v3
         with:
-          path: '.'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          name: html-index
+          path: index.html
