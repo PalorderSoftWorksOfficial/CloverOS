@@ -451,7 +451,7 @@ local icons = {
         os.sleep(1.5)
     end
 end},
-{name = "Shutdown", run = function() cmd end}
+{name = "cmd", run = function() cmd() end}
 }
 
 -- Scan for custom apps
