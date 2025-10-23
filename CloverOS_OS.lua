@@ -272,7 +272,46 @@ local function fileManager()
         end
     end
 end
+-- CMD terminal
+local function cmd()
+    mirroredClear()
+    mirroredPrint("Clover OS Command prompt.")
 
+    local function listCommands()
+        local commands = {}
+        local paths = {"disk/bin", "bin"}
+
+        for _, path in ipairs(paths) do
+            if fs.exists(path) then
+                for _, file in ipairs(fs.list(path)) do
+                    if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
+                        local cmdName = file:gsub("%..+$", "") -- remove extension
+                        commands[cmdName] = path .. "/" .. file
+                    end
+                end
+            end
+        end
+
+        return commands
+    end
+
+    while true do
+        mirroredWrite("> ")
+        local command = mirroredRead()
+
+        if command == "exit" then
+            break
+        end
+
+        local commands = listCommands()
+
+        if commands[command] then
+            shell.run(commands[command])
+        else
+            print("Command not found: " .. command)
+        end
+    end
+end
 -- Simple games and apps
 local function playTetris()
     mirroredClear()
@@ -411,7 +450,8 @@ local icons = {
         mirroredPrint("Invalid choice.")
         os.sleep(1.5)
     end
-end}
+end},
+{name = "Shutdown", run = function() cmd end}
 }
 
 -- Scan for custom apps

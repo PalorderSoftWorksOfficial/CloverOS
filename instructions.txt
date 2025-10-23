@@ -87,7 +87,7 @@ The following apps are included in **CloverOS**:
 - **Music Player**: A simple game where you control a snake to collect food and avoid collisions.
 - **File System**: Create and edit files for various purposes. You can save your work and access it later.
 
-More apps can be added by placing `.lua` files in the `apps` directory, same goes for commands but in 'bin' directory and only '.lua','.exe','.ddl' are accepted and NO you cant use actual exe files or .ddl files as they must contain lua code.
+More apps can be added by placing `.lua` files in the `apps` directory, same goes for commands but in 'bin' directory and only '.lua','.exe','.dll' are accepted and NO you cant use actual exe files or .ddl files as they must contain lua code.
 
 ---
 
