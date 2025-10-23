@@ -1,40 +1,25 @@
--- Netinstall for CloverOS
-local http = require("http")
-local fs = require("fs")
-
 local baseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
-local manifestURL = baseURL .. "files.manifest"
+local manifestFile = "files.manifest"
 
--- Fetch the manifest
-local response = http.get(manifestURL)
-if not response then
-    print("Failed to fetch files manifest")
-    return
+-- Make sure manifest exists locally
+if not fs.exists(manifestFile) then
+    print("Downloading files.manifest...")
+    shell.run("wget " .. baseURL .. manifestFile .. " " .. manifestFile)
 end
 
--- Read all file paths from manifest
-local files = {}
-for line in response.readAll():gmatch("[^\r\n]+") do
-    table.insert(files, line)
+local fileList = {}
+local f = fs.open(manifestFile, "r")
+for line in f:lines() do
+    table.insert(fileList, line)
 end
-response.close()
+f:close()
 
--- Download each file
-for _, file in ipairs(files) do
-    local fileURL = baseURL .. file
+-- Download all files
+for _, file in ipairs(fileList) do
     print("Downloading " .. file)
-    local fResponse = http.get(fileURL)
-    if fResponse then
-        local content = fResponse.readAll()
-        fResponse.close()
-        local dir = file:match("(.*/)")
-        if dir then fs.makeDir(dir) end
-        local f = fs.open(file, "w")
-        f.write(content)
-        f.close()
-    else
-        print("Failed to download " .. file)
-    end
+    local dir = file:match("(.*/)")
+    if dir then fs.makeDir(dir) end
+    shell.run("wget " .. baseURL .. file .. " " .. file)
 end
 
 print("All files downloaded successfully!")
