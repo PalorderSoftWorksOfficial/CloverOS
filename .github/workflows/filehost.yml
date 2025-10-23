@@ -1,4 +1,4 @@
-name: Deploy CloverOS static content
+name: Deploy CloverOS Static Content
 
 on:
   push:
@@ -26,76 +26,46 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Generate dark-mode index and files.manifest
-        shell: bash
         run: |
-          set -e
-          echo "Generating index.html and files.manifest..."
-
-          INDEX_FILE="index.html"
-          MANIFEST_FILE="files.manifest"
+          # Define base directory
+          BASE_DIR=$(pwd)
 
           # Start index.html
-          cat > "$INDEX_FILE" <<'HTML'
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset='utf-8'>
-<title>Index of CloverOS</title>
-<style>
-body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }
-a { color:#58a6ff; text-decoration:none; }
-a:hover { text-decoration:underline; }
-h1 { color:#58a6ff; }
-hr { border:0; border-top:1px solid #30363d; }
-pre { line-height:1.6; }
-</style>
-</head>
-<body>
-<h1>Index of CloverOS</h1>
-<hr>
-<pre>
-HTML
+          echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Index of CloverOS</title><style>
+          body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }
+          a { color:#58a6ff; text-decoration:none; }
+          a:hover { text-decoration:underline; }
+          h1 { color:#58a6ff; }
+          hr { border:0; border-top:1px solid #30363d; }
+          pre { line-height:1.6; }
+          </style></head><body><h1>Index of CloverOS</h1><hr><pre>" > "$BASE_DIR/index.html"
 
           # Clear/create files.manifest
-          > "$MANIFEST_FILE"
+          > "$BASE_DIR/files.manifest"
 
           # Iterate over all files except .git, .github, and index/workflow files
-          find . -type f \
-            ! -path "./.git/*" \
-            ! -path "./.github/*" \
-            ! -name "index.html" \
-            ! -name "*.yml" \
-            | sort | while read -r file; do
-            path=$(echo "$file" | sed 's|^\./||')
-            echo "Adding $path"
+          find "$BASE_DIR" -type f ! -path "$BASE_DIR/.git/*" ! -path "$BASE_DIR/.github/*" ! -name "index.html" ! -name "*.yml" | sort | while read -r file; do
+            path=$(echo "$file" | sed "s|^$BASE_DIR/||")
+            name=$(basename "$path")
+            base="${name%.*}"
+            [ "$base" = "$name" ] && base="$name"
+            [ -z "$base" ] && continue
 
             # Add to index.html
-            echo "<a href=\"$path\">$path</a>" >> "$INDEX_FILE"
+            echo "<a href=\"$path\">$path</a>" >> "$BASE_DIR/index.html"
 
             # Add to files.manifest
-            echo "$path" >> "$MANIFEST_FILE"
+            echo "$path" >> "$BASE_DIR/files.manifest"
 
-            # Optional: create safe extensionless redirect
-            base="${path%.*}"
-            if [ ! -e "$base" ]; then
-              mkdir -p "$base"
-              echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$base/index.html"
+            # Safe extensionless redirect
+            if [ ! -e "$BASE_DIR/$base" ]; then
+              mkdir -p "$BASE_DIR/$base"
+              echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$BASE_DIR/$base/index.html"
             fi
           done
 
           # Close index.html
-          cat >> "$INDEX_FILE" <<'HTML'
-</pre>
-<hr>
-<footer>Generated automatically for CloverOS — Dark Mode Enabled</footer>
-</body>
-</html>
-HTML
-
-          echo "index.html and files.manifest generated successfully."
-          echo "---- files.manifest contents ----"
-          cat "$MANIFEST_FILE"
-          echo "--------------------------------"
+          echo "</pre><hr><footer>Generated automatically for CloverOS — Dark Mode Enabled</footer></body></html>" >> "$BASE_DIR/index.html"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -103,7 +73,7 @@ HTML
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'  # Include all generated files including files.manifest
+          path: '.'
 
       - name: Deploy to GitHub Pages
         id: deployment
