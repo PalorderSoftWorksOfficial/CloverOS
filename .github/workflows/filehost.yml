@@ -38,28 +38,26 @@ jobs:
 
           # Find all files except .git, .github, and workflow files
           find . -type f ! -path "./.git/*" ! -path "./.github/*" ! -name "index.html" ! -name "*.yml" | sort | while read -r file; do
-            path=$(echo "$file" | sed 's|^\./||')
-            name=$(basename "$path")
-            base="${name%.*}"
+              path=$(echo "$file" | sed 's|^\./||')
+              name=$(basename "$path")
+              base="${name%.*}"
 
-            # Handle files without extension
-            if [ "$base" = "$name" ]; then
-              base="$name"
-            fi
+              # Handle files without extension
+              if [ "$base" = "$name" ]; then
+                  base="$name"
+              fi
 
-            # Skip empty or weird paths
-            if [ -z "$base" ]; then
-              continue
-            fi
+              # Skip empty paths
+              [ -z "$base" ] && continue
 
-            # Add to main index
-            echo "<a href=\"$path\">$path</a>" >> index.html
+              # Add file to main index
+              echo "<a href=\"$path\">$path</a>" >> index.html
 
-            # Safe redirect creation (skip if folder == file)
-            if [ ! -d "$base" ]; then
-              mkdir -p "$base"
-              echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$base/index.html"
-            fi
+              # Only create redirect folder if safe (no file or folder exists)
+              if [ ! -e "$base" ] && [ ! -f "$base" ]; then
+                  mkdir -p "$base"
+                  echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$base/index.html"
+              fi
           done
 
           echo "</pre><hr><footer>Generated automatically for CloverOS — Dark Mode Enabled</footer></body></html>" >> index.html
