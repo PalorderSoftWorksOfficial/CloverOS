@@ -56,15 +56,15 @@ print("Selected target: " .. target)
 print("Preparing to install CloverOS to /" .. target)
 sleep(1)
 
-local targetPath = "/" .. target .. "/" .. manifestFile
-if not fs.exists(targetPath) then
-    print("Downloading files.manifest...")
-    shell.run("wget " .. baseURL .. manifestFile .. " " .. targetPath)
-end
+local manifestPath = "/" .. target .. "/" .. manifestFile
+if fs.exists(manifestPath) then fs.delete(manifestPath) end
+shell.run("wget " .. baseURL .. manifestFile .. " " .. manifestPath)
 
 local fileList = {}
-local f = fs.open(targetPath, "r")
-for line in f.readLine do
+local f = fs.open(manifestPath, "r")
+while true do
+    local line = f.readLine()
+    if not line then break end
     table.insert(fileList, line)
 end
 f.close()
