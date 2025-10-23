@@ -1,0 +1,18 @@
+args = {...}
+local command = args[1]
+local pkn = args[2]
+local rebuild = false
+
+-- we translate aliases
+if command == "install" then command = "-i" end
+if command == "remove" then command = "-r" end
+if command == "update" then command = "-u" end
+if command == "update-forced" then command = "-U" end
+if command == "setsource" then command = "-s" end
+if command == "clearsource" then command = "-c" end
+if command == "setupdate" then command = "-a" end
+if command == "list-installed" then command = "-l" end
+if command == "list-available" then command = "-la" end
+if command == "list-source" then command = "-ls" end
+-- were gonna add the actual functionality later
+print("not implemented yet.")

@@ -1,0 +1,50 @@
+name: Deploy CloverOS HTML index
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy-html:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate HTML index
+        run: |
+          BASE_DIR=$(pwd)
+          echo "<!DOCTYPE html>" > "$BASE_DIR/index.html"
+          echo "<html>" >> "$BASE_DIR/index.html"
+          echo "<head>" >> "$BASE_DIR/index.html"
+          echo "<meta charset='utf-8'>" >> "$BASE_DIR/index.html"
+          echo "<title>Index of CloverOS</title>" >> "$BASE_DIR/index.html"
+          echo "<style>body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; } a { color:#58a6ff; text-decoration:none; } a:hover { text-decoration:underline; } h1 { color:#58a6ff; } hr { border:0; border-top:1px solid #30363d; } pre { line-height:1.6; }</style>" >> "$BASE_DIR/index.html"
+          echo "</head>" >> "$BASE_DIR/index.html"
+          echo "<body>" >> "$BASE_DIR/index.html"
+          echo "<h1>Index of CloverOS</h1>" >> "$BASE_DIR/index.html"
+          echo "<hr>" >> "$BASE_DIR/index.html"
+          echo "<pre>" >> "$BASE_DIR/index.html"
+
+          while read -r file; do
+            echo "<a href=\"$file\">$file</a>" >> "$BASE_DIR/index.html"
+          done < "$BASE_DIR/files.manifest"
+
+          echo "</pre>" >> "$BASE_DIR/index.html"
+          echo "<hr>" >> "$BASE_DIR/index.html"
+          echo "<footer>Generated automatically for CloverOS — Dark Mode Enabled</footer>" >> "$BASE_DIR/index.html"
+          echo "</body>" >> "$BASE_DIR/index.html"
+          echo "</html>" >> "$BASE_DIR/index.html"
+
+      - name: Upload HTML artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-index
+          path: index.html

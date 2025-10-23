@@ -1,0 +1,39 @@
+name: Generate CloverOS files.manifest
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  generate-manifest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate files.manifest
+        run: |
+          BASE_DIR=$(pwd)
+          echo "Generating files.manifest..."
+          > "$BASE_DIR/files.manifest"
+          find "$BASE_DIR" -type f \
+            ! -path "$BASE_DIR/.git/*" \
+            ! -path "$BASE_DIR/.github/*" \
+            ! -name "*.yml" \
+            ! -name "files.manifest" | sort | while read -r file; do
+            path=$(echo "$file" | sed "s|^$BASE_DIR/||")
+            echo "$path" >> "$BASE_DIR/files.manifest"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: files-manifest
+          path: files.manifest
