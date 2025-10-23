@@ -1,13 +1,13 @@
-TRGS OS - User Manual
+CloverOS - User Manual
 --------------------------------
 
-Welcome to **TRGS OS**, a ComputerCraft-based operating system designed to simulate a fully functional, user-friendly environment akin to real-world operating systems. Below are the instructions to help you set up, navigate, and use your new system.
+Welcome to **CloverOS**, a ComputerCraft-based operating system designed to simulate a fully functional, user-friendly environment akin to real-world operating systems. Below are the instructions to help you set up, navigate, and use your new system.
 
 ### Table of Contents
 1. Introduction
 2. System Requirements
 3. Installation
-4. Running TRGS OS
+4. Running CloverOS
 5. Navigating the OS
 6. Available Apps
 7. Troubleshooting
@@ -17,16 +17,16 @@ Welcome to **TRGS OS**, a ComputerCraft-based operating system designed to simul
 
 ### 1. Introduction
 
-TRGS OS is an immersive operating system for the ComputerCraft mod within Minecraft. It includes various utilities and applications to simulate a complete computing experience. With support for games, file management, and a command terminal, TRGS OS offers a range of features to enhance your in-game experience.
+CloverOS is an immersive operating system for the ComputerCraft mod within Minecraft. It includes various utilities and applications to simulate a complete computing experience. With support for games, file management, and a command terminal, CloverOS offers a range of features to enhance your in-game experience.
 
 ---
 
 ### 2. System Requirements
 
-To use **TRGS OS**, your system must meet the following requirements:
+To use **CloverOS**, your system must meet the following requirements:
 - **Minecraft** with the **ComputerCraft** mod (or **CC:Tweaked** mod) installed.
 - **1GB of available memory** on the computer for optimal performance.
-- A **floppy disk** with the **TRGS OS** files installed.
+- A **floppy disk** with the **CloverOS** files installed.
 
 ---
 
@@ -34,8 +34,8 @@ To use **TRGS OS**, your system must meet the following requirements:
 
 1. **Prepare the Floppy Disk**:
    - Insert your floppy disk into the **disk drive**.
-   - Ensure that **TRGS OS** is installed on the disk, including the following files:
-     - `TRGS_OS.lua` (the core OS file)
+   - Ensure that **CloverOS** is installed on the disk, including the following files:
+     - `CloverOS_OS.lua` (the core OS file)
      - `instructions.txt` (this file)
      - Any apps or utilities you wish to run from the OS.
    
@@ -43,13 +43,13 @@ To use **TRGS OS**, your system must meet the following requirements:
 
 ---
 
-### 4. Running TRGS OS
+### 4. Running CloverOS
 
-To launch **TRGS OS**:
+To launch **CloverOS**:
 1. Open the **ComputerCraft Terminal**.
 2. Type the following command to start the operating system:
 
-shell.run("disk/TRGS_OS.lua")
+shell.run("disk/CloverOS_OS.lua")
 
 markdown
 Kopiëren
@@ -61,19 +61,18 @@ Bewerken
 
 ### 5. Navigating the OS
 
-Once **TRGS OS** is running, you can navigate the environment through the following elements:
+Once **CloverOS** is running, you can navigate the environment through the following elements:
 
 - **Login Screen**: To begin, you will be prompted to enter your username and password. Default credentials are:
- - Username: `adpalorder`
- - Password: `Manie#pallabs1`
+ - Username: `user`
+ - Password: `pass`
 
-If you are a new user, you can modify or add additional user credentials by editing the `users` array in the `TRGS_OS.lua` file.
+If you are a new user, you can modify or add additional user credentials by editing the `users` array in the `CloverOS_OS.lua` file.
 
-- **Main Menu**: The main menu shows a list of available applications, such as:
+ - **Main Menu**: The main menu shows a list of available applications, such as:
  - **Clock App**: Displays the current time.
- - **Minecraft Terminal**: Lets you interact with the terminal and input commands.
- - **Snake Game**: A classic game to pass the time.
- - **Text Editor**: Allows you to create and edit text files.
+ - **Windows CMD**: Lets you interact with the terminal and input commands.
+ - **File system**: Allows you to create and edit files.
 
 Use the arrow keys to navigate the menu, and press **Enter** to launch an application.
 
@@ -81,24 +80,24 @@ Use the arrow keys to navigate the menu, and press **Enter** to launch an applic
 
 ### 6. Available Apps
 
-The following apps are included in **TRGS OS**:
+The following apps are included in **CloverOS**:
 
 - **Clock App**: A simple clock that updates in real-time and displays the current system time.
-- **Minecraft Terminal**: An interactive terminal where you can type commands. Type `exit` to return to the main menu.
-- **Snake Game**: A simple game where you control a snake to collect food and avoid collisions.
-- **Text Editor**: Create and edit text files for various purposes. You can save your work and access it later.
+- **Windows CMD**: An interactive terminal where you can type commands. Type `exit` to return to the main menu.
+- **Music Player**: A simple game where you control a snake to collect food and avoid collisions.
+- **File System**: Create and edit files for various purposes. You can save your work and access it later.
 
-More apps can be added by placing `.lua` files in the `apps` directory.
+More apps can be added by placing `.lua` files in the `apps` directory, same goes for commands but in 'bin' directory and only '.lua','.exe','.ddl' are accepted and NO you cant use actual exe files or .ddl files as they must contain lua code.
 
 ---
 
 ### 7. Troubleshooting
 
-If you encounter issues with **TRGS OS**, consider the following solutions:
+If you encounter issues with **CloverOS**, consider the following solutions:
 
 - **Floppy Disk Not Detected**:
  - Ensure that the floppy disk is inserted into the correct drive (`disk`).
- - Verify that the disk contains the correct files (`TRGS_OS.lua`, `instructions.txt`, and the apps folder).
+ - Verify that the disk contains the correct files (`CloverOS_OS.lua`, `instructions.txt`, and the apps folder).
 
 - **System Freezes**:
  - Try pressing **Ctrl + T** to reset the terminal and return to the main menu.
@@ -108,18 +107,18 @@ If you encounter issues with **TRGS OS**, consider the following solutions:
 
 ### 8. Advanced Features
 
-**TRGS OS** includes a range of advanced features for power users:
+**CloverOS** includes a range of advanced features for power users:
 
 - **File Management**: You can interact with the file system using built-in commands such as `ls`, `cd`, and `cat`. Use `shell.run()` to execute scripts from the terminal.
-- **User Management**: Add new users by modifying the `users` array in the `TRGS_OS.lua` file. Each user can have their own credentials.
+- **User Management**: Add new users by modifying the `users` array in the `CloverOS_OS.lua` file. Each user can have their own credentials.
 - **Custom Apps**: You can create custom apps by writing Lua scripts and placing them in the `apps` directory. These can be run from the main menu.
 
 ---
 
 ### Conclusion
 
-Thank you for choosing **TRGS OS**! We hope you enjoy using the system. Whether you're exploring the pre-installed applications or creating your own custom tools, there's plenty to explore and experiment with.
+Thank you for choosing **CloverOS**! We hope you enjoy using the system. Whether you're exploring the pre-installed applications or creating your own custom tools, there's plenty to explore and experiment with.
 
-For more advanced tutorials, future updates, or assistance, feel free to reach out to the TRGS OS community.
+For more advanced tutorials, future updates, or assistance, feel free to reach out to the CloverOS community.
 
 Happy computing!
