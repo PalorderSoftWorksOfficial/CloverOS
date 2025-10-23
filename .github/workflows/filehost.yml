@@ -26,35 +26,57 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Generate dark-mode index and files.manifest
+        shell: bash
         run: |
+          set -e
+          echo "Generating index.html and files.manifest..."
+
+          INDEX_FILE="index.html"
+          MANIFEST_FILE="files.manifest"
+
           # Start index.html
-          echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Index of CloverOS</title><style>
-          body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }
-          a { color:#58a6ff; text-decoration:none; }
-          a:hover { text-decoration:underline; }
-          h1 { color:#58a6ff; }
-          hr { border:0; border-top:1px solid #30363d; }
-          pre { line-height:1.6; }
-          </style></head><body><h1>Index of CloverOS</h1><hr><pre>" > index.html
+          cat > "$INDEX_FILE" << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset='utf-8'>
+<title>Index of CloverOS</title>
+<style>
+body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }
+a { color:#58a6ff; text-decoration:none; }
+a:hover { text-decoration:underline; }
+h1 { color:#58a6ff; }
+hr { border:0; border-top:1px solid #30363d; }
+pre { line-height:1.6; }
+</style>
+</head>
+<body>
+<h1>Index of CloverOS</h1>
+<hr>
+<pre>
+EOF
 
           # Clear/create files.manifest
-          > files.manifest
+          > "$MANIFEST_FILE"
 
           # Iterate over all files except .git, .github, and index/workflow files
-          find . -type f ! -path "./.git/*" ! -path "./.github/*" ! -name "index.html" ! -name "*.yml" | sort | while read -r file; do
+          find . -type f \
+            ! -path "./.git/*" \
+            ! -path "./.github/*" \
+            ! -name "index.html" \
+            ! -name "*.yml" \
+            | sort | while read -r file; do
             path=$(echo "$file" | sed 's|^\./||')
-            name=$(basename "$path")
-            base="${name%.*}"
-            [ "$base" = "$name" ] && base="$name"
-            [ -z "$base" ] && continue
+            echo "Adding $path"
 
             # Add to index.html
-            echo "<a href=\"$path\">$path</a>" >> index.html
+            echo "<a href=\"$path\">$path</a>" >> "$INDEX_FILE"
 
             # Add to files.manifest
-            echo "$path" >> files.manifest
+            echo "$path" >> "$MANIFEST_FILE"
 
-            # Safe extensionless redirect
+            # Optional: create safe extensionless redirect
+            base="${path%.*}"
             if [ ! -e "$base" ]; then
               mkdir -p "$base"
               echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$base/index.html"
@@ -62,7 +84,18 @@ jobs:
           done
 
           # Close index.html
-          echo "</pre><hr><footer>Generated automatically for CloverOS — Dark Mode Enabled</footer></body></html>" >> index.html
+          cat >> "$INDEX_FILE" << 'EOF'
+</pre>
+<hr>
+<footer>Generated automatically for CloverOS — Dark Mode Enabled</footer>
+</body>
+</html>
+EOF
+
+          echo "index.html and files.manifest generated successfully."
+          echo "---- files.manifest contents ----"
+          cat "$MANIFEST_FILE"
+          echo "--------------------------------"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -70,7 +103,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '.'  # Include all generated files including files.manifest
 
       - name: Deploy to GitHub Pages
         id: deployment
