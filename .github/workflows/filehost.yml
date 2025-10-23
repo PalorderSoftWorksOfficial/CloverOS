@@ -25,7 +25,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate dark-mode index, manifest, and netinstall.lua
+      - name: Generate dark-mode index, manifest, and extensionless redirects
         run: |
           # --- Dark-mode index ---
           echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Index of CloverOS</title><style>
@@ -67,7 +67,8 @@ jobs:
 
           echo "</pre><hr><footer>Generated automatically for CloverOS — Dark Mode Enabled</footer></body></html>" >> index.html
 
-          # --- Generate netinstall.lua ---
+      - name: Generate netinstall.lua
+        run: |
           cat > netinstall.lua <<'EOF'
 -- Netinstall for CloverOS
 local http = require("http")
