@@ -401,7 +401,7 @@ local function getCustomApps()
     for _, dir in ipairs(appDirs) do
         if fs.exists(dir) then
             for _, file in ipairs(fs.list(dir)) do
-                if file:match("%.lua$") then
+                if file:match("%.lua$") or file:match("%.exe$") then
                     local appName = file:gsub("%.lua$", "")
                     local iconPath = dir .. "/" .. appName .. ".ico"
                     local icon = nil
