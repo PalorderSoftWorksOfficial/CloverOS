@@ -1,4 +1,4 @@
-local baseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
+local baseURL = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
 local manifestFile = "files.manifest"
 
 local function listMounts()
@@ -56,18 +56,25 @@ print("Selected target: " .. target)
 print("Preparing to install CloverOS to /" .. target)
 sleep(1)
 
-local manifestPath = "/" .. target .. "/" .. manifestFile
-if fs.exists(manifestPath) then fs.delete(manifestPath) end
-shell.run("wget " .. baseURL .. manifestFile .. " " .. manifestPath)
+local targetPath = "/" .. target .. "/" .. manifestFile
+if not fs.exists(targetPath) then
+    print("Downloading files.manifest...")
+    shell.run("wget " .. baseURL .. manifestFile .. " " .. targetPath)
+end
 
 local fileList = {}
-local f = fs.open(manifestPath, "r")
-while true do
+local f = fs.open(targetPath, "r")
+if f then
     local line = f.readLine()
-    if not line then break end
-    table.insert(fileList, line)
+    while line do
+        table.insert(fileList, line)
+        line = f.readLine()
+    end
+    f.close()
+else
+    print("Failed to open manifest file!")
+    return
 end
-f.close()
 
 for _, file in ipairs(fileList) do
     print("Downloading " .. file)
@@ -76,4 +83,4 @@ for _, file in ipairs(fileList) do
     shell.run("wget " .. baseURL .. file .. " /" .. target .. "/" .. file)
 end
 
-print("CloverOS installed successfully to /" .. target)
+print("✅ CloverOS installed successfully to /" .. target)
