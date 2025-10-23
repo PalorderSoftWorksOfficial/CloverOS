@@ -25,9 +25,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate dark-mode index, manifest, and extensionless redirects
+      - name: Generate dark-mode index and manifest
         run: |
-          # --- Dark-mode index ---
           echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Index of CloverOS</title><style>
           body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }
           a { color:#58a6ff; text-decoration:none; }
@@ -37,77 +36,51 @@ jobs:
           pre { line-height:1.6; }
           </style></head><body><h1>Index of CloverOS</h1><hr><pre>" > index.html
 
-          # --- Initialize manifest ---
           > files.manifest
 
-          # Find all files except .git, .github, index.html, workflow files
           find . -type f ! -path "./.git/*" ! -path "./.github/*" ! -name "index.html" ! -name "*.yml" | sort | while read -r file; do
-              path=$(echo "$file" | sed 's|^\./||')
-              name=$(basename "$path")
-              base="${name%.*}"
-
-              # Handle files without extension
-              [ "$base" = "$name" ] && base="$name"
-
-              # Skip empty paths
-              [ -z "$base" ] && continue
-
-              # Add file to index
-              echo "<a href=\"$path\">$path</a>" >> index.html
-
-              # Add to manifest
-              echo "$path" >> files.manifest
-
-              # Only create redirect folder if safe (no file/folder exists)
-              if [ ! -e "$base" ] && [ ! -f "$base" ]; then
-                  mkdir -p "$base"
-                  echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$base/index.html"
-              fi
+            path=$(echo "$file" | sed 's|^\./||')
+            name=$(basename "$path")
+            base="${name%.*}"
+            [ "$base" = "$name" ] && base="$name"
+            [ -z "$base" ] && continue
+            echo "<a href=\"$path\">$path</a>" >> index.html
+            echo "$path" >> files.manifest
+            if [ ! -e "$base" ]; then
+              mkdir -p "$base"
+              echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head><body></body></html>" > "$base/index.html"
+            fi
           done
 
           echo "</pre><hr><footer>Generated automatically for CloverOS — Dark Mode Enabled</footer></body></html>" >> index.html
 
       - name: Generate netinstall.lua
         run: |
-          cat > netinstall.lua <<'EOF'
--- Netinstall for CloverOS
-local http = require("http")
-local fs = require("fs")
-
-local baseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
-local manifestURL = baseURL .. "files.manifest"
-
-local response = http.get(manifestURL)
-if not response then
-    print("Failed to fetch files manifest")
-    return
-end
-
-local files = {}
-for line in response.readAll():gmatch("[^\r\n]+") do
-    table.insert(files, line)
-end
-response.close()
-
-for _, file in ipairs(files) do
-    local fileURL = baseURL .. file
-    print("Downloading " .. file)
-    local fResponse = http.get(fileURL)
-    if fResponse then
-        local content = fResponse.readAll()
-        fResponse.close()
-        local dir = file:match("(.*/)")
-        if dir then fs.makeDir(dir) end
-        local f = fs.open(file, "w")
-        f.write(content)
-        f.close()
-    else
-        print("Failed to download " .. file)
-    end
-end
-
-print("All files downloaded successfully!")
-EOF
+          echo '-- Netinstall for CloverOS' > netinstall.lua
+          echo 'local http = require("http")' >> netinstall.lua
+          echo 'local fs = require("fs")' >> netinstall.lua
+          echo 'local baseURL = "https://palordersoftworksofficial.github.io/CloverOS/"' >> netinstall.lua
+          echo 'local manifestURL = baseURL .. "files.manifest"' >> netinstall.lua
+          echo 'local response = http.get(manifestURL)' >> netinstall.lua
+          echo 'if not response then print("Failed to fetch files manifest") return end' >> netinstall.lua
+          echo 'local files = {}' >> netinstall.lua
+          echo 'for line in response.readAll():gmatch("[^\\r\\n]+") do table.insert(files, line) end' >> netinstall.lua
+          echo 'response.close()' >> netinstall.lua
+          echo 'for _, file in ipairs(files) do' >> netinstall.lua
+          echo '  local fileURL = baseURL .. file' >> netinstall.lua
+          echo '  print("Downloading " .. file)' >> netinstall.lua
+          echo '  local fResponse = http.get(fileURL)' >> netinstall.lua
+          echo '  if fResponse then' >> netinstall.lua
+          echo '    local content = fResponse.readAll()' >> netinstall.lua
+          echo '    fResponse.close()' >> netinstall.lua
+          echo '    local dir = file:match("(.*/)")' >> netinstall.lua
+          echo '    if dir then fs.makeDir(dir) end' >> netinstall.lua
+          echo '    local f = fs.open(file, "w")' >> netinstall.lua
+          echo '    f.write(content)' >> netinstall.lua
+          echo '    f.close()' >> netinstall.lua
+          echo '  else print("Failed to download " .. file) end' >> netinstall.lua
+          echo 'end' >> netinstall.lua
+          echo 'print("All files downloaded successfully!")' >> netinstall.lua
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
