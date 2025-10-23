@@ -33,4 +33,8 @@ for _, file in ipairs(files) do
         f.write(content)
         f.close()
     else
-        print("Failed to download " .
+        print("Failed to download " .. file)
+    end
+end
+
+print("All files downloaded successfully!")
