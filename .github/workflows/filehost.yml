@@ -27,30 +27,36 @@ jobs:
 
       - name: Generate dark-mode index and universal extensionless redirects
         run: |
-          echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Index of CloverOS</title><style>
-          body { background:#0d1117; color:#c9d1d9; font-family: monospace; }
-          a { color:#58a6ff; text-decoration:none; }
-          a:hover { text-decoration:underline; }
-          h1 { color:#58a6ff; }
-          hr { border:0; border-top:1px solid #30363d; }
-          </style></head><body><h1>Index of CloverOS</h1><hr><pre>" > index.html
+  echo "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Index of CloverOS</title><style>
+  body { background:#0d1117; color:#c9d1d9; font-family: monospace; }
+  a { color:#58a6ff; text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  h1 { color:#58a6ff; }
+  hr { border:0; border-top:1px solid #30363d; }
+  </style></head><body><h1>Index of CloverOS</h1><hr><pre>" > index.html
 
-          # Iterate over all files (excluding .git and generated HTML files)
-          find . -type f ! -path "./.*" ! -name "index.html" | sort | while read file; do
-            path=$(echo "$file" | sed 's|^\./||')
-            name=$(basename "$path")
-            base="${name%.*}"
+  # Iterate over all files (excluding .git and generated HTML files)
+  find . -type f ! -path "./.*" ! -name "index.html" | sort | while read file; do
+    path=$(echo "$file" | sed 's|^\./||')
+    name=$(basename "$path")
+    base="${name%.*}"
 
-            # Add file to index
-            echo "<a href=\"$path\">$path</a>" >> index.html
+    # Handle cases with no extension (e.g., README, LICENSE)
+    if [ "$base" = "$name" ]; then
+      base="$name"
+    fi
 
-            # Create extensionless redirect folder for all file types
-            mkdir -p "$base"
-            echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head></html>" > "$base/index.html"
-          done
+    # Add file to index
+    echo "<a href=\"$path\">$path</a>" >> index.html
 
-          echo "</pre><hr></body></html>" >> index.html
+    # Only create redirect folder if $base is non-empty
+    if [ -n "$base" ]; then
+      mkdir -p "$base"
+      echo "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='0; url=../$path'></head></html>" > "$base/index.html"
+    fi
+  done
 
+  echo "</pre><hr></body></html>" >> index.html
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
