@@ -536,9 +536,9 @@ local function desktop()
         end
     end
 end
-
 -- Bootup
 login()
 simulateLoading()
 desktop()
+term.setCursorBlink(true)
 parallel.waitForAny(function() streamDisplay() end)
