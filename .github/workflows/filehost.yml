@@ -6,45 +6,83 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
 jobs:
-  deploy-html:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Generate files.manifest
+        run: |
+          echo "🧩 Generating files.manifest..."
+          find . -type f \
+            ! -path "./.git/*" \
+            ! -path "./.github/*" \
+            ! -name "index.html" \
+            ! -name "files.manifest" \
+            ! -name ".nojekyll" \
+            -printf "%P\n" > files.manifest
+          cat files.manifest
+
       - name: Generate HTML index
         run: |
           BASE_DIR=$(pwd)
-          echo "<!DOCTYPE html>" > "$BASE_DIR/index.html"
-          echo "<html>" >> "$BASE_DIR/index.html"
-          echo "<head>" >> "$BASE_DIR/index.html"
-          echo "<meta charset='utf-8'>" >> "$BASE_DIR/index.html"
-          echo "<title>Index of CloverOS</title>" >> "$BASE_DIR/index.html"
-          echo "<style>body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; } a { color:#58a6ff; text-decoration:none; } a:hover { text-decoration:underline; } h1 { color:#58a6ff; } hr { border:0; border-top:1px solid #30363d; } pre { line-height:1.6; }</style>" >> "$BASE_DIR/index.html"
-          echo "</head>" >> "$BASE_DIR/index.html"
-          echo "<body>" >> "$BASE_DIR/index.html"
-          echo "<h1>Index of CloverOS</h1>" >> "$BASE_DIR/index.html"
-          echo "<hr>" >> "$BASE_DIR/index.html"
-          echo "<pre>" >> "$BASE_DIR/index.html"
+
+          {
+            echo "<!DOCTYPE html>"
+            echo "<html>"
+            echo "<head>"
+            echo "  <meta charset='utf-8'>"
+            echo "  <title>Index of CloverOS</title>"
+            echo "  <style>"
+            echo "    body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }"
+            echo "    a { color:#58a6ff; text-decoration:none; }"
+            echo "    a:hover { text-decoration:underline; }"
+            echo "    h1 { color:#58a6ff; }"
+            echo "    hr { border:0; border-top:1px solid #30363d; }"
+            echo "    pre { line-height:1.6; }"
+            echo "  </style>"
+            echo "</head>"
+            echo "<body>"
+            echo "  <h1>Index of CloverOS</h1>"
+            echo "  <hr>"
+            echo "  <pre>"
+          } > "$BASE_DIR/index.html"
 
           while read -r file; do
-            echo "<a href=\"$file\">$file</a>" >> "$BASE_DIR/index.html"
+            [ -z "$file" ] && continue
+            echo "  <a href=\"$file\">$file</a>" >> "$BASE_DIR/index.html"
           done < "$BASE_DIR/files.manifest"
 
-          echo "</pre>" >> "$BASE_DIR/index.html"
-          echo "<hr>" >> "$BASE_DIR/index.html"
-          echo "<footer>Generated automatically for CloverOS — Dark Mode Enabled</footer>" >> "$BASE_DIR/index.html"
-          echo "</body>" >> "$BASE_DIR/index.html"
-          echo "</html>" >> "$BASE_DIR/index.html"
+          {
+            echo "  </pre>"
+            echo "  <hr>"
+            echo "  <footer>Generated automatically for CloverOS — $(date -u)</footer>"
+            echo "</body>"
+            echo "</html>"
+          } >> "$BASE_DIR/index.html"
 
-      - name: Upload HTML artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: html-index
-          path: index.html
+          path: .
+
+  deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
