@@ -6,7 +6,6 @@ if fs.exists(filePath) then
     file.close()
     term.clear()
     term.setCursorPos(1, 1)
-    shell.run("lua")
     print(content)
     print("\nTo run CloverOS, type the following command:")
     print("diskX/CloverOS_OS.lua")

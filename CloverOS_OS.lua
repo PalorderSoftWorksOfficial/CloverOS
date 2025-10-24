@@ -275,11 +275,11 @@ end
 -- CMD terminal
 local function cmd()
     mirroredClear()
-    mirroredPrint("Clover OS Command prompt.")
+    mirroredPrint("Clover OS Command Prompt.")
 
     local function listCommands()
         local commands = {}
-        local paths = {"disk/bin","disk2/bin","disk3/bin","disk4/bin","disk5/bin", "bin"}
+        local paths = {"disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "bin"}
 
         for _, path in ipairs(paths) do
             if fs.exists(path) then
@@ -297,19 +297,27 @@ local function cmd()
 
     while true do
         mirroredWrite("> ")
-        local command = mirroredRead()
+        local input = mirroredRead()
 
-        if command == "exit" then
-            break
+        if input == "exit" then break end
+        if input == "" then goto continue end
+
+        local parts = {}
+        for word in input:gmatch("%S+") do
+            table.insert(parts, word)
         end
 
+        local command = table.remove(parts, 1)
         local commands = listCommands()
 
         if commands[command] then
-            shell.run(commands[command])
+            local cmdPath = commands[command]
+            shell.run(cmdPath, table.unpack(parts))
         else
             print("Command not found: " .. command)
         end
+
+        ::continue::
     end
 end
 -- Simple games and apps
