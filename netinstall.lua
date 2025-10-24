@@ -1,10 +1,15 @@
+-- Base URLs
+local githubPagesBaseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
 local rawBaseURL = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
-local manifestURL = "https://palordersoftworksofficial.github.io/CloverOS/files.manifest"
+local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
+local manifestURL_Raw = rawBaseURL .. "files.manifest"
 
+-- Terminal/UI setup
 local ogTerm = term.current()
 local termX, termY = term.getSize()
 local bufferWindow = window.create(ogTerm, 1, 1, termX, termY)
 
+-- Menu system
 function menuOptions(title, tChoices, tActions)
     local check = true
     local nSelection = 1
@@ -43,6 +48,7 @@ function menuOptions(title, tChoices, tActions)
     until check == false
 end
 
+-- Disable/Enable output (for buffering)
 local dumpWindow = window.create(term.current(), 1, 1, 1, 1, false)
 function disableoutput()
     ogTerm = term.current()
@@ -79,6 +85,24 @@ menuOptions("Select target disk", disks, (function()
     return actions
 end)())
 
+-- Server source selection
+local sourceChoice = nil
+local baseURL = nil
+local manifestURL = nil
+
+menuOptions("Select source server", {"GitHub Pages (recommended)", "Raw GitHub"}, {
+    function()
+        baseURL = githubPagesBaseURL
+        manifestURL = manifestURL_Pages
+        sourceChoice = "pages"
+    end,
+    function()
+        baseURL = rawBaseURL
+        manifestURL = manifestURL_Raw
+        sourceChoice = "raw"
+    end
+})
+
 -- Edition selection
 local edition = nil
 menuOptions("Select CloverOS edition", {"default", "soft"}, {
@@ -86,7 +110,7 @@ menuOptions("Select CloverOS edition", {"default", "soft"}, {
     function() edition = "soft" end
 })
 
--- Download manifest (always from GitHub Pages)
+-- Download manifest if default edition
 local fileList = {}
 if edition == "default" then
     local manifestPath = "/" .. selectedDisk .. "/files.manifest"
@@ -111,18 +135,18 @@ elseif edition == "soft" then
     table.insert(fileList, "CloverOS_OS.lua")
 end
 
--- Download all files from raw GitHub repo
+-- Download all files
 for _, file in ipairs(fileList) do
     print("Downloading " .. file)
     local dir = file:match("(.*/)")
     if dir then fs.makeDir("/" .. selectedDisk .. "/" .. dir) end
-    shell.run("wget " .. rawBaseURL .. file .. " /" .. selectedDisk .. "/" .. file)
+    shell.run("wget " .. baseURL .. file .. " /" .. selectedDisk .. "/" .. file)
 end
 
 print("CloverOS installed successfully to /" .. selectedDisk)
 sleep(1)
 
--- Ask if user wants to install Minux OS as well
+-- Optional: Minux OS installer
 local minuxChoice = nil
 menuOptions("Do you also want to install Minux OS? CloverOS is inspired by it.", {"Yes", "No"}, {
     function() minuxChoice = true end,
