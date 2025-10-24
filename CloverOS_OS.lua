@@ -407,8 +407,8 @@ local icons = {
     {name = "Shutdown", run = function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end},
     {name = "Music Player", run = function()
     mirroredClear()
-    local speakers = peripheral.find("speaker", function(name, obj) return true end)
-    if not speakers then
+    local speakers = { peripheral.find("speaker") }
+    if #speakers == 0 then
         mirroredPrint("Error: No speakers attached! Press Enter to return.")
         mirroredRead()
         return
@@ -434,17 +434,38 @@ local icons = {
     mirroredPrint("Type number to play, or 'exit' to return.")
     local choice = mirroredRead()
     if choice == "exit" then return end
+
     local index = tonumber(choice)
     if index and tracks[index] then
-        -- detect if disk is present
         local basePath = fs.exists("disk/etc/music") and "disk/etc/music" or "/etc/music"
         local filePath = fs.combine(basePath, tracks[index].file)
+
+        if not fs.exists(filePath) then
+            mirroredPrint("File not found: " .. filePath)
+            os.sleep(1.5)
+            return
+        end
+
         mirroredPrint("Now playing: " .. tracks[index].name)
-        for _, speaker in pairs(peripheral.getNames()) do
-            if peripheral.getType(speaker) == "speaker" then
-                peripheral.call(speaker, "play", filePath)
+        local decoder = require("cc.audio.dfpwm").make_decoder()
+        local file = fs.open(filePath, "rb")
+
+        while true do
+            local chunk = file.read(16 * 1024)
+            if not chunk then break end
+            local decoded = decoder(chunk)
+
+            for _, name in pairs(peripheral.getNames()) do
+                if peripheral.getType(name) == "speaker" then
+                    local speaker = peripheral.wrap(name)
+                    while not speaker.playAudio(decoded) do
+                        os.sleep(0)
+                    end
+                end
             end
         end
+
+        file.close()
         mirroredPrint("Playback finished. Press Enter to return.")
         mirroredRead()
     else
