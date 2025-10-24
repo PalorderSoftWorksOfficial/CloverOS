@@ -521,17 +521,35 @@ local function drawDesktop()
     for i, icon in ipairs(icons) do
         mirroredPrint(i .. ". " .. icon.name)
     end
-    mirroredPrint("Type number or name:")
+    mirroredPrint("Type number, name, or click an icon:")
+end
+
+local function getClickedIcon(x, y)
+    -- Icons start from line 2 (after "== Desktop ==")
+    local line = y - 1
+    if line >= 1 and line <= #icons then
+        return icons[line]
+    end
+    return nil
 end
 
 local function desktop()
     while true do
         drawDesktop()
-        local input = mirroredRead()
-        for i, icon in ipairs(icons) do
-            if input == tostring(i) or input:lower() == icon.name:lower() then
-                icon.run()
-                break
+        local event, button, x, y = os.pullEvent()
+
+        if event == "mouse_click" then
+            local clickedIcon = getClickedIcon(x, y)
+            if clickedIcon then
+                clickedIcon.run()
+            end
+        elseif event == "key" then
+            local input = mirroredRead()
+            for i, icon in ipairs(icons) do
+                if input == tostring(i) or input:lower() == icon.name:lower() then
+                    icon.run()
+                    break
+                end
             end
         end
     end
