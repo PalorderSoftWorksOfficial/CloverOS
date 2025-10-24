@@ -404,7 +404,7 @@ local icons = {
     {name = "Game: Tetris", run = playTetris},
     {name = "Game: Pong", run = playPong},
     {name = "File Manager", run = fileManager},
-    {name = "Shutdown", run = function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end}
+    {name = "Shutdown", run = function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end},
     {name = "Music Player", run = function()
     mirroredClear()
     local speakers = peripheral.find("speaker", function(name, obj) return true end)
