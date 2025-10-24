@@ -414,72 +414,79 @@ local icons = {
     {name = "File Manager", run = fileManager},
     {name = "Shutdown", run = function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end},
     {name = "Music Player", run = function()
-    mirroredClear()
-    local speakers = { peripheral.find("speaker") }
-    if #speakers == 0 then
-        mirroredPrint("Error: No speakers attached! Press Enter to return.")
-        mirroredRead()
-        return
-    end
+	mirroredClear()
+	local speakers = { peripheral.find("speaker") }
+	if #speakers == 0 then
+		mirroredPrint("Error: No speakers attached! Press Enter to return.")
+		mirroredRead()
+		return
+	end
 
-    local tracks = {
-        {name = "Hunt in the dark - Sapheria_xplicit", file = "m1.dfpwm"},
-        {name = "BFDI OST - Lickie", file = "BFDI_OST_Lickie.dfpwm"},
-        {name = "Joke", file = "joke.dfpwm"},
-        {name = "Panic Track", file = "Panic_Track.dfpwm"},
-        {name = "zero-project - Gothic (2020 version)", file = "gothic.dfpwm"},
-        {name = "145 (Poodles) by Jake Chudnow [HD]", file = "m2.dfpwm"},
-        {name = "Let There Be Chaos - (Chaos Insurgency Raid Theme)", file = "m3.dfpwm"},
-        {name = "RUINOUS INTNT (corru.observer)", file = "m4.dfpwm"},
-        {name = "PuzzlePark WOTFI 2024 by SMG4", file = "m5.dfpwm"},
-    }
+	local tracks = {
+		{name = "Hunt in the dark - Sapheria_xplicit", file = "m1.dfpwm"},
+		{name = "BFDI OST - Lickie", file = "BFDI_OST_Lickie.dfpwm"},
+		{name = "Joke", file = "joke.dfpwm"},
+		{name = "Panic Track", file = "Panic_Track.dfpwm"},
+		{name = "zero-project - Gothic (2020 version)", file = "gothic.dfpwm"},
+		{name = "145 (Poodles) by Jake Chudnow [HD]", file = "m2.dfpwm"},
+		{name = "Let There Be Chaos - (Chaos Insurgency Raid Theme)", file = "m3.dfpwm"},
+		{name = "RUINOUS INTNT (corru.observer)", file = "m4.dfpwm"},
+		{name = "PuzzlePark WOTFI 2024 by SMG4", file = "m5.dfpwm"},
+	}
 
-    mirroredPrint("Music Player")
-    mirroredPrint("Select a track to play:")
-    for i, track in ipairs(tracks) do
-        mirroredPrint(i .. ". " .. track.name)
-    end
-    mirroredPrint("Type number to play, or 'exit' to return.")
-    local choice = mirroredRead()
-    if choice == "exit" then return end
+	mirroredPrint("Music Player")
+	mirroredPrint("Select a track to play:")
+	for i, track in ipairs(tracks) do
+		mirroredPrint(i .. ". " .. track.name)
+	end
+	mirroredPrint("Type number to play, or 'exit' to return.")
+	local choice = mirroredRead()
+	if choice == "exit" then return end
 
-    local index = tonumber(choice)
-    if index and tracks[index] then
-        local basePath = fs.exists("disk/etc/music") and "disk/etc/music" or "/etc/music"
-        local filePath = fs.combine(basePath, tracks[index].file)
+	local index = tonumber(choice)
+	if index and tracks[index] then
+		local basePath = fs.exists("disk/etc/music") and "disk/etc/music" or "/etc/music"
+		local filePath = fs.combine(basePath, tracks[index].file)
 
-        if not fs.exists(filePath) then
-            mirroredPrint("File not found: " .. filePath)
-            os.sleep(1.5)
-            return
-        end
+		if not fs.exists(filePath) then
+			mirroredPrint("File not found: " .. filePath)
+			os.sleep(1.5)
+			return
+		end
 
-        mirroredPrint("Now playing: " .. tracks[index].name)
-        local decoder = require("cc.audio.dfpwm").make_decoder()
-        local file = fs.open(filePath, "rb")
+		mirroredPrint("Now playing: " .. tracks[index].name)
+		local decoder = require("cc.audio.dfpwm").make_decoder()
+		local file = fs.open(filePath, "rb")
 
-        while true do
-            local chunk = file.read(16 * 1024)
-            if not chunk then break end
-            local decoded = decoder(chunk)
+		while true do
+			local chunk = file.read(16 * 1024)
+			if not chunk then break end
+			local decoded = decoder(chunk)
 
-            for _, name in pairs(peripheral.getNames()) do
-                if peripheral.getType(name) == "speaker" then
-                    local speaker = peripheral.wrap(name)
-                    while not speaker.playAudio(decoded) do
-                        os.sleep(0)
-                    end
-                end
-            end
-        end
+			local busy
+			repeat
+				busy = false
+				for _, name in pairs(peripheral.getNames()) do
+					if peripheral.getType(name) == "speaker" then
+						local speaker = peripheral.wrap(name)
+						if not speaker.playAudio(decoded) then
+							busy = true
+						end
+					end
+				end
+				if busy then
+					os.sleep(0)
+				end
+			until not busy
+		end
 
-        file.close()
-        mirroredPrint("Playback finished. Press Enter to return.")
-        mirroredRead()
-    else
-        mirroredPrint("Invalid choice.")
-        os.sleep(1.5)
-    end
+		file.close()
+		mirroredPrint("Playback finished. Press Enter to return.")
+		mirroredRead()
+	else
+		mirroredPrint("Invalid choice.")
+		os.sleep(1.5)
+	end
 end},
 {name = "cmd", run = function() cmd() end}
 }
