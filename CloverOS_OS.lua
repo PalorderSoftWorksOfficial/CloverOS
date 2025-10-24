@@ -415,7 +415,13 @@ local icons = {
     {name = "Shutdown", run = function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end},
     {name = "Music Player", run = function()
 	mirroredClear()
-	local speakers = { peripheral.find("speaker") }
+	local speakers = {}
+	for _, name in pairs(peripheral.getNames()) do
+		if peripheral.getType(name) == "speaker" then
+			table.insert(speakers, peripheral.wrap(name))
+		end
+	end
+
 	if #speakers == 0 then
 		mirroredPrint("Error: No speakers attached! Press Enter to return.")
 		mirroredRead()
@@ -463,21 +469,16 @@ local icons = {
 			if not chunk then break end
 			local decoded = decoder(chunk)
 
-			local busy
+			local allDone
 			repeat
-				busy = false
-				for _, name in pairs(peripheral.getNames()) do
-					if peripheral.getType(name) == "speaker" then
-						local speaker = peripheral.wrap(name)
-						if not speaker.playAudio(decoded) then
-							busy = true
-						end
+				allDone = true
+				for _, speaker in ipairs(speakers) do
+					if not speaker.playAudio(decoded) then
+						allDone = false
 					end
 				end
-				if busy then
-					os.sleep(0)
-				end
-			until not busy
+				if not allDone then os.sleep(0) end
+			until allDone
 		end
 
 		file.close()
