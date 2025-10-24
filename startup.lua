@@ -1,4 +1,4 @@
-local filePath = "disk/instructions.txt"
+local filePath = (function() for i=0,99 do local d="disk"..(i==0 and "" or i) if fs.exists(d.."/instructions.txt") then return d.."/instructions.txt" end end return "/etc/instructions.txt" end)()
 
 if fs.exists(filePath) then
     local file = fs.open(filePath, "r")
@@ -9,7 +9,7 @@ if fs.exists(filePath) then
     shell.run("lua")
     print(content)
     print("\nTo run CloverOS, type the following command:")
-    print("shell.run('disk/CloverOS_OS.lua')")
+    print("diskX/CloverOS_OS.lua")
 else
     print("Instructions file not found. Please ensure the disk is inserted correctly.")
 end
