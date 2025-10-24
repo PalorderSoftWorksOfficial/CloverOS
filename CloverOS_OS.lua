@@ -158,11 +158,11 @@ local function simulateLoading()
         local logs = {
             "[BOOT] Initializing kernel modules...",
             "[ OK ] Mounted virtual filesystem.",
-            "[INFO] Loading TRGS system services...",
+            "[INFO] Loading CloverOS system services...",
             "[ OK ] System clock synced.",
             "[FAIL] Bluetooth service not found. Skipping.",
             "[ OK ] Network interface initialized.",
-            "[ OK ] TRGS Secure Shell enabled.",
+            "[ OK ] CloverOS Secure Shell enabled.",
             "[ OK ] Environment variables set.",
             "[WARN] Thermal sensor driver outdated.",
             "[ OK ] All critical systems operational.",
@@ -422,7 +422,8 @@ local icons = {
         {name = "zero-project - Gothic (2020 version)", file = "gothic.dfpwm"},
         {name = "145 (Poodles) by Jake Chudnow [HD]", file = "m2.dfpwm"},
         {name = "Let There Be Chaos - (Chaos Insurgency Raid Theme)", file = "m3.dfpwm"},
-        {name = "RUINOUS INTNT (corru.observer)", file = "m4.dfpwm"}
+        {name = "RUINOUS INTNT (corru.observer)", file = "m4.dfpwm"},
+        {name = "PuzzlePark WOTFI 2024 by SMG4", file = "m5.dfpwm"},
     }
 
     mirroredPrint("Music Player")
@@ -433,12 +434,12 @@ local icons = {
     mirroredPrint("Type number to play, or 'exit' to return.")
     local choice = mirroredRead()
     if choice == "exit" then return end
-
     local index = tonumber(choice)
     if index and tracks[index] then
-        local filePath = "disk/" .. tracks[index].file
+        -- detect if disk is present
+        local basePath = fs.exists("disk/etc/music") and "disk/etc/music" or "/etc/music"
+        local filePath = fs.combine(basePath, tracks[index].file)
         mirroredPrint("Now playing: " .. tracks[index].name)
-        -- Play on all speakers
         for _, speaker in pairs(peripheral.getNames()) do
             if peripheral.getType(speaker) == "speaker" then
                 peripheral.call(speaker, "play", filePath)
