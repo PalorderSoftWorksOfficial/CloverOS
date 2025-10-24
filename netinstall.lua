@@ -64,6 +64,7 @@ local function listMounts()
     local mounts = {}
     for _, mount in ipairs(fs.list("/")) do
         if fs.isDir(mount) and (mount:match("^disk%d*$") or mount == "rom" or mount == "computer") then
+            table.insert(mounts, "/")
             table.insert(mounts, mount)
         end
     end
