@@ -7,8 +7,10 @@ if fs.exists(filePath) then
     term.clear()
     term.setCursorPos(1, 1)
     print(content)
-    print("\nTo run CloverOS, type the following command:")
-    print("diskX/CloverOS_OS.lua")
+    
+    print("\nAuto booting CloverOS in 10 seconds...")
+    os.sleep(10)
+    shell.run((function() for i=0,99 do local d="disk"..(i==0 and "" or i) if fs.exists(d.."/CloverOS_OS.lua") then return d.."/CloverOS_OS.lua" end end end)())
 else
     print("Instructions file not found. Please ensure the disk is inserted correctly.")
 end
