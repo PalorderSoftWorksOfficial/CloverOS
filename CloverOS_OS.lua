@@ -487,7 +487,7 @@ end},
 -- Scan for custom apps
 local function getCustomApps()
     local appList = {}
-    local appDirs = {"apps","disk/apps"}
+    local appDirs = {"apps","disk/apps","disk2/apps","disk3/apps","disk4/apps","disk5/apps","disk6/apps"}
     for _, dir in ipairs(appDirs) do
         if fs.exists(dir) then
             for _, file in ipairs(fs.list(dir)) do
