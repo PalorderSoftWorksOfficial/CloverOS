@@ -451,7 +451,7 @@ local icons = {
 
 	local index = tonumber(choice)
 	if index and tracks[index] then
-		local basePath = fs.exists("disk/etc/music") and "disk/etc/music" or "/etc/music"
+		local basePath=(fs.exists("/etc/music") and "/etc/music") or (function()for i=0,99 do local d=(i==0 and "disk" or "disk"..i).."/etc/music" if fs.exists(d) then return d end end end)()
 		local filePath = fs.combine(basePath, tracks[index].file)
 
 		if not fs.exists(filePath) then
