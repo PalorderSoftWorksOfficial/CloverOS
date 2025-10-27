@@ -1,15 +1,7 @@
--- Base URLs
-local githubPagesBaseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
-local rawBaseURL = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
-local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
-local manifestURL_Raw = rawBaseURL .. "files.manifest"
-
--- Terminal/UI setup
 local ogTerm = term.current()
 local termX, termY = term.getSize()
 local bufferWindow = window.create(ogTerm, 1, 1, termX, termY)
 
--- Menu system
 function menuOptions(title, tChoices, tActions)
     local check = true
     local nSelection = 1
@@ -48,7 +40,6 @@ function menuOptions(title, tChoices, tActions)
     until check == false
 end
 
--- Disable/Enable output (for buffering)
 local dumpWindow = window.create(term.current(), 1, 1, 1, 1, false)
 function disableoutput()
     ogTerm = term.current()
@@ -59,7 +50,30 @@ function enableoutput(ogTerm)
     term.redirect(ogTerm)
 end
 
--- Disk selection
+local envType = nil
+menuOptions("Select your OS environment", {"CC:Tweaked", "CraftOS"}, {
+    function() envType = "cct" end,
+    function() envType = "craftos" end
+})
+
+if envType == "craftos" then
+    print("Setting up CraftOS environment...")
+    pcall(function()
+        shell.run("attach left drive")
+        shell.run("attach right speaker")
+        if disk and disk.InsertDisk then
+            disk.InsertDisk("left", "C:\\CloverOS_Disks\\0")
+        end
+    end)
+    print("Environment setup complete.")
+    sleep(1)
+end
+
+local githubPagesBaseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
+local rawBaseURL = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
+local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
+local manifestURL_Raw = rawBaseURL .. "files.manifest"
+
 local function listMounts()
     local mounts = {}
     for _, mount in ipairs(fs.list("/")) do
@@ -85,7 +99,6 @@ menuOptions("Select target disk", disks, (function()
     return actions
 end)())
 
--- Server source selection
 local sourceChoice = nil
 local baseURL = nil
 local manifestURL = nil
@@ -103,14 +116,12 @@ menuOptions("Select source server", {"GitHub Pages (recommended)", "Raw GitHub"}
     end
 })
 
--- Edition selection
 local edition = nil
 menuOptions("Select CloverOS edition", {"default", "soft"}, {
     function() edition = "default" end,
     function() edition = "soft" end
 })
 
--- Download manifest if default edition
 local fileList = {}
 if edition == "default" then
     local manifestPath = "/" .. selectedDisk .. "/files.manifest"
@@ -135,7 +146,6 @@ elseif edition == "soft" then
     table.insert(fileList, "CloverOS_OS.lua")
 end
 
--- Download all files
 for _, file in ipairs(fileList) do
     print("Downloading " .. file)
     local dir = file:match("(.*/)")
@@ -146,7 +156,6 @@ end
 print("CloverOS installed successfully to /" .. selectedDisk)
 sleep(1)
 
--- Optional: Minux OS installer
 local minuxChoice = nil
 menuOptions("Do you also want to install Minux OS? CloverOS is inspired by it.", {"Yes", "No"}, {
     function() minuxChoice = true end,
