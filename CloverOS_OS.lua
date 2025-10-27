@@ -316,15 +316,20 @@ local function cmd()
             local helpText = help()
             if type(helpText) == "table" then
                 print(table.concat(helpText, "\n"))
+                print("exit\n")
+                print("shutdown\n")
+                print("help\n")
             else
                 print(tostring(helpText))
             end
         end,
         exit = function()
             running = false
-        end
+        end,
+        shutdown = function ()
+        os.exit(0,true)
+        end,
     }
-    
     running = true
     while running do
         mirroredWrite("> ")
