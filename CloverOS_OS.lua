@@ -223,52 +223,70 @@ end
 
 -- File Manager
 local function fileManager()
-    mirroredClear()
-    mirroredSetCursor(1, 1)
-    mirroredPrint("Welcome to the File Manager")
-
-    local files = fs.list("/")
-    for i, file in ipairs(files) do
-        mirroredPrint(i .. ". " .. file)
-    end
-
-    mirroredPrint("Enter file number to view/edit/delete, or 'exit' to return.")
-    local choice = mirroredRead()
-    if choice == "exit" then return end
-
-    local fileIndex = tonumber(choice)
-    if fileIndex and files[fileIndex] then
-        local fileName = files[fileIndex]
-        mirroredPrint("Options for file: " .. fileName)
-        mirroredPrint("1. View\n2. Edit\n3. Delete")
-        local action = mirroredRead()
-        if action == "1" then
-            mirroredClear()
-            mirroredPrint("Contents of " .. fileName .. ":")
-            local file = fs.open(fileName, "r")
-            mirroredPrint(file.readAll())
-            file.close()
-            mirroredPrint("Press Enter to return.")
-            mirroredRead()
-        elseif action == "2" then
-            mirroredClear()
-            mirroredPrint("Editing " .. fileName)
-            mirroredPrint("Type new contents. End with a single 'exit' line.")
-            local newText = ""
-            while true do
-                local line = read()
-                if line == "exit" then break end
-                newText = newText .. line .. "\n"
+    while true do
+        mirroredClear()
+        mirroredSetCursor(1, 1)
+        mirroredPrint("Welcome to the File Manager")
+        local files = fs.list("/")
+        for i, file in ipairs(files) do
+            if fs.isDir(file) then
+                mirroredPrint(i .. ". " .. file .. "/")
+            else
+                mirroredPrint(i .. ". " .. file)
             end
-            local file = fs.open(fileName, "w")
-            file.write(newText)
-            file.close()
-            mirroredPrint("File updated.")
-            os.sleep(1)
-        elseif action == "3" then
-            fs.delete(fileName)
-            mirroredPrint("File deleted.")
-            os.sleep(1)
+        end
+        mirroredPrint("Enter file number to view/edit/delete, or 'exit' to return.")
+        local choice = mirroredRead()
+        if choice == "exit" then return end
+        local fileIndex = tonumber(choice)
+        if fileIndex and files[fileIndex] then
+            local fileName = files[fileIndex]
+            if fs.isDir(fileName) then
+                mirroredClear()
+                mirroredPrint("Contents of directory: " .. fileName)
+                local dirFiles = fs.list(fileName)
+                for _, f in ipairs(dirFiles) do
+                    if fs.isDir(fs.combine(fileName, f)) then
+                        mirroredPrint(f .. "/")
+                    else
+                        mirroredPrint(f)
+                    end
+                end
+                mirroredPrint("Press Enter to return.")
+                mirroredRead()
+            else
+                mirroredPrint("Options for file: " .. fileName)
+                mirroredPrint("1. View\n2. Edit\n3. Delete")
+                local action = mirroredRead()
+                if action == "1" then
+                    mirroredClear()
+                    mirroredPrint("Contents of " .. fileName .. ":")
+                    local file = fs.open(fileName, "r")
+                    mirroredPrint(file.readAll())
+                    file.close()
+                    mirroredPrint("Press Enter to return.")
+                    mirroredRead()
+                elseif action == "2" then
+                    mirroredClear()
+                    mirroredPrint("Editing " .. fileName)
+                    mirroredPrint("Type new contents. End with a single 'exit' line.")
+                    local newText = ""
+                    while true do
+                        local line = read()
+                        if line == "exit" then break end
+                        newText = newText .. line .. "\n"
+                    end
+                    local file = fs.open(fileName, "w")
+                    file.write(newText)
+                    file.close()
+                    mirroredPrint("File updated.")
+                    os.sleep(1)
+                elseif action == "3" then
+                    fs.delete(fileName)
+                    mirroredPrint("File deleted.")
+                    os.sleep(1)
+                end
+            end
         end
     end
 end
