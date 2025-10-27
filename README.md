@@ -12,4 +12,4 @@ Contributions are allowed!
 Feel free to contribute and maybey give it an star! Meow :3
 
 To install CloverOS please type or paste this into the Advanced computer or CraftOS:
-'wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua'
+`wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua`
