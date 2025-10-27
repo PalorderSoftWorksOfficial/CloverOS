@@ -39,7 +39,6 @@ function menuOptions(title, tChoices, tActions)
         end
     until check == false
 end
-
 local dumpWindow = window.create(term.current(), 1, 1, 1, 1, false)
 function disableoutput()
     ogTerm = term.current()

@@ -294,31 +294,67 @@ local function cmd()
 
         return commands
     end
+    local function help()
+        local commands = {}
+        local paths = {"disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "bin"}
 
-    while true do
+        for _, path in ipairs(paths) do
+            if fs.exists(path) then
+                for _, file in ipairs(fs.list(path)) do
+                    if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
+                        local cmdName = file:gsub("%..+$", "")
+                        commands[cmdName] = path .. "/" .. file
+                    end
+                end
+            end
+        end
+
+        return commands
+    end
+    local builtin = {
+        help = function()
+            local helpText = help()
+            if type(helpText) == "table" then
+                print(table.concat(helpText, "\n"))
+            else
+                print(tostring(helpText))
+            end
+        end,
+        exit = function()
+            running = false
+        end
+    }
+    
+    running = true
+    while running do
         mirroredWrite("> ")
         local input = mirroredRead()
-
-        if input == "exit" then break end
         if input == "" then goto continue end
-
+    
         local parts = {}
         for word in input:gmatch("%S+") do
             table.insert(parts, word)
         end
-
+    
         local command = table.remove(parts, 1)
         local commands = listCommands()
-
-        if commands[command] then
+    
+        if builtin[command] then
+            builtin[command](table.unpack(parts))
+        elseif commands[command] then
             local cmdPath = commands[command]
-            shell.run(cmdPath, table.unpack(parts))
+            local ok, err = pcall(function()
+                shell.run(cmdPath, table.unpack(parts))
+            end)
+            if not ok then
+                print("Error running command '" .. command .. "': " .. tostring(err))
+            end
         else
-            print("Command not found: " .. command)
+            print("Command not found: " .. tostring(command))
         end
-
+    
         ::continue::
-    end
+    end    
 end
 -- Simple games and apps
 local function playTetris()
