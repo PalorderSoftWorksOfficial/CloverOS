@@ -60,6 +60,7 @@ if envType == "craftos" then
     pcall(function()
         shell.run("attach left drive")
         shell.run("attach right speaker")
+        shell.run("attach back monitor")
         if disk and disk.insertDisk then
             disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
         end
@@ -71,7 +72,7 @@ end
 local githubPagesBaseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
 local rawBaseURL = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
 local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
-local manifestURL_Raw = rawBaseURL .. "files.manifest"
+local manifestURL_Raw = manifestURL_Pages
 
 local function listMounts()
     local mounts = {}
