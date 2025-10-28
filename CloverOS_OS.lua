@@ -537,78 +537,72 @@ local icons = {
     {name = "File Manager", run = fileManager},
     {name = "Shutdown", run = function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end},
     {name = "Music Player", run = function()
-	mirroredClear()
-	local speakers = {}
-	for _, name in pairs(peripheral.getNames()) do
-		if peripheral.getType(name) == "speaker" then
-			table.insert(speakers, peripheral.wrap(name))
-		end
-	end
+	local w,h = term.getSize()
+	GDI.clear(colors.black)
+	local bw,bh = 60,20
+	local bx,by = math.floor((w-bw)/2)+1, math.floor((h-bh)/2)+1
+	GDI.box(bx,by,bw,bh," Music Player ", colors.white, colors.blue)
 
-	if #speakers == 0 then
-		mirroredPrint("Error: No speakers attached! Press Enter to return.")
+	local speakers = {}
+	for _,name in pairs(peripheral.getNames()) do
+		if peripheral.getType(name)=="speaker" then table.insert(speakers, peripheral.wrap(name)) end
+	end
+	if #speakers==0 then
+		GDI.text(bx+2,by+2,"Error: No speakers attached!", colors.red, colors.blue)
+		GDI.text(bx+2,by+4,"Press Enter to return.", colors.white, colors.blue)
 		mirroredRead()
 		return
 	end
 
-	local tracks = {
-		{name = "Hunt in the dark - Sapheria_xplicit", file = "m1.dfpwm"},
-		{name = "BFDI OST - Lickie", file = "BFDI_OST_Lickie.dfpwm"},
-		{name = "Joke", file = "joke.dfpwm"},
-		{name = "Panic Track", file = "Panic_Track.dfpwm"},
-		{name = "zero-project - Gothic (2020 version)", file = "gothic.dfpwm"},
-		{name = "145 (Poodles) by Jake Chudnow [HD]", file = "m2.dfpwm"},
-		{name = "Let There Be Chaos - (Chaos Insurgency Raid Theme)", file = "m3.dfpwm"},
-		{name = "RUINOUS INTNT (corru.observer)", file = "m4.dfpwm"},
-		{name = "PuzzlePark WOTFI 2024 by SMG4", file = "m5.dfpwm"},
+	local tracks={
+		{name="Hunt in the dark - Sapheria_xplicit",file="m1.dfpwm"},
+		{name="BFDI OST - Lickie",file="BFDI_OST_Lickie.dfpwm"},
+		{name="Joke",file="joke.dfpwm"},
+		{name="Panic Track",file="Panic_Track.dfpwm"},
+		{name="zero-project - Gothic (2020 version)",file="gothic.dfpwm"},
+		{name="145 (Poodles) by Jake Chudnow [HD]",file="m2.dfpwm"},
+		{name="Let There Be Chaos - (Chaos Insurgency Raid Theme)",file="m3.dfpwm"},
+		{name="RUINOUS INTNT (corru.observer)",file="m4.dfpwm"},
+		{name="PuzzlePark WOTFI 2024 by SMG4",file="m5.dfpwm"},
 	}
 
-	mirroredPrint("Music Player")
-	mirroredPrint("Select a track to play:")
-	for i, track in ipairs(tracks) do
-		mirroredPrint(i .. ". " .. track.name)
+	for i,track in ipairs(tracks) do
+		GDI.text(bx+2,by+1+i,i..". "..track.name, colors.white, colors.blue)
 	end
-	mirroredPrint("Type number to play, or 'exit' to return.")
+	GDI.text(bx+2,by+bh-3,"Type number to play, or 'exit' to return.", colors.white, colors.blue)
+	GDI.setCursor(bx+2,by+bh-2)
 	local choice = mirroredRead()
-	if choice == "exit" then return end
-
-	local index = tonumber(choice)
+	if choice=="exit" then return end
+	local index=tonumber(choice)
 	if index and tracks[index] then
-		local basePath=(fs.exists("/etc/music") and "/etc/music") or (function()for i=0,99 do local d=(i==0 and "disk" or "disk"..i).."/etc/music" if fs.exists(d) then return d end end end)()
-		local filePath = fs.combine(basePath, tracks[index].file)
-
+		local basePath=(fs.exists("/etc/music") and "/etc/music") or (function() for i=0,99 do local d=(i==0 and "disk" or "disk"..i).."/etc/music" if fs.exists(d) then return d end end end)()
+		local filePath=fs.combine(basePath,tracks[index].file)
 		if not fs.exists(filePath) then
-			mirroredPrint("File not found: " .. filePath)
+			GDI.text(bx+2,by+2,"File not found: "..filePath, colors.red, colors.blue)
 			os.sleep(1.5)
 			return
 		end
-
-		mirroredPrint("Now playing: " .. tracks[index].name)
-		local decoder = require("cc.audio.dfpwm").make_decoder()
-		local file = fs.open(filePath, "rb")
-
+		GDI.text(bx+2,by+2,"Now playing: "..tracks[index].name, colors.green, colors.blue)
+		local decoder=require("cc.audio.dfpwm").make_decoder()
+		local file=fs.open(filePath,"rb")
 		while true do
-			local chunk = file.read(16 * 1024)
+			local chunk=file.read(16*1024)
 			if not chunk then break end
-			local decoded = decoder(chunk)
-
+			local decoded=decoder(chunk)
 			local allDone
 			repeat
-				allDone = true
-				for _, speaker in ipairs(speakers) do
-					if not speaker.playAudio(decoded) then
-						allDone = false
-					end
+				allDone=true
+				for _,speaker in ipairs(speakers) do
+					if not speaker.playAudio(decoded) then allDone=false end
 				end
 				if not allDone then os.sleep(0) end
 			until allDone
 		end
-
 		file.close()
-		mirroredPrint("Playback finished. Press Enter to return.")
+		GDI.text(bx+2,by+4,"Playback finished. Press Enter to return.", colors.white, colors.blue)
 		mirroredRead()
 	else
-		mirroredPrint("Invalid choice.")
+		GDI.text(bx+2,by+2,"Invalid choice.", colors.red, colors.blue)
 		os.sleep(1.5)
 	end
 end},
