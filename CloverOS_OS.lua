@@ -315,7 +315,7 @@ local function cmd()
     local function help()
         local commands = {}
         local paths = {"disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "/bin"}
-
+    
         for _, path in ipairs(paths) do
             if fs.exists(path) then
                 for _, file in ipairs(fs.list(path)) do
@@ -326,28 +326,29 @@ local function cmd()
                 end
             end
         end
-
+    
         return commands
     end
+    
+    local running = true
+    
     local builtin = {
         help = function()
             local helpText = help()
-            if type(helpText) == "table" then
-                print(table.concat(helpText, "\n"))
-                print("exit")
-                print("shutdown")
-                print("help")
-            else
-                print(tostring(helpText))
+            for cmd,_ in pairs(helpText) do
+                print(cmd)
             end
+            print("exit")
+            print("shutdown")
+            print("help")
         end,
         exit = function()
             running = false
         end,
-        shutdown = function ()
-        exit()
+        shutdown = function()
+            running = false
         end,
-    }
+    }    
     running = true
     while running do
         mirroredWrite("> ")
