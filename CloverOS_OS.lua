@@ -303,7 +303,7 @@ local function cmd()
             if fs.exists(path) then
                 for _, file in ipairs(fs.list(path)) do
                     if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
-                        local cmdName = file:gsub("%..+$", "") -- remove extension
+                        local cmdName = file:gsub("%..+$", "")
                         commands[cmdName] = path .. "/" .. file
                     end
                 end
