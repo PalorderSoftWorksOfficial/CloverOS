@@ -141,7 +141,7 @@ local function simulateLoading()
         mirroredClear()
         mirroredSetCursor(1, 1)
         term.setTextColor(colors.green)
-        mirroredPrint([[ 
+        mirroredWrite([[ 
    _____   _____   _____   ____   ____   _____ 
   |  __ \ |  __ \ |  __ \ |  _ \ / __ \ / ____|
   | |__) || |__) || |__) || |_) | |  | | (___  
@@ -614,8 +614,8 @@ local function desktop()
     end
 end
 -- Bootup
-login()
 simulateLoading()
+login()
 desktop()
 term.setCursorBlink(true)
 parallel.waitForAny(function() streamDisplay() end)
