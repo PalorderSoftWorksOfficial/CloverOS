@@ -4,17 +4,21 @@ print("=== CloverOS Boot Disk Wizard ===")
 print()
 print("Available disks:")
 local disks = {}
-for _, side in ipairs(rs.getSides()) do
-    if peripheral.getType(side) == "drive" then
-        print("- " .. side)
+for i=0,99 do
+    local side = i == 0 and "disk" or "disk"..i
+    if fs.exists("/"..side) then
+        print("- "..side)
         table.insert(disks, side)
     end
 end
 if #disks == 0 then return end
-write("Enter the disk side to use: ")
+write("Enter the disk to use (e.g., disk or disk1): ")
 local diskside = read()
-if not peripheral.getType(diskside) or peripheral.getType(diskside) ~= "drive" then return end
-if not fs.exists("/" .. diskside) then return end
-if fs.exists("/" .. diskside .. "/startup") then return end
-shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua /" .. diskside .. "/startup")
-shell.run("label set " .. diskside .. " CloverOSinstall")
+local found = false
+for _, d in ipairs(disks) do
+    if diskside == d then found = true break end
+end
+if not found then return end
+if fs.exists("/"..diskside.."/startup") then return end
+shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua /"..diskside.."/startup")
+shell.run("label set "..diskside.." CloverOSinstall")
