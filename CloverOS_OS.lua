@@ -606,7 +606,10 @@ end
 local function desktop()
     local allIcons = {}
     for _, icon in ipairs(icons) do table.insert(allIcons, icon) end
-    for _, app in ipairs(getCustomApps()) do table.insert(allIcons, app) end
+    for _, app in ipairs(getCustomApps()) do
+        app.name = app.name:gsub("^%s*(.-)%s*$", "%1")
+        table.insert(allIcons, app)
+    end
 
     while true do
         mirroredClear()
@@ -616,29 +619,35 @@ local function desktop()
         end
         mirroredPrint("Type number or app name, or click an icon:")
 
-        local event = os.pullEventRaw()
+        local event, p1, p2, p3 = os.pullEvent()
         if event == "mouse_click" then
-            local _, _, x, y = os.pullEvent("mouse_click")
+            local _, x, y = p1, p2, p3
             local line = y - 1
             if line >= 1 and line <= #allIcons then
                 allIcons[line].run()
             end
-        else
+        elseif event == "key" or event == "char" then
             mirroredSetCursor(1, #allIcons + 4)
-            local input = mirroredRead():lower()
+            local input = mirroredRead()
+            if not input or input == "" then goto continue end
+            input = input:lower():gsub("^%s*(.-)%s*$", "%1")
+
             local matched = false
             for i, icon in ipairs(allIcons) do
-                if input == tostring(i) or input:lower() == icon.name:lower() then
+                local name = icon.name:lower():gsub("^%s*(.-)%s*$", "%1")
+                if input == tostring(i) or input == name then
                     icon.run()
                     matched = true
                     break
                 end
             end
+
             if not matched then
                 mirroredPrint("No app found with that number or name.")
                 os.sleep(1.5)
             end
         end
+        ::continue::
     end
 end
 -- Bootup
