@@ -314,7 +314,7 @@ local function cmd()
     end
     local function help()
         local commands = {}
-        local paths = {"disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "bin"}
+        local paths = {"disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "/bin"}
 
         for _, path in ipairs(paths) do
             if fs.exists(path) then
@@ -334,9 +334,9 @@ local function cmd()
             local helpText = help()
             if type(helpText) == "table" then
                 print(table.concat(helpText, "\n"))
-                print("exit\n")
-                print("shutdown\n")
-                print("help\n")
+                print("exit")
+                print("shutdown")
+                print("help")
             else
                 print(tostring(helpText))
             end
