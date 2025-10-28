@@ -75,15 +75,15 @@ local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
 local manifestURL_Raw = manifestURL_Pages
 
 local function listMounts()
-    local mounts = { { name = "computer", path = "/" } }
-
+    local mounts = {
+        { name = "computer (root)", path = "/" }
+    }
     for _, mount in ipairs(fs.list("/")) do
         local path = "/" .. mount
-        if fs.isDir(path) and (mount:match("^disk%d*$") and mount ~= "rom") then
+        if fs.isDir(path) and mount:match("^disk%d*$") and mount ~= "rom" then
             table.insert(mounts, { name = mount, path = path })
         end
     end
-
     return mounts
 end
 
@@ -93,14 +93,25 @@ if #disks == 0 then
     return
 end
 
+local choices = {}
+local actions = {}
 local selectedDisk = nil
-menuOptions("Select target disk", disks, (function()
-    local actions = {}
-    for i, d in ipairs(disks) do
-        actions[i] = function() selectedDisk = d end
+
+for i, d in ipairs(disks) do
+    table.insert(choices, d.name)
+    actions[i] = function()
+        selectedDisk = d
     end
-    return actions
-end)())
+end
+
+menuOptions("Select target disk", choices, actions)
+
+if not selectedDisk then
+    print("No disk selected. Aborting.")
+    return
+end
+
+print("Selected disk: " .. selectedDisk.name .. " (" .. selectedDisk.path .. ")")
 
 local sourceChoice = nil
 local baseURL = nil
