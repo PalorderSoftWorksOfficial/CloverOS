@@ -611,17 +611,14 @@ end},
 
 -- Scan for custom apps
 local function getCustomApps()
-    local appList = {}
-    local appDirs = {"apps","disk/apps","disk2/apps","disk3/apps","disk4/apps","disk5/apps","disk6/apps"}
-    for _, dir in ipairs(appDirs) do
+    local appList={}
+    local appDirs={"apps","disk/apps","disk2/apps","disk3/apps","disk4/apps","disk5/apps","disk6/apps"}
+    for _,dir in ipairs(appDirs) do
         if fs.exists(dir) then
-            for _, file in ipairs(fs.list(dir)) do
+            for _,file in ipairs(fs.list(dir)) do
                 if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") then
-                    local appName = file:gsub("%..+$","")
-                    table.insert(appList,{
-                        name = appName,
-                        run = function() shell.run(dir.."/"..file) end
-                    })
+                    local appName=file:gsub("%..+$","")
+                    table.insert(appList,{name=appName,run=function() shell.run(dir.."/"..file) end})
                 end
             end
         end
@@ -629,41 +626,47 @@ local function getCustomApps()
     return appList
 end
 
-for _, app in ipairs(getCustomApps()) do table.insert(icons, app) end
-
--- Desktop launcher
-local function drawDesktop()
-    mirroredClear()
-    mirroredPrint("== Desktop ==")
-    for i, icon in ipairs(icons) do
-        mirroredPrint(i .. ". " .. icon.name)
-    end
-    mirroredPrint("Type number, name, or click an icon:")
-end
-
-local function getClickedIcon(x, y)
-    -- Icons start from line 2 (after "== Desktop ==")
-    local line = y - 1
-    if line >= 1 and line <= #icons then
-        return icons[line]
-    end
-    return nil
-end
-
 local function desktop()
-    while true do
-        drawDesktop()
-        local event, button, x, y = os.pullEvent()
+    local icons=getCustomApps()
+    local w,h=term.getSize()
+    local iconWidth,iconHeight=20,3
+    local iconsPerRow=math.floor(w/(iconWidth+2))
 
-        if event == "mouse_click" then
-            local clickedIcon = getClickedIcon(x, y)
-            if clickedIcon then
-                clickedIcon.run()
-            end
-        elseif event == "key" then
-            local input = mirroredRead()
-            for i, icon in ipairs(icons) do
-                if input == tostring(i) or input:lower() == icon.name:lower() then
+    local function drawDesktopGUI()
+        mirroredClear()
+        GDI.box(1,1,w,h," Desktop ",colors.white,colors.blue)
+        for i,icon in ipairs(icons) do
+            local row=math.floor((i-1)/iconsPerRow)
+            local col=(i-1)%iconsPerRow
+            local x=2+col*(iconWidth+2)
+            local y=2+row*(iconHeight+1)
+            GDI.box(x,y,iconWidth,iconHeight,icon.name,colors.white,colors.gray)
+        end
+        GDI.text(2,h-2,"Type number, name, or click an icon",colors.white,colors.blue)
+    end
+
+    local function getClickedIconGUI(x,y)
+        for i,icon in ipairs(icons) do
+            local row=math.floor((i-1)/iconsPerRow)
+            local col=(i-1)%iconsPerRow
+            local ix=2+col*(iconWidth+2)
+            local iy=2+row*(iconHeight+1)
+            if x>=ix and x<ix+iconWidth and y>=iy and y<iy+iconHeight then return icon end
+        end
+        return nil
+    end
+
+    while true do
+        drawDesktopGUI()
+        local event,button,x,y=os.pullEvent()
+        if event=="mouse_click" then
+            local clicked=getClickedIconGUI(x,y)
+            if clicked then clicked.run() end
+        elseif event=="key" then
+            mirroredSetCursor(2,h-1)
+            local input=mirroredRead()
+            for i,icon in ipairs(icons) do
+                if input==tostring(i) or input:lower()==icon.name:lower() then
                     icon.run()
                     break
                 end
