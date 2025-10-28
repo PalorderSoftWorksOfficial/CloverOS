@@ -534,7 +534,76 @@ local icons = {
     {name="Game: Pong", run=playPong},
     {name="File Manager", run=fileManager},
     {name="Shutdown", run=function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end},
-    {name="Music Player", run=function() runMusicPlayer() end},
+    {name = "Music Player", run = function()
+	local w,h = term.getSize()
+	GDI.clear(colors.black)
+	local bw,bh = 60,20
+	local bx,by = math.floor((w-bw)/2)+1, math.floor((h-bh)/2)+1
+	GDI.box(bx,by,bw,bh," Music Player ", colors.white, colors.blue)
+
+	local speakers = {}
+	for _,name in pairs(peripheral.getNames()) do
+		if peripheral.getType(name)=="speaker" then table.insert(speakers, peripheral.wrap(name)) end
+	end
+	if #speakers==0 then
+		GDI.text(bx+2,by+2,"Error: No speakers attached!", colors.red, colors.blue)
+		GDI.text(bx+2,by+4,"Press Enter to return.", colors.white, colors.blue)
+		mirroredRead()
+		return
+	end
+
+	local tracks={
+		{name="Hunt in the dark - Sapheria_xplicit",file="m1.dfpwm"},
+		{name="BFDI OST - Lickie",file="BFDI_OST_Lickie.dfpwm"},
+		{name="Joke",file="joke.dfpwm"},
+		{name="Panic Track",file="Panic_Track.dfpwm"},
+		{name="zero-project - Gothic (2020 version)",file="gothic.dfpwm"},
+		{name="145 (Poodles) by Jake Chudnow [HD]",file="m2.dfpwm"},
+		{name="Let There Be Chaos - (Chaos Insurgency Raid Theme)",file="m3.dfpwm"},
+		{name="RUINOUS INTNT (corru.observer)",file="m4.dfpwm"},
+		{name="PuzzlePark WOTFI 2024 by SMG4",file="m5.dfpwm"},
+	}
+
+	for i,track in ipairs(tracks) do
+		GDI.text(bx+2,by+1+i,i..". "..track.name, colors.white, colors.blue)
+	end
+	GDI.text(bx+2,by+bh-3,"Type number to play, or 'exit' to return.", colors.white, colors.blue)
+	GDI.setCursor(bx+2,by+bh-2)
+	local choice = mirroredRead()
+	if choice=="exit" then return end
+	local index=tonumber(choice)
+	if index and tracks[index] then
+		local basePath=(fs.exists("/etc/music") and "/etc/music") or (function() for i=0,99 do local d=(i==0 and "disk" or "disk"..i).."/etc/music" if fs.exists(d) then return d end end end)()
+		local filePath=fs.combine(basePath,tracks[index].file)
+		if not fs.exists(filePath) then
+			GDI.text(bx+2,by+2,"File not found: "..filePath, colors.red, colors.blue)
+			os.sleep(1.5)
+			return
+		end
+		GDI.text(bx+2,by+2,"Now playing: "..tracks[index].name, colors.green, colors.blue)
+		local decoder=require("cc.audio.dfpwm").make_decoder()
+		local file=fs.open(filePath,"rb")
+		while true do
+			local chunk=file.read(16*1024)
+			if not chunk then break end
+			local decoded=decoder(chunk)
+			local allDone
+			repeat
+				allDone=true
+				for _,speaker in ipairs(speakers) do
+					if not speaker.playAudio(decoded) then allDone=false end
+				end
+				if not allDone then os.sleep(0) end
+			until allDone
+		end
+		file.close()
+		GDI.text(bx+2,by+4,"Playback finished. Press Enter to return.", colors.white, colors.blue)
+		mirroredRead()
+	else
+		GDI.text(bx+2,by+2,"Invalid choice.", colors.red, colors.blue)
+		os.sleep(1.5)
+	end
+end},
     {name="cmd", run=function() cmd() end}
 }
 
@@ -555,49 +624,36 @@ local function getCustomApps()
 end
 
 local function desktop()
-    for _,app in ipairs(getCustomApps()) do table.insert(icons, app) end
-    local w,h=term.getSize()
-    local iconWidth,iconHeight=20,3
-    local iconsPerRow=math.floor(w/(iconWidth+2))
-
-    local function drawDesktopGUI()
-        mirroredClear()
-        GDI.box(1,1,w,h," Desktop ", colors.white, colors.lightBlue)
-        for i,icon in ipairs(icons) do
-            local row=math.floor((i-1)/iconsPerRow)
-            local col=(i-1)%iconsPerRow
-            local x=2+col*(iconWidth+2)
-            local y=2+row*(iconHeight+1)
-            GDI.box(x,y,iconWidth,iconHeight,icon.name, colors.black, colors.lightGray)
-        end
-        GDI.text(2,h-2,"Click an icon or type number/name", colors.black, colors.lightBlue)
-    end
-
-    local function getClickedIconGUI(x,y)
-        for i,icon in ipairs(icons) do
-            local row=math.floor((i-1)/iconsPerRow)
-            local col=(i-1)%iconsPerRow
-            local ix=2+col*(iconWidth+2)
-            local iy=2+row*(iconHeight+1)
-            if x>=ix and x<ix+iconWidth and y>=iy and y<iy+iconHeight then return icon end
-        end
-        return nil
-    end
+    for _, app in ipairs(getCustomApps()) do table.insert(icons, app) end
 
     while true do
-        drawDesktopGUI()
-        local event,button,x,y=os.pullEvent()
-        if event=="mouse_click" then
-            local clicked=getClickedIconGUI(x,y)
-            if clicked then clicked.run() end
-        elseif event=="key" then
-            mirroredSetCursor(2,h-1)
-            local input=mirroredRead()
-            for i,icon in ipairs(icons) do
-                if input==tostring(i) or input:lower()==icon.name:lower() then
+        mirroredClear()
+        mirroredPrint("== Desktop ==")
+        for i, icon in ipairs(icons) do
+            mirroredPrint(i .. ". " .. icon.name)
+        end
+        mirroredPrint("Type number or app name, or click an icon:")
+
+        local event, button, x, y = os.pullEvent()
+        if event == "mouse_click" then
+            local line = y - 1
+            if line >= 1 and line <= #icons then
+                icons[line].run()
+            end
+        elseif event == "key" then
+            mirroredSetCursor(1, #icons + 4)
+            local input = mirroredRead():lower()
+            local matched = false
+            for i, icon in ipairs(icons) do
+                if input == tostring(i) or input:lower() == icon.name:lower() then
                     icon.run()
+                    matched = true
                     break
                 end
+            end
+            if not matched then
+                mirroredPrint("No app found with that number or name.")
+                os.sleep(1.5)
             end
         end
     end
