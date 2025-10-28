@@ -345,7 +345,7 @@ local function cmd()
             running = false
         end,
         shutdown = function ()
-        os.exit(0,true)
+        exit()
         end,
     }
     running = true
