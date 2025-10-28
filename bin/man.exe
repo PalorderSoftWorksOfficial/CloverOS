@@ -1,0 +1,36 @@
+args = {...}
+appname = args[1]
+
+local function findManualPath(name)
+    if fs.exists("/etc/man/"..name..".man") then return "/etc/man/"..name..".man" end
+    for i=0,99 do
+        local prefix = (i==0 and "disk" or "disk"..i).."/etc/man/"
+        if fs.exists(prefix..name..".man") then return prefix..name..".man" end
+    end
+    return nil
+end
+
+if appname == "list" then
+    if fs.exists("/etc/man/") then shell.run("ls /etc/man/") end
+    for i=0,99 do
+        local prefix = (i==0 and "disk" or "disk"..i).."/etc/man/"
+        if fs.exists(prefix) then shell.run("ls "..prefix) end
+    end
+    return 0
+elseif appname == "" or appname == nil then
+    print("no app given, try 'man list'")
+    return 0
+end
+
+local path = findManualPath(appname)
+if not path then
+    print("I have no manuals on this topic, this is what i have:")
+    if fs.exists("/etc/man/") then shell.run("ls /etc/man/") end
+    for i=0,99 do
+        local prefix = (i==0 and "disk" or "disk"..i).."/etc/man/"
+        if fs.exists(prefix) then shell.run("ls "..prefix) end
+    end
+    return 0
+end
+
+shell.run("edit "..path)

@@ -20,5 +20,5 @@ for _, d in ipairs(disks) do
 end
 if not found then return end
 if fs.exists("/"..diskside.."/startup") then return end
-shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua /"..diskside.."/startup")
+shell.run("wget https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua /"..diskside.."/startup")
 shell.run("label set "..diskside.." CloverOSinstall")

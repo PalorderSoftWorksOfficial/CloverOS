@@ -1,0 +1,22 @@
+man - a manual reader 
+
+executable location: 
+'/bin/man.exe' 
+alias:'man'
+man is part of the 
+'CloverOS' app
+
+man is used to open 
+manuals.
+
+syntax: 'man appname'
+
+ - list
+if list is provided in 
+stead of an app name,
+man will display a list
+ of all it's known apps
+
+important locations:
+/etc/man - location of 
+the manuals
