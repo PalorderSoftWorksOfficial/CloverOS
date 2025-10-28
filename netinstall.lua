@@ -75,12 +75,15 @@ local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
 local manifestURL_Raw = manifestURL_Pages
 
 local function listMounts()
-    local mounts = {}
+    local mounts = { { name = "computer", path = "/" } }
+
     for _, mount in ipairs(fs.list("/")) do
-        if fs.isDir(mount) and (mount:match("^disk%d*$") or mount == "rom" or mount == "computer" or mount == "/") then
-            table.insert(mounts, mount)
+        local path = "/" .. mount
+        if fs.isDir(path) and (mount:match("^disk%d*$") and mount ~= "rom") then
+            table.insert(mounts, { name = mount, path = path })
         end
     end
+
     return mounts
 end
 
