@@ -73,11 +73,7 @@ function GDI.text(x, y, str, fg, bg)
     if fg then GDI.setColor(fg) end
     if bg then GDI.setBGColor(bg) end
     GDI.setCursor(x, y)
-    write(str)
-    if monitor then
-        monitor.setCursorPos(x, y)
-        monitor.write(str)
-    end
+    mirroredWrite(str)
 end
 
 function GDI.rect(x, y, w, h, fg, bg)
@@ -109,18 +105,30 @@ end
 
 -- Login screen
 local function login()
-    mirroredClear()
-    mirroredSetCursor(1, 1)
-    mirroredPrint("Welcome to the system")
-    mirroredPrint("Please enter your username:")
-    local username = mirroredRead()
-    mirroredPrint("Please enter your password:")
+    -- Clear screen with background color
+    GDI.clear(colors.black)
+
+    -- Draw a login box in the center of the screen
+    local termWidth, termHeight = term.getSize()
+    local boxWidth, boxHeight = 40, 10
+    local boxX = math.floor((termWidth - boxWidth) / 2) + 1
+    local boxY = math.floor((termHeight - boxHeight) / 2) + 1
+
+    GDI.box(boxX, boxY, boxWidth, boxHeight, " Login ", colors.white, colors.blue)
+
+    GDI.text(boxX + 2, boxY + 2, "Username: ", colors.white, colors.blue)
+    GDI.setCursor(boxX + 12, boxY + 2)
+    local username = mirroredRead(true)
+
+    GDI.text(boxX + 2, boxY + 4, "Password: ", colors.white, colors.blue)
+    GDI.setCursor(boxX + 12, boxY + 4)
     local password = mirroredRead(true)
 
     if username == "user" and password == "pass" then
-        mirroredPrint("Login successful!")
+        GDI.text(boxX + 2, boxY + 6, "Login successful!", colors.green, colors.blue)
+        os.sleep(2)
     else
-        mirroredPrint("Invalid credentials. Try again.")
+        GDI.text(boxX + 2, boxY + 6, "Invalid credentials. Try again.", colors.red, colors.blue)
         os.sleep(2)
         login()
     end
