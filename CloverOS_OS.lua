@@ -272,66 +272,93 @@ end
 -- File Manager
 local function fileManager()
     while true do
-        mirroredClear()
-        mirroredSetCursor(1, 1)
-        mirroredPrint("Welcome to the File Manager")
+        local w,h = term.getSize()
+        local bw,bh = 50, 16
+        local bx,by = math.floor((w-bw)/2)+1, math.floor((h-bh)/2)+1
+
+        GDI.clear(colors.black)
+        GDI.box(bx, by, bw, bh, " File Manager ", colors.white, colors.blue)
+
         local files = fs.list("/")
         for i, file in ipairs(files) do
-            if fs.isDir(file) then
-                mirroredPrint(i .. ". " .. file .. "/")
-            else
-                mirroredPrint(i .. ". " .. file)
-            end
+            local label = fs.isDir(file) and (file.."/") or file
+            GDI.text(bx+2, by+1+i, i..". "..label, colors.white, colors.blue)
         end
-        mirroredPrint("Enter file number to view/edit/delete, or 'exit' to return.")
-        local choice = mirroredRead()
+
+        GDI.text(bx+2, by+bh-3, "Enter number / 'exit': ", colors.white, colors.blue)
+        GDI.setCursor(bx+26, by+bh-3)
+        local choice = mirroredRead(true)
         if choice == "exit" then return end
-        local fileIndex = tonumber(choice)
-        if fileIndex and files[fileIndex] then
-            local fileName = files[fileIndex]
-            if fs.isDir(fileName) then
-                mirroredClear()
-                mirroredPrint("Contents of directory: " .. fileName)
-                local dirFiles = fs.list(fileName)
-                for _, f in ipairs(dirFiles) do
-                    if fs.isDir(fs.combine(fileName, f)) then
-                        mirroredPrint(f .. "/")
-                    else
-                        mirroredPrint(f)
-                    end
+        local index = tonumber(choice)
+
+        if index and files[index] then
+            local fileName = files[index]
+            local fullPath = "/"..fileName
+            if fs.isDir(fullPath) then
+                GDI.clear(colors.black)
+                local dw,dh = 46,14
+                local dx,dy = math.floor((w-dw)/2)+1, math.floor((h-dh)/2)+1
+                GDI.box(dx, dy, dw, dh, " Directory: "..fileName.." ", colors.white, colors.blue)
+                local dirFiles = fs.list(fullPath)
+                for i,f in ipairs(dirFiles) do
+                    local label = fs.isDir(fs.combine(fullPath, f)) and (f.."/") or f
+                    GDI.text(dx+2, dy+1+i, label, colors.white, colors.blue)
                 end
-                mirroredPrint("Press Enter to return.")
-                mirroredRead()
+                GDI.text(dx+2, dy+dh-2, "Press Enter to return.", colors.white, colors.blue)
+                mirroredRead(true)
+
             else
-                mirroredPrint("Options for file: " .. fileName)
-                mirroredPrint("1. View\n2. Edit\n3. Delete")
-                local action = mirroredRead()
+                GDI.clear(colors.black)
+                local fw,fh = 50,14
+                local fx,fy = math.floor((w-fw)/2)+1, math.floor((h-fh)/2)+1
+                GDI.box(fx, fy, fw, fh, " File: "..fileName.." ", colors.white, colors.blue)
+                GDI.text(fx+2, fy+2, "1. View", colors.white, colors.blue)
+                GDI.text(fx+2, fy+3, "2. Edit", colors.white, colors.blue)
+                GDI.text(fx+2, fy+4, "3. Delete", colors.white, colors.blue)
+                GDI.text(fx+2, fy+fh-2, "Select option: ", colors.white, colors.blue)
+                GDI.setCursor(fx+17, fy+fh-2)
+                local action = mirroredRead(true)
+
                 if action == "1" then
-                    mirroredClear()
-                    mirroredPrint("Contents of " .. fileName .. ":")
-                    local file = fs.open(fileName, "r")
-                    mirroredPrint(file.readAll())
-                    file.close()
-                    mirroredPrint("Press Enter to return.")
-                    mirroredRead()
+                    GDI.clear(colors.black)
+                    local f = fs.open(fullPath, "r")
+                    local content = f.readAll()
+                    f.close()
+                    local vw,vh = 50,16
+                    local vx,vy = math.floor((w-vw)/2)+1, math.floor((h-vh)/2)+1
+                    GDI.box(vx, vy, vw, vh, " Viewing: "..fileName.." ", colors.white, colors.blue)
+                    local lines = {}
+                    for line in content:gmatch("[^\r\n]+") do table.insert(lines, line) end
+                    for i=1,math.min(#lines,vh-4) do
+                        GDI.text(vx+2, vy+1+i, lines[i], colors.white, colors.blue)
+                    end
+                    GDI.text(vx+2, vy+vh-2, "Press Enter to return.", colors.white, colors.blue)
+                    mirroredRead(true)
+
                 elseif action == "2" then
-                    mirroredClear()
-                    mirroredPrint("Editing " .. fileName)
-                    mirroredPrint("Type new contents. End with a single 'exit' line.")
+                    GDI.clear(colors.black)
+                    local ew,eh = 50,14
+                    local ex,ey = math.floor((w-ew)/2)+1, math.floor((h-eh)/2)+1
+                    GDI.box(ex, ey, ew, eh, " Editing: "..fileName.." ", colors.white, colors.blue)
+                    GDI.text(ex+2, ey+2, "Type new content (end with 'exit'):", colors.white, colors.blue)
                     local newText = ""
+                    local yOffset = 3
                     while true do
+                        GDI.setCursor(ex+2, ey+yOffset)
                         local line = read()
                         if line == "exit" then break end
                         newText = newText .. line .. "\n"
+                        yOffset = yOffset + 1
                     end
-                    local file = fs.open(fileName, "w")
-                    file.write(newText)
-                    file.close()
-                    mirroredPrint("File updated.")
+                    local f = fs.open(fullPath, "w")
+                    f.write(newText)
+                    f.close()
+                    GDI.text(ex+2, ey+eh-2, "File updated!", colors.white, colors.blue)
                     os.sleep(1)
+
                 elseif action == "3" then
-                    fs.delete(fileName)
-                    mirroredPrint("File deleted.")
+                    fs.delete(fullPath)
+                    GDI.text(fx+2, fy+6, "File deleted.", colors.white, colors.blue)
                     os.sleep(1)
                 end
             end
@@ -340,93 +367,81 @@ local function fileManager()
 end
 -- CMD terminal
 local function cmd()
-    mirroredClear()
-    mirroredPrint("Clover OS Command Prompt.")
+    local w,h=term.getSize()
+    local function drawWindow()
+        mirroredClear()
+        mirroredSetCursor(1,1)
+        term.setBackgroundColor(colors.lightGray)
+        term.setTextColor(colors.black)
+        local title=" Clover OS Command Prompt "
+        mirroredSetCursor(math.floor((w-#title)/2),1)
+        mirroredWrite(title)
+        term.setBackgroundColor(colors.black)
+        term.setTextColor(colors.white)
+        for i=2,h-1 do
+            mirroredSetCursor(1,i)
+            mirroredWrite(string.rep(" ",w))
+        end
+        mirroredSetCursor(1,h)
+        term.setBackgroundColor(colors.lightGray)
+        term.setTextColor(colors.black)
+        mirroredWrite(" CloverOS v3.2 | User: root | "..textutils.formatTime(os.time(),true))
+        term.setBackgroundColor(colors.black)
+        term.setTextColor(colors.white)
+    end
 
     local function listCommands()
-        local commands = {}
-        local paths = {"disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "bin"}
-
-        for _, path in ipairs(paths) do
+        local commands={}
+        local paths={"disk/bin","disk2/bin","disk3/bin","disk4/bin","disk5/bin","/bin"}
+        for _,path in ipairs(paths) do
             if fs.exists(path) then
-                for _, file in ipairs(fs.list(path)) do
+                for _,file in ipairs(fs.list(path)) do
                     if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
-                        local cmdName = file:gsub("%..+$", "")
-                        commands[cmdName] = path .. "/" .. file
+                        commands[file:gsub("%..+$","")]=path.."/"..file
                     end
                 end
             end
         end
+        return commands
+    end
 
-        return commands
-    end
-    local function help()
-        local commands = {}
-        local paths = {"disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "/bin"}
-    
-        for _, path in ipairs(paths) do
-            if fs.exists(path) then
-                for _, file in ipairs(fs.list(path)) do
-                    if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
-                        local cmdName = file:gsub("%..+$", "")
-                        commands[cmdName] = path .. "/" .. file
-                    end
-                end
-            end
-        end
-    
-        return commands
-    end
-    
-    local running = true
-    
-    local builtin = {
-        help = function()
-            local helpText = help()
-            for cmd,_ in pairs(helpText) do
-                print(cmd)
-            end
-            print("exit")
-            print("shutdown")
-            print("help")
+    local running=true
+    local builtin={
+        help=function()
+            local cmds=listCommands()
+            for c,_ in pairs(cmds) do mirroredPrint(c) end
+            mirroredPrint("exit")
+            mirroredPrint("shutdown")
+            mirroredPrint("help")
         end,
-        exit = function()
-            running = false
-        end,
-        shutdown = function()
-            running = false
-        end,
-    }    
-    running = true
+        exit=function() running=false end,
+        shutdown=function() running=false end
+    }
+
+    drawWindow()
+    mirroredSetCursor(3,3)
+    mirroredPrint("Welcome to Clover OS Command Prompt")
+    mirroredSetCursor(3,4)
+    mirroredPrint("Type 'help' to list available commands")
+
     while running do
-        mirroredWrite("> ")
-        local input = mirroredRead()
-        if input == "" then goto continue end
-    
-        local parts = {}
-        for word in input:gmatch("%S+") do
-            table.insert(parts, word)
-        end
-    
-        local command = table.remove(parts, 1)
-        local commands = listCommands()
-    
+        mirroredWrite("\nroot@CloverOS:~$ ")
+        local input=mirroredRead()
+        if input=="" then goto continue end
+        local parts={}
+        for word in input:gmatch("%S+") do table.insert(parts,word) end
+        local command=table.remove(parts,1)
+        local commands=listCommands()
         if builtin[command] then
             builtin[command](table.unpack(parts))
         elseif commands[command] then
-            local cmdPath = commands[command]
-            local ok, err = pcall(function()
-                shell.run(cmdPath, table.unpack(parts))
-            end)
-            if not ok then
-                print("Error running command '" .. command .. "': " .. tostring(err))
-            end
+            local ok,err=pcall(function() shell.run(commands[command],table.unpack(parts)) end)
+            if not ok then mirroredPrint("Error: "..tostring(err)) end
         else
-            print("Command not found: " .. tostring(command))
+            mirroredPrint("Command not found: "..tostring(command))
         end
-    
         ::continue::
-    end    
+    end
 end
 -- Simple games and apps
 local function playTetris()
