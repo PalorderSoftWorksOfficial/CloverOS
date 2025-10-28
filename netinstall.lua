@@ -138,7 +138,7 @@ menuOptions("Select CloverOS edition", {"default", "soft"}, {
 
 local fileList = {}
 if edition == "default" then
-    local manifestPath = "/" .. selectedDisk .. "/files.manifest"
+    local manifestPath = selectedDisk.path .. "/files.manifest"
     shell.run("wget " .. manifestURL .. " " .. manifestPath)
     if not fs.exists(manifestPath) then
         print("Failed to download manifest. Aborting.")
@@ -163,11 +163,11 @@ end
 for _, file in ipairs(fileList) do
     print("Downloading " .. file)
     local dir = file:match("(.*/)")
-    if dir then fs.makeDir("/" .. selectedDisk .. "/" .. dir) end
-    shell.run("wget " .. baseURL .. file .. " /" .. selectedDisk .. "/" .. file)
+    if dir then fs.makeDir(selectedDisk.path .. "/" .. dir) end
+    shell.run("wget " .. baseURL .. file .. " " .. selectedDisk.path .. "/" .. file)
 end
 
-print("CloverOS installed successfully to /" .. selectedDisk)
+print("CloverOS installed successfully to " .. selectedDisk.path)
 sleep(1)
 
 local minuxChoice = nil
