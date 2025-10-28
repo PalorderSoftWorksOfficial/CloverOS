@@ -105,34 +105,72 @@ end
 
 -- Login screen
 local function login()
-    -- Clear screen with background color
-    GDI.clear(colors.black)
+    local running = shell and shell.getRunningProgram and shell.getRunningProgram() or ""
+    local dir = (running ~= "" and fs.getDir(running)) or ""
+    local authPath = (dir == "" or dir == ".") and "auth" or (dir:sub(-1) == "/" and dir.."auth" or dir.."/auth")
 
-    -- Draw a login box in the center of the screen
-    local termWidth, termHeight = term.getSize()
-    local boxWidth, boxHeight = 40, 10
-    local boxX = math.floor((termWidth - boxWidth) / 2) + 1
-    local boxY = math.floor((termHeight - boxHeight) / 2) + 1
+    local function loadAuth()
+        if not fs.exists(authPath) then return nil end
+        local f = fs.open(authPath, "r")
+        if not f then return nil end
+        local ok, t = pcall(textutils.unserialize, f.readAll())
+        f.close()
+        if ok and type(t) == "table" and t.user and t.pass then return t end
+        return nil
+    end
 
-    GDI.box(boxX, boxY, boxWidth, boxHeight, " Login ", colors.white, colors.blue)
+    local function saveAuth(user, pass)
+        local f = fs.open(authPath, "w")
+        f.write(textutils.serialize({ user = tostring(user), pass = tostring(pass) }))
+        f.close()
+    end
 
-    GDI.text(boxX + 2, boxY + 2, "Username: ", colors.white, colors.blue)
-    GDI.setCursor(boxX + 12, boxY + 2)
-    local username = mirroredRead(true)
+    local auth = loadAuth()
+    if not auth then
+        GDI.clear(colors.black)
+        local w,h = term.getSize()
+        local bw,bh = 40,10
+        local bx,by = math.floor((w-bw)/2)+1, math.floor((h-bh)/2)+1
+        GDI.box(bx,by,bw,bh," Setup ",colors.white,colors.blue)
+        GDI.text(bx+2,by+2,"New Username: ",colors.white,colors.blue)
+        GDI.setCursor(bx+17,by+2)
+        local newUser = mirroredRead(true) or ""
+        GDI.text(bx+2,by+4,"New Password: ",colors.white,colors.blue)
+        GDI.setCursor(bx+17,by+4)
+        local newPass = mirroredRead(true) or ""
+        saveAuth(newUser, newPass)
+        GDI.text(bx+2,by+6,"Account created!",colors.white,colors.blue)
+        os.sleep(1.5)
+        auth = { user = newUser, pass = newPass }
+    end
 
-    GDI.text(boxX + 2, boxY + 4, "Password: ", colors.white, colors.blue)
-    GDI.setCursor(boxX + 12, boxY + 4)
-    local password = mirroredRead(true)
+    while true do
+        GDI.clear(colors.black)
+        local termWidth, termHeight = term.getSize()
+        local boxWidth, boxHeight = 40, 10
+        local boxX = math.floor((termWidth - boxWidth) / 2) + 1
+        local boxY = math.floor((termHeight - boxHeight) / 2) + 1
 
-    if username == "user" and password == "pass" then
-        GDI.text(boxX + 2, boxY + 6, "Login successful!")
-        GDI.setColor(colors.white)
-        GDI.setBGColor(colors.black)
-        os.sleep(2)
-    else
-        GDI.text(boxX + 2, boxY + 6, "Invalid credentials. Try again.", colors.red, colors.blue)
-        os.sleep(2)
-        login()
+        GDI.box(boxX, boxY, boxWidth, boxHeight, " Login ", colors.white, colors.blue)
+
+        GDI.text(boxX + 2, boxY + 2, "Username: ", colors.white, colors.blue)
+        GDI.setCursor(boxX + 12, boxY + 2)
+        local username = mirroredRead(true) or ""
+
+        GDI.text(boxX + 2, boxY + 4, "Password: ", colors.white, colors.blue)
+        GDI.setCursor(boxX + 12, boxY + 4)
+        local password = mirroredRead(true) or ""
+
+        if username == auth.user and password == auth.pass then
+            GDI.text(boxX + 2, boxY + 6, "Login successful!", colors.white, colors.blue)
+            GDI.setColor(colors.white)
+            GDI.setBGColor(colors.black)
+            os.sleep(2)
+            return true
+        else
+            GDI.text(boxX + 2, boxY + 6, "Invalid credentials. Try again.", colors.red, colors.blue)
+            os.sleep(2)
+        end
     end
 end
 
