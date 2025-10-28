@@ -606,16 +606,19 @@ local icons = {
 end},
     {name="cmd", run=function() cmd() end}
 }
-
 local function getCustomApps()
-    local appList={}
-    local appDirs={"apps","disk/apps","disk2/apps","disk3/apps","disk4/apps","disk5/apps","disk6/apps"}
-    for _,dir in ipairs(appDirs) do
+    local appList = {}
+    local appDirs = {"apps","disk/apps","disk2/apps","disk3/apps","disk4/apps","disk5/apps","disk6/apps"}
+    for _, dir in ipairs(appDirs) do
         if fs.exists(dir) then
-            for _,file in ipairs(fs.list(dir)) do
+            for _, file in ipairs(fs.list(dir)) do
                 if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") then
-                    local appName=file:gsub("%..+$","")
-                    table.insert(appList,{name=appName,run=function() shell.run(dir.."/"..file) end})
+                    local filePath = fs.combine(dir, file)
+                    local appName = file:gsub("%..+$","")
+                    table.insert(appList, {
+                        name = appName,
+                        run = function() shell.run(filePath) end
+                    })
                 end
             end
         end
@@ -624,12 +627,14 @@ local function getCustomApps()
 end
 
 local function desktop()
-    for _, app in ipairs(getCustomApps()) do table.insert(icons, app) end
+    local allIcons = {}
+    for _, icon in ipairs(icons) do table.insert(allIcons, icon) end
+    for _, app in ipairs(getCustomApps()) do table.insert(allIcons, app) end
 
     while true do
         mirroredClear()
         mirroredPrint("== Desktop ==")
-        for i, icon in ipairs(icons) do
+        for i, icon in ipairs(allIcons) do
             mirroredPrint(i .. ". " .. icon.name)
         end
         mirroredPrint("Type number or app name, or click an icon:")
@@ -637,14 +642,14 @@ local function desktop()
         local event, button, x, y = os.pullEvent()
         if event == "mouse_click" then
             local line = y - 1
-            if line >= 1 and line <= #icons then
-                icons[line].run()
+            if line >= 1 and line <= #allIcons then
+                allIcons[line].run()
             end
         elseif event == "key" then
-            mirroredSetCursor(1, #icons + 4)
+            mirroredSetCursor(1, #allIcons + 4)
             local input = mirroredRead():lower()
             local matched = false
-            for i, icon in ipairs(icons) do
+            for i, icon in ipairs(allIcons) do
                 if input == tostring(i) or input:lower() == icon.name:lower() then
                     icon.run()
                     matched = true
