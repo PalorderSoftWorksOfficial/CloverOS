@@ -589,12 +589,21 @@ local function getCustomApps()
     for _, dir in ipairs(appDirs) do
         if fs.exists(dir) then
             for _, file in ipairs(fs.list(dir)) do
-                if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") then
+                if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") or file:match("%.[dD][lL][lL]$") then
                     local filePath = fs.combine(dir, file)
                     local appName = file:gsub("%..+$","")
                     table.insert(appList, {
                         name = appName,
-                        run = function() shell.run(filePath) end
+                        path = filePath,
+                        run = function()
+                            mirroredClear()
+                            local ok, err = pcall(function() shell.run(filePath) end)
+                            if not ok then
+                                mirroredPrint("Error running " .. appName .. ": " .. tostring(err))
+                                os.sleep(1.5)
+                            end
+                            mirroredClear()
+                        end
                     })
                 end
             end
@@ -602,6 +611,7 @@ local function getCustomApps()
     end
     return appList
 end
+
 
 local function desktop()
     local allIcons = {}
@@ -626,7 +636,7 @@ local function desktop()
             if line >= 1 and line <= #allIcons then
                 allIcons[line].run()
             end
-        elseif event == "key" or event == "char" then
+        elseif event == "char" or event == "key" then
             mirroredSetCursor(1, #allIcons + 4)
             local input = mirroredRead()
             if not input or input == "" then goto continue end
