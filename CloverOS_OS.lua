@@ -639,13 +639,14 @@ local function desktop()
         end
         mirroredPrint("Type number or app name, or click an icon:")
 
-        local event, button, x, y = os.pullEvent()
+        local event = os.pullEventRaw()
         if event == "mouse_click" then
+            local _, _, x, y = os.pullEvent("mouse_click")
             local line = y - 1
             if line >= 1 and line <= #allIcons then
                 allIcons[line].run()
             end
-        elseif event == "key" then
+        else
             mirroredSetCursor(1, #allIcons + 4)
             local input = mirroredRead():lower()
             local matched = false
