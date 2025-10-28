@@ -224,11 +224,12 @@ local function simulateLoading()
         elseif msg:find("%[WARN%]") then color = colors.orange
         elseif msg:find("%[OK%]") then color = colors.lime
         elseif msg:find("%[BOOT%]") then color = colors.lightBlue
-        elseif msg:find("%[INIT%]") then color = colors.green end
+        elseif msg:find("%[INIT%]") then color = colors.green
         elseif msg:find("%[KERNEL%]") then color = colors.cyan
         elseif msg:find("%[INIT%]") then color = colors.yellow
         elseif msg:find("%[SERVICES%]") then color = colors.orange
         elseif msg:find("%[SEC%]") then color = colors.purple
+        end
         centerPrint(ybase + i, msg, color)
         os.sleep(0.45 + math.random() * 0.15)
     end
