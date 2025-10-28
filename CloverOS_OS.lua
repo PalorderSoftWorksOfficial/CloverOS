@@ -176,97 +176,73 @@ end
 
 -- Loading screen
 local function simulateLoading()
-    local function glitchyType(text, delay)
-        delay = delay or 0.02
-        for i = 1, #text do
-            mirroredWrite(text:sub(i, i))
-            os.sleep(delay + math.random() * 0.01)
-        end
-        mirroredPrint("")
+    local w,h = term.getSize()
+    GDI.clear(colors.black)
+
+    local function centerPrint(y, text, fg)
+        local x = math.floor((w - #text) / 2) + 1
+        GDI.text(x, y, text, fg or colors.white, colors.black)
     end
 
-    local function splash()
-        mirroredClear()
-        mirroredSetCursor(1, 1)
-        term.setTextColor(colors.green)
-        mirroredWrite([[ 
-   _____   _____   _____   ____   ____   _____ 
-  |  __ \ |  __ \ |  __ \ |  _ \ / __ \ / ____|
-  | |__) || |__) || |__) || |_) | |  | | (___  
-  |  ___/ |  ___/ |  ___/ |  _ <| |  | |\___ \ 
-  | |     | |     | |     | |_) | |__| |____) |
-  |_|     |_|     |_|     |____/ \____/|_____/ 
-                Clover OS v1.3
-        ]])
-        term.setTextColor(colors.white)
-        os.sleep(2)
+    local logo = {
+        "   ________                _____  _____  _____   ",
+        "  / ____/ /___  __  ______/ ___/ / ___/ / ___/   ",
+        " / /   / / __ \\/ / / / / __ \\__ \\  \\__ \\  \\__ \\  ",
+        "/ /___/ / /_/ / /_/ / /_/ /__/ / ___/ / ___/ /   ",
+        "\\____/_/ .___/\\__,_/\\____/____/ /____/ /____/   ",
+        "      /_/                                        ",
+    }
+
+    for i, line in ipairs(logo) do
+        centerPrint(2 + i, line, colors.green)
+        os.sleep(0.05)
     end
 
-    local function loadingMessages()
-        local logs = {
-            "[BOOT] Initializing kernel modules...",
-            "[ OK ] Mounted virtual filesystem.",
-            "[INFO] Loading CloverOS system services...",
-            "[ OK ] System clock synced.",
-            "[FAIL] Bluetooth service not found. Skipping.",
-            "[ OK ] Network interface initialized.",
-            "[ OK ] CloverOS Secure Shell enabled.",
-            "[ OK ] Environment variables set.",
-            "[WARN] Thermal sensor driver outdated.",
-            "[ OK ] All critical systems operational.",
-        }
+    os.sleep(0.6)
+    centerPrint(10, "CloverOS Krnl v1.0.0", colors.white)
+    os.sleep(0.4)
 
-        for _, msg in ipairs(logs) do
-            mirroredSetCursor(1, 10)
-            term.setTextColor(colors.gray)
-            mirroredClear()
-            term.setTextColor(
-                msg:find("%[FAIL%]") and colors.red or
-                msg:find("%[WARN%]") and colors.orange or
-                msg:find("%[OK%]") and colors.lime or
-                colors.white
-            )
-            glitchyType(msg, 0.01 + math.random() * 0.02)
-            os.sleep(0.3)
-        end
-        term.setTextColor(colors.white)
+    local bootMessages = {
+        "[BOOT] Detecting CPU and kernel features...",
+        "[BOOT] Initializing hardware interfaces...",
+        "[BOOT] Loading kernel modules...",
+        "[KERNEL] Mounting root filesystem...",
+        "[KERNEL] Checking disk integrity...",
+        "[KERNEL] Starting process manager...",
+        "[INIT] Launching device services...",
+        "[INIT] Initializing network stack...",
+        "[SERVICES] Starting system daemons...",
+        "[SEC] Initializing security policies...",
+        "[OK] System services running.",
+        "[OK] All critical kernel modules loaded."
+    }
+
+    local ybase = 12
+    for i, msg in ipairs(bootMessages) do
+        local color = colors.white
+        if msg:find("%[FAIL%]") then color = colors.red
+        elseif msg:find("%[WARN%]") then color = colors.orange
+        elseif msg:find("%[OK%]") then color = colors.lime
+        elseif msg:find("%[BOOT%]") then color = colors.lightBlue
+        elseif msg:find("%[INIT%]") then color = colors.green end
+        elseif msg:find("%[KERNEL%]") then color = colors.cyan
+        elseif msg:find("%[INIT%]") then color = colors.yellow
+        elseif msg:find("%[SERVICES%]") then color = colors.orange
+        elseif msg:find("%[SEC%]") then color = colors.purple
+        centerPrint(ybase + i, msg, color)
+        os.sleep(0.45 + math.random() * 0.15)
     end
 
-    local function loadingBar()
-        mirroredSetCursor(1, 17)
-        term.setTextColor(colors.lightGray)
-        mirroredPrint("Loading Clover OS modules:")
-        mirroredSetCursor(1, 18)
-        term.setTextColor(colors.green)
-        local barLength = 35
-        for i = 1, barLength do
-            mirroredWrite("=")
-            os.sleep(0.05 + math.random() * 0.03)
-        end
-        mirroredWrite(" [")
-        term.setTextColor(colors.lime)
-        mirroredWrite("✔")
-        term.setTextColor(colors.green)
-        mirroredWrite("]")
-        mirroredPrint("")
-        term.setTextColor(colors.white)
+    local barW = math.min(50, w - 10)
+    local bx = math.floor((w - barW) / 2) + 1
+    local by = ybase + #bootMessages + 2
+    centerPrint(by - 2, "Loading kernel components:", colors.lightGray)
+    for i = 1, barW do
+        GDI.text(bx + i - 1, by, " ", colors.green, colors.black)
+        os.sleep(0.02 + math.random() * 0.02)
     end
-
-    local function finished()
-        mirroredSetCursor(1, 20)
-        term.setTextColor(colors.white)
-        mirroredPrint("Welcome to Clover OS. All systems are nominal.")
-        os.sleep(1)
-    end
-
-    splash()
-    mirroredClear()
-    mirroredSetCursor(1, 1)
-    glitchyType(">> Booting Clover OS...", 0.05)
-    os.sleep(0.5)
-    loadingMessages()
-    loadingBar()
-    finished()
+    centerPrint(by + 2, "CloverOS Krnl started successfully.", colors.lime)
+    os.sleep(0.9)
 end
 
 -- File Manager
