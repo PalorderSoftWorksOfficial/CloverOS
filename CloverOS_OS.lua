@@ -125,7 +125,9 @@ local function login()
     local password = mirroredRead(true)
 
     if username == "user" and password == "pass" then
-        GDI.text(boxX + 2, boxY + 6, "Login successful!", colors.black, colors.black)
+        GDI.text(boxX + 2, boxY + 6, "Login successful!")
+        GDI.setColor(colors.white)
+        GDI.setBGColor(colors.black)
         os.sleep(2)
     else
         GDI.text(boxX + 2, boxY + 6, "Invalid credentials. Try again.", colors.red, colors.blue)
