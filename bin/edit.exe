@@ -559,7 +559,7 @@ end
 -- Get file to edit
 local tArgs = { ... }
 if #tArgs == 0 then
-	print( "Usage: shedit <path>" )
+	print( "Usage: edit <path>" )
 	return
 end
 
