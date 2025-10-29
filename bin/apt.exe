@@ -108,6 +108,20 @@ function apt.rebuildSystem()
     end
 end
 
+function apt.scanPackages()
+    local found = {}
+    for i=0,99 do
+        local disk = "disk"..i
+        local path = "/"..disk.."/etc/apt/packages"
+        if fs.exists(path) then
+            for _, pkg in ipairs(fs.list(path)) do
+                table.insert(found, pkg.." (from "..disk..")")
+            end
+        end
+    end
+    return found
+end
+
 if cmd == "install" and pkg then
     if apt.checkinstall(pkg) then print("Already installed: "..pkg)
     elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild = true
@@ -124,8 +138,11 @@ elseif cmd == "list-available" then
 elseif cmd == "rebuild" then
     apt.rebuildSystem()
     print("System rebuilt from installed packages")
+elseif cmd == "scan" then
+    local pkgs = apt.scanPackages()
+    for _, p in ipairs(pkgs) do print(p) end
 else
-    print("Usage: apt <install|remove|list-installed|list-available|rebuild> <package>")
+    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan> <package>")
 end
 
 if rebuild then
