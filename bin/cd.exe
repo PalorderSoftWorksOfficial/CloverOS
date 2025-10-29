@@ -1,0 +1,24 @@
+args = {...}
+local target = args[1]
+
+if not target or target == "" then
+    print(shell.dir())
+    return
+end
+
+if target == ".." then
+    shell.setDir(fs.getDir(shell.dir()))
+    return
+end
+
+if not fs.exists(target) then
+    print("The system cannot find the path specified.")
+    return
+end
+
+if not fs.isDir(target) then
+    print("Not a directory.")
+    return
+end
+
+shell.setDir(shell.resolve(target))

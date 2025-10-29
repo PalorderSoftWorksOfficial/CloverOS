@@ -1,0 +1,8 @@
+CLS.EXE - clear screen
+Usage: cls
+
+Clears the terminal display.
+Example:
+  cls
+
+No arguments required.
