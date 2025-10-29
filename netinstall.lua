@@ -152,12 +152,59 @@ if edition == "default" then
             line = f.readLine()
         end
         f.close()
+        for i, v in ipairs(fileList) do
+        if v == "netinstall.lua" then
+            table.remove(fileList, i)
+            break
+        end
+    end
     else
         print("Failed to read manifest. Aborting.")
         return
     end
 elseif edition == "soft" then
     table.insert(fileList, "CloverOS_OS.lua")
+    for i, v in ipairs(fileList) do
+    if v == "netinstall.lua" then
+        table.remove(fileList, i)
+        break
+    end
+end
+    local basicCommands = {
+        "bin/cd.exe",
+        "bin/cls.exe",
+        "bin/dir.exe",
+        "bin/del.exe",
+        "bin/copy.exe",
+        "bin/move.exe",
+        "bin/ren.exe",
+        "bin/mkdir.exe",
+        "bin/rmdir.exe",
+        "bin/type.exe",
+        "bin/man.exe"
+    }
+
+    local manFiles = {
+        "etc/man/cd.man",
+        "etc/man/cls.man",
+        "etc/man/dir.man",
+        "etc/man/del.man",
+        "etc/man/copy.man",
+        "etc/man/move.man",
+        "etc/man/ren.man",
+        "etc/man/mkdir.man",
+        "etc/man/rmdir.man",
+        "etc/man/type.man",
+        "etc/man/man.man"
+    }
+
+    for _, file in ipairs(basicCommands) do
+        table.insert(fileList, file)
+    end
+
+    for _, man in ipairs(manFiles) do
+        table.insert(fileList, man)
+    end
 end
 
 for _, file in ipairs(fileList) do
