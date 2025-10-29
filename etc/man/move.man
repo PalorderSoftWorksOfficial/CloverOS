@@ -1,0 +1,9 @@
+MOVE.EXE - move files
+Usage: move <source> <destination>
+
+Moves a file from one path to another.
+Example: move test.txt docs/test.txt
+
+Notes:
+- Works for files only.
+- Use COPY and DEL for a manual move.

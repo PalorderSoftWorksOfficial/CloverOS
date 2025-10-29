@@ -1,0 +1,9 @@
+COPY.EXE - copy files
+Usage: copy <source> <destination>
+
+Copies a file to a new location.
+Example: copy main.lua backup/main.lua
+
+Notes:
+- Does not copy folders.
+- Use COPYTREE.EXE to copy directories.

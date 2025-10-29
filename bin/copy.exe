@@ -1,0 +1,7 @@
+local args={...}
+local src,dst=args[1],args[2]
+if not src or not dst then print("Usage: copy <src> <dst>") return end
+if not fs.exists(src) then print("Source not found.") return end
+if fs.isDir(src) then print("Cannot copy directories.") return end
+fs.copy(src,dst)
+print("Copied "..src.." -> "..dst)

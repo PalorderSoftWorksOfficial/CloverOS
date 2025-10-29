@@ -1,0 +1,8 @@
+MKDIR.EXE - make directories
+Usage: mkdir <directory>
+
+Creates a new directory.
+Example: mkdir projects
+
+Notes:
+- Creates nested folders if parent exists.

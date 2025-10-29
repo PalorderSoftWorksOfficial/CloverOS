@@ -1,0 +1,7 @@
+local args={...}
+local f=args[1]
+if not f or f=="" then print("Usage: del <file>") return end
+if not fs.exists(f) then print("File not found.") return end
+if fs.isDir(f) then print("Cannot delete a directory.") return end
+fs.delete(f)
+print("Deleted "..f)
