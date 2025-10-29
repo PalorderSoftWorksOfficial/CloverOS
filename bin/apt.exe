@@ -23,12 +23,9 @@ local function copyFile(src,dest)
 end
 
 local function findAptFolder()
-    local sides = {}
-    for i=0,99 do table.insert(sides,"disk"..i) end
-    for _, side in ipairs(sides) do
-        if fs.exists("/"..side.."/etc/apt") then
-            return "/"..side.."/etc/apt"
-        end
+    for i=0,99 do
+        local diskPath = "/disk"..i.."/etc/apt"
+        if fs.exists(diskPath) then return diskPath end
     end
     return "/etc/apt"
 end
@@ -48,12 +45,8 @@ local function copyPackageFiles(pkgPath)
 
     for _,f in ipairs(fs.list(pkgPath)) do
         local fullPath = fs.combine(pkgPath,f)
-        if meta.binary and f:match("%.exe$") then
-            copyFile(fullPath,fs.combine("/bin",f))
-        end
-        if meta.app and f:match("%.lua$") then
-            copyFile(fullPath,fs.combine("/apps",f))
-        end
+        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine("/bin",f)) end
+        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine("/apps",f)) end
     end
     return true
 end
@@ -67,19 +60,18 @@ end
 function apt.install(pkg)
     local pkgPath = nil
     for i=0,99 do
-        local disk = "disk"..i
-        local path = "/"..disk.."/etc/apt/packages/"..pkg
-        if fs.exists(path) then
-            pkgPath = path
-            break
-        end
+        local diskPath = "/disk"..i.."/etc/apt/packages/"..pkg
+        if fs.exists(diskPath) then pkgPath = diskPath break end
     end
     if not pkgPath then
         pkgPath = fs.combine(APT_PATH.."/packages",pkg)
         if not fs.exists(pkgPath) then return false end
     end
-    if not fs.exists("/etc/apt/installed") then fs.makeDir("/etc/apt/installed") end
-    if not fs.exists(fs.combine("/etc/apt/installed",pkg)) then fs.makeDir(fs.combine("/etc/apt/installed",pkg)) end
+
+    local installedPath = fs.combine(APT_PATH.."/installed",pkg)
+    if not fs.exists(APT_PATH.."/installed") then fs.makeDir(APT_PATH.."/installed") end
+    if not fs.exists(installedPath) then fs.makeDir(installedPath) end
+
     if copyPackageFiles(pkgPath) then
         copyPackageFiles(pkgPath)
         return true
@@ -107,13 +99,23 @@ function apt.listInstalled()
 end
 
 function apt.listAvailable()
-    if not fs.exists(APT_PATH.."/packages") then return {} end
-    return fs.list(APT_PATH.."/packages")
+    local pkgs = {}
+    if fs.exists(APT_PATH.."/packages") then
+        for _, p in ipairs(fs.list(APT_PATH.."/packages")) do table.insert(pkgs,p) end
+    end
+    for i=0,99 do
+        local diskPath = "/disk"..i.."/etc/apt/packages"
+        if fs.exists(diskPath) then
+            for _, p in ipairs(fs.list(diskPath)) do
+                if not table.pack(table.unpack(pkgs)):find(p) then table.insert(pkgs,p) end
+            end
+        end
+    end
+    return pkgs
 end
 
 function apt.rebuildSystem()
-    local installed = apt.listInstalled()
-    for _, pkg in ipairs(installed) do
+    for _, pkg in ipairs(apt.listInstalled()) do
         local pkgPath = fs.combine(APT_PATH.."/installed",pkg)
         if fs.exists(pkgPath) then copyPackageFiles(pkgPath) end
     end
@@ -122,11 +124,10 @@ end
 function apt.scanPackages()
     local found = {}
     for i=0,99 do
-        local disk = "disk"..i
-        local path = "/"..disk.."/etc/apt/packages"
-        if fs.exists(path) then
-            for _, pkg in ipairs(fs.list(path)) do
-                table.insert(found, pkg.." (from "..disk..")")
+        local diskPath = "/disk"..i.."/etc/apt/packages"
+        if fs.exists(diskPath) then
+            for _, pkg in ipairs(fs.list(diskPath)) do
+                table.insert(found, pkg.." (from disk"..i..")")
             end
         end
     end
@@ -150,8 +151,7 @@ elseif cmd == "rebuild" then
     apt.rebuildSystem()
     print("System rebuilt from installed packages")
 elseif cmd == "scan" then
-    local pkgs = apt.scanPackages()
-    for _, p in ipairs(pkgs) do print(p) end
+    for _, p in ipairs(apt.scanPackages()) do print(p) end
 else
     print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan> <package>")
 end
