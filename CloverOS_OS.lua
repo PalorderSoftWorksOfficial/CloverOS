@@ -357,7 +357,6 @@ local function cmd()
         mirroredSetCursor(1,h)
         term.setBackgroundColor(colors.lightGray)
         term.setTextColor(colors.black)
-        mirroredWrite(" CloverOS v3.2 | User: root | "..textutils.formatTime(os.time(),true))
         term.setBackgroundColor(colors.black)
         term.setTextColor(colors.white)
     end
