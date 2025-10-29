@@ -1,7 +1,33 @@
-local args={...}
-local f=args[1]
-if not f or f=="" then print("Usage: del <file>") return end
-if not fs.exists(f) then print("File not found.") return end
-if fs.isDir(f) then print("Cannot delete a directory.") return end
-fs.delete(f)
-print("Deleted "..f)
+local args = {...}
+local path = args[1]
+
+if not path or path == "" then
+    print("Usage: del <file|pattern>")
+    return
+end
+
+local function deleteFile(file)
+    if fs.exists(file) then
+        if fs.isDir(file) then
+            print("Cannot delete directory: " .. file)
+        else
+            fs.delete(file)
+            print("Deleted: " .. file)
+        end
+    else
+        print("File not found: " .. file)
+    end
+end
+
+if path:find("%*") then
+    local base = path:match("^(.-)%*") or ""
+    if fs.exists(base) and fs.isDir(base) then
+        for _, file in ipairs(fs.list(base)) do
+            deleteFile(fs.combine(base, file))
+        end
+    else
+        print("Directory not found: " .. base)
+    end
+else
+    deleteFile(path)
+end
