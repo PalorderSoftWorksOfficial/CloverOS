@@ -1,0 +1,6 @@
+{
+    "name": "example",
+    "description": "A simple hello world binary",
+    "app": false,
+    "binary": true
+}

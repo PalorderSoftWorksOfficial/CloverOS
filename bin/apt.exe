@@ -1,18 +1,120 @@
-args = {...}
-local command = args[1]
-local pkn = args[2]
+local args = {...}
+local cmd = args[1]
+local pkg = args[2]
 local rebuild = false
 
--- we translate aliases
-if command == "install" then command = "-i" end
-if command == "remove" then command = "-r" end
-if command == "update" then command = "-u" end
-if command == "update-forced" then command = "-U" end
-if command == "setsource" then command = "-s" end
-if command == "clearsource" then command = "-c" end
-if command == "setupdate" then command = "-a" end
-if command == "list-installed" then command = "-l" end
-if command == "list-available" then command = "-la" end
-if command == "list-source" then command = "-ls" end
--- were gonna add the actual functionality later
-print("not implemented yet.")
+local function readJSON(path)
+    if not fs.exists(path) then return nil end
+    local f = fs.open(path, "r")
+    local content = f.readAll()
+    f.close()
+    local ok, data = pcall(textutils.unserializeJSON, content)
+    if ok then return data end
+    return nil
+end
+
+local function copyFile(src, dest)
+    local f = fs.open(src, "rb")
+    local content = f.readAll()
+    f.close()
+    local f2 = fs.open(dest, "wb")
+    f2.write(content)
+    f2.close()
+end
+
+local function copyPackageFiles(pkgPath)
+    local meta = readJSON(fs.combine(pkgPath,"package.json"))
+    if not meta then return false end
+    if meta.binary then
+        for _, f in ipairs(fs.list(pkgPath)) do
+            if f:match("%.exe$") then
+                copyFile(fs.combine(pkgPath,f), fs.combine("/bin",f))
+            end
+        end
+    end
+    if meta.app then
+        for _, f in ipairs(fs.list(pkgPath)) do
+            if f:match("%.lua$") then
+                copyFile(fs.combine(pkgPath,f), fs.combine("/apps",f))
+            end
+        end
+    end
+    return true
+end
+
+local apt = {}
+
+function apt.checkinstall(pkg)
+    return fs.exists("/etc/apt/installed/"..pkg)
+end
+
+function apt.install(pkg)
+    local pkgPath = "/etc/apt/packages/"..pkg
+    if not fs.exists(pkgPath) then return false end
+    if not fs.exists("/bin") then fs.makeDir("/bin") end
+    if not fs.exists("/apps") then fs.makeDir("/apps") end
+    copyPackageFiles(pkgPath)
+    if not fs.exists("/etc/apt/installed") then fs.makeDir("/etc/apt/installed") end
+    if not fs.exists("/etc/apt/installed/"..pkg) then fs.makeDir("/etc/apt/installed/"..pkg) end
+    copyPackageFiles(pkgPath)
+    return true
+end
+
+function apt.uninstall(pkg)
+    local installedPath = "/etc/apt/installed/"..pkg
+    if not fs.exists(installedPath) then return false end
+    local function deleteRecursive(path)
+        for _, f in ipairs(fs.list(path)) do
+            local full = fs.combine(path,f)
+            if fs.isDir(full) then deleteRecursive(full) else fs.delete(full) end
+        end
+        fs.delete(path)
+    end
+    deleteRecursive(installedPath)
+    return true
+end
+
+function apt.listInstalled()
+    if not fs.exists("/etc/apt/installed") then return {} end
+    return fs.list("/etc/apt/installed")
+end
+
+function apt.listAvailable()
+    if not fs.exists("/etc/apt/packages") then return {} end
+    return fs.list("/etc/apt/packages")
+end
+
+function apt.rebuildSystem()
+    local installed = apt.listInstalled()
+    for _, pkg in ipairs(installed) do
+        local pkgPath = "/etc/apt/installed/"..pkg
+        if fs.exists(pkgPath) then copyPackageFiles(pkgPath) end
+    end
+end
+
+if cmd == "install" and pkg then
+    if apt.checkinstall(pkg) then print("Already installed: "..pkg)
+    else
+        if apt.install(pkg) then print("Package installed: "..pkg) rebuild = true
+        else print("Package not found or missing package.json: "..pkg) end
+    end
+elseif cmd == "remove" and pkg then
+    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild = true
+    else print("Package not installed: "..pkg) end
+elseif cmd == "list-installed" then
+    local installed = apt.listInstalled()
+    for _, p in ipairs(installed) do print(p) end
+elseif cmd == "list-available" then
+    local available = apt.listAvailable()
+    for _, p in ipairs(available) do print(p) end
+elseif cmd == "rebuild" then
+    apt.rebuildSystem()
+    print("System rebuilt from installed packages")
+else
+    print("Usage: apt <install|remove|list-installed|list-available|rebuild> <package>")
+end
+
+if rebuild then
+    print("Reloading system files from installed packages")
+    apt.rebuildSystem()
+end
