@@ -59,21 +59,28 @@ end
 
 function apt.install(pkg)
     local pkgPath = nil
+    -- Check all disks first
     for i=0,99 do
         local diskPath = "/disk"..i.."/etc/apt/packages/"..pkg
         if fs.exists(diskPath) then pkgPath = diskPath break end
     end
+    -- Check current APT_PATH packages
     if not pkgPath then
-        pkgPath = fs.combine(APT_PATH.."/packages",pkg)
-        if not fs.exists(pkgPath) then return false end
+        local path = fs.combine(APT_PATH.."/packages",pkg)
+        if fs.exists(path) then pkgPath = path end
     end
+    if not pkgPath then return false end
 
     local installedPath = fs.combine(APT_PATH.."/installed",pkg)
     if not fs.exists(APT_PATH.."/installed") then fs.makeDir(APT_PATH.."/installed") end
     if not fs.exists(installedPath) then fs.makeDir(installedPath) end
 
+    -- Copy package.json into installed folder
+    if fs.exists(fs.combine(pkgPath,"package.json")) then
+        copyFile(fs.combine(pkgPath,"package.json"), fs.combine(installedPath,"package.json"))
+    end
+
     if copyPackageFiles(pkgPath) then
-        copyPackageFiles(pkgPath)
         return true
     end
     return false
@@ -107,7 +114,7 @@ function apt.listAvailable()
         local diskPath = "/disk"..i.."/etc/apt/packages"
         if fs.exists(diskPath) then
             for _, p in ipairs(fs.list(diskPath)) do
-                if not table.pack(table.unpack(pkgs)):find(p) then table.insert(pkgs,p) end
+                if not table.find(pkgs,p) then table.insert(pkgs,p) end
             end
         end
     end
@@ -129,6 +136,11 @@ function apt.scanPackages()
             for _, pkg in ipairs(fs.list(diskPath)) do
                 table.insert(found, pkg.." (from disk"..i..")")
             end
+        end
+    end
+    if fs.exists(APT_PATH.."/packages") then
+        for _, pkg in ipairs(fs.list(APT_PATH.."/packages")) do
+            table.insert(found, pkg.." (from APT_PATH)")
         end
     end
     return found
