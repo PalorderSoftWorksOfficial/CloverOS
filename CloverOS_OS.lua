@@ -378,13 +378,34 @@ local function cmd()
 
     local running=true
     local builtin={
-        help=function()
-            local cmds=listCommands()
-            for c,_ in pairs(cmds) do mirroredPrint(c) end
-            mirroredPrint("exit")
-            mirroredPrint("shutdown")
-            mirroredPrint("help")
-        end,
+    help = function()
+        local cmds = listCommands()
+        local cmdList = {}
+
+        for c, _ in pairs(cmds) do
+            table.insert(cmdList, c)
+        end
+
+        table.sort(cmdList)
+
+        local i = 1
+        while i <= #cmdList do
+            for j = 0, 3 do
+                if cmdList[i + j] then
+                    mirroredPrint(cmdList[i + j])
+                end
+            end
+            i = i + 4
+            if i <= #cmdList then
+                mirroredPrint("Press Enter to see more...")
+                read()
+            end
+        end
+
+        mirroredPrint("exit")
+        mirroredPrint("shutdown")
+        mirroredPrint("help")
+    end,
         exit=function() running=false end,
         shutdown=function() running=false end
     }
