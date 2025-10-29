@@ -65,10 +65,21 @@ function apt.checkinstall(pkg)
 end
 
 function apt.install(pkg)
-    local pkgPath = fs.combine(APT_PATH.."/packages",pkg)
-    if not fs.exists(pkgPath) then return false end
-    if not fs.exists(APT_PATH.."/installed") then fs.makeDir(APT_PATH.."/installed") end
-    if not fs.exists(fs.combine(APT_PATH.."/installed",pkg)) then fs.makeDir(fs.combine(APT_PATH.."/installed",pkg)) end
+    local pkgPath = nil
+    for i=0,99 do
+        local disk = "disk"..i
+        local path = "/"..disk.."/etc/apt/packages/"..pkg
+        if fs.exists(path) then
+            pkgPath = path
+            break
+        end
+    end
+    if not pkgPath then
+        pkgPath = fs.combine(APT_PATH.."/packages",pkg)
+        if not fs.exists(pkgPath) then return false end
+    end
+    if not fs.exists("/etc/apt/installed") then fs.makeDir("/etc/apt/installed") end
+    if not fs.exists(fs.combine("/etc/apt/installed",pkg)) then fs.makeDir(fs.combine("/etc/apt/installed",pkg)) end
     if copyPackageFiles(pkgPath) then
         copyPackageFiles(pkgPath)
         return true
