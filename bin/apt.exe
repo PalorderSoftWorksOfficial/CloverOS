@@ -22,6 +22,24 @@ local function copyFile(src,dest)
     f2.close()
 end
 
+local function findAptFolder()
+    local sides = {}
+    for i=0,99 do table.insert(sides,"disk"..i) end
+    for _, side in ipairs(sides) do
+        if fs.exists("/"..side.."/etc/apt") then
+            return "/"..side.."/etc/apt"
+        end
+    end
+    return "/etc/apt"
+end
+
+local APT_PATH = findAptFolder()
+if not fs.exists(APT_PATH) then
+    fs.makeDir(APT_PATH)
+    fs.makeDir(APT_PATH.."/packages")
+    fs.makeDir(APT_PATH.."/installed")
+end
+
 local function copyPackageFiles(pkgPath)
     local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
@@ -43,14 +61,14 @@ end
 local apt = {}
 
 function apt.checkinstall(pkg)
-    return fs.exists("/etc/apt/installed/"..pkg)
+    return fs.exists(fs.combine(APT_PATH.."/installed",pkg))
 end
 
 function apt.install(pkg)
-    local pkgPath = "/etc/apt/packages/"..pkg
+    local pkgPath = fs.combine(APT_PATH.."/packages",pkg)
     if not fs.exists(pkgPath) then return false end
-    if not fs.exists("/etc/apt/installed") then fs.makeDir("/etc/apt/installed") end
-    if not fs.exists("/etc/apt/installed/"..pkg) then fs.makeDir("/etc/apt/installed/"..pkg) end
+    if not fs.exists(APT_PATH.."/installed") then fs.makeDir(APT_PATH.."/installed") end
+    if not fs.exists(fs.combine(APT_PATH.."/installed",pkg)) then fs.makeDir(fs.combine(APT_PATH.."/installed",pkg)) end
     if copyPackageFiles(pkgPath) then
         copyPackageFiles(pkgPath)
         return true
@@ -59,7 +77,7 @@ function apt.install(pkg)
 end
 
 function apt.uninstall(pkg)
-    local installedPath = "/etc/apt/installed/"..pkg
+    local installedPath = fs.combine(APT_PATH.."/installed",pkg)
     if not fs.exists(installedPath) then return false end
     local function deleteRecursive(path)
         for _, f in ipairs(fs.list(path)) do
@@ -73,19 +91,19 @@ function apt.uninstall(pkg)
 end
 
 function apt.listInstalled()
-    if not fs.exists("/etc/apt/installed") then return {} end
-    return fs.list("/etc/apt/installed")
+    if not fs.exists(APT_PATH.."/installed") then return {} end
+    return fs.list(APT_PATH.."/installed")
 end
 
 function apt.listAvailable()
-    if not fs.exists("/etc/apt/packages") then return {} end
-    return fs.list("/etc/apt/packages")
+    if not fs.exists(APT_PATH.."/packages") then return {} end
+    return fs.list(APT_PATH.."/packages")
 end
 
 function apt.rebuildSystem()
     local installed = apt.listInstalled()
     for _, pkg in ipairs(installed) do
-        local pkgPath = "/etc/apt/installed/"..pkg
+        local pkgPath = fs.combine(APT_PATH.."/installed",pkg)
         if fs.exists(pkgPath) then copyPackageFiles(pkgPath) end
     end
 end
