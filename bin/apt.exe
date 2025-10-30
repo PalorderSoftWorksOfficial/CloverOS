@@ -22,31 +22,46 @@ local function copyFile(src,dest)
     f2.close()
 end
 
-local function findAptFolder()
-    for i=0,99 do
-        local diskPath = "/disk"..i.."/etc/apt"
-        if fs.exists(diskPath) then return diskPath end
-    end
-    return "/etc/apt"
+local function tableContains(tbl,val)
+    for _,v in ipairs(tbl) do if v == val then return true end end
+    return false
 end
 
-local APT_PATH = findAptFolder()
-if not fs.exists(APT_PATH) then
-    fs.makeDir(APT_PATH)
-    fs.makeDir(APT_PATH.."/packages")
-    fs.makeDir(APT_PATH.."/installed")
-end
+local DISK_ROOT = (function()
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        if fs.exists("/"..d) then return "/"..d end
+    end
+    return nil
+end)()
+
+if not DISK_ROOT then print("Error: could not detect running disk") return end
+
+local APT_PATH = (function()
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        if fs.exists("/"..d.."/etc/apt") then return "/"..d.."/etc/apt" end
+    end
+    return fs.combine(DISK_ROOT,"etc/apt")
+end)()
+
+local PACKAGES_PATH = fs.combine(APT_PATH,"packages")
+local INSTALLED_PATH = fs.combine(APT_PATH,"installed")
+local BIN_PATH = fs.combine(DISK_ROOT,"bin")
+local APPS_PATH = fs.combine(DISK_ROOT,"apps")
+
+if not fs.exists(BIN_PATH) then fs.makeDir(BIN_PATH) end
+if not fs.exists(APPS_PATH) then fs.makeDir(APPS_PATH) end
+if not fs.exists(PACKAGES_PATH) then fs.makeDir(PACKAGES_PATH) end
+if not fs.exists(INSTALLED_PATH) then fs.makeDir(INSTALLED_PATH) end
 
 local function copyPackageFiles(pkgPath)
     local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
-    if not fs.exists("/bin") then fs.makeDir("/bin") end
-    if not fs.exists("/apps") then fs.makeDir("/apps") end
-
     for _,f in ipairs(fs.list(pkgPath)) do
         local fullPath = fs.combine(pkgPath,f)
-        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine("/bin",f)) end
-        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine("/apps",f)) end
+        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine(BIN_PATH,f)) end
+        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine(APPS_PATH,f)) end
     end
     return true
 end
@@ -54,44 +69,36 @@ end
 local apt = {}
 
 function apt.checkinstall(pkg)
-    return fs.exists(fs.combine(APT_PATH.."/installed",pkg))
+    return fs.exists(fs.combine(INSTALLED_PATH,pkg))
 end
 
 function apt.install(pkg)
-    local pkgPath = nil
-    -- Check all disks first
-    for i=0,99 do
-        local diskPath = "/disk"..i.."/etc/apt/packages/"..pkg
-        if fs.exists(diskPath) then pkgPath = diskPath break end
-    end
-    -- Check current APT_PATH packages
-    if not pkgPath then
-        local path = fs.combine(APT_PATH.."/packages",pkg)
-        if fs.exists(path) then pkgPath = path end
-    end
+    local pkgPath = (function()
+        for i=0,99 do
+            local d="disk"..(i==0 and "" or i)
+            local p="/"..d.."/etc/apt/packages/"..pkg
+            if fs.exists(p) then return p end
+        end
+        local localPkg = fs.combine(PACKAGES_PATH,pkg)
+        if fs.exists(localPkg) then return localPkg end
+        return nil
+    end)()
     if not pkgPath then return false end
 
-    local installedPath = fs.combine(APT_PATH.."/installed",pkg)
-    if not fs.exists(APT_PATH.."/installed") then fs.makeDir(APT_PATH.."/installed") end
-    if not fs.exists(installedPath) then fs.makeDir(installedPath) end
-
-    -- Copy package.json into installed folder
+    local installedPkgPath = fs.combine(INSTALLED_PATH,pkg)
+    if not fs.exists(installedPkgPath) then fs.makeDir(installedPkgPath) end
     if fs.exists(fs.combine(pkgPath,"package.json")) then
-        copyFile(fs.combine(pkgPath,"package.json"), fs.combine(installedPath,"package.json"))
+        copyFile(fs.combine(pkgPath,"package.json"), fs.combine(installedPkgPath,"package.json"))
     end
-
-    if copyPackageFiles(pkgPath) then
-        return true
-    end
-    return false
+    return copyPackageFiles(pkgPath)
 end
 
 function apt.uninstall(pkg)
-    local installedPath = fs.combine(APT_PATH.."/installed",pkg)
+    local installedPath = fs.combine(INSTALLED_PATH,pkg)
     if not fs.exists(installedPath) then return false end
     local function deleteRecursive(path)
-        for _, f in ipairs(fs.list(path)) do
-            local full = fs.combine(path,f)
+        for _,f in ipairs(fs.list(path)) do
+            local full=fs.combine(path,f)
             if fs.isDir(full) then deleteRecursive(full) else fs.delete(full) end
         end
         fs.delete(path)
@@ -101,20 +108,20 @@ function apt.uninstall(pkg)
 end
 
 function apt.listInstalled()
-    if not fs.exists(APT_PATH.."/installed") then return {} end
-    return fs.list(APT_PATH.."/installed")
+    return fs.exists(INSTALLED_PATH) and fs.list(INSTALLED_PATH) or {}
 end
 
 function apt.listAvailable()
     local pkgs = {}
-    if fs.exists(APT_PATH.."/packages") then
-        for _, p in ipairs(fs.list(APT_PATH.."/packages")) do table.insert(pkgs,p) end
+    if fs.exists(PACKAGES_PATH) then
+        for _,p in ipairs(fs.list(PACKAGES_PATH)) do table.insert(pkgs,p) end
     end
     for i=0,99 do
-        local diskPath = "/disk"..i.."/etc/apt/packages"
+        local d="disk"..(i==0 and "" or i)
+        local diskPath="/"..d.."/etc/apt/packages"
         if fs.exists(diskPath) then
-            for _, p in ipairs(fs.list(diskPath)) do
-                if not table.find(pkgs,p) then table.insert(pkgs,p) end
+            for _,p in ipairs(fs.list(diskPath)) do
+                if not tableContains(pkgs,p) then table.insert(pkgs,p) end
             end
         end
     end
@@ -122,50 +129,106 @@ function apt.listAvailable()
 end
 
 function apt.rebuildSystem()
-    for _, pkg in ipairs(apt.listInstalled()) do
-        local pkgPath = fs.combine(APT_PATH.."/installed",pkg)
+    for _,pkg in ipairs(apt.listInstalled()) do
+        local pkgPath = fs.combine(INSTALLED_PATH,pkg)
         if fs.exists(pkgPath) then copyPackageFiles(pkgPath) end
     end
 end
 
 function apt.scanPackages()
-    local found = {}
-    for i=0,99 do
-        local diskPath = "/disk"..i.."/etc/apt/packages"
-        if fs.exists(diskPath) then
-            for _, pkg in ipairs(fs.list(diskPath)) do
-                table.insert(found, pkg.." (from disk"..i..")")
-            end
-        end
+    local found={}
+    if fs.exists(PACKAGES_PATH) then
+        for _,pkg in ipairs(fs.list(PACKAGES_PATH)) do table.insert(found,pkg.." (from current disk)") end
     end
-    if fs.exists(APT_PATH.."/packages") then
-        for _, pkg in ipairs(fs.list(APT_PATH.."/packages")) do
-            table.insert(found, pkg.." (from APT_PATH)")
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        local diskPath="/"..d.."/etc/apt/packages"
+        if fs.exists(diskPath) then
+            for _,pkg in ipairs(fs.list(diskPath)) do
+                if not tableContains(found,pkg) then
+                    table.insert(found,pkg.." (from "..d..")")
+                end
+            end
         end
     end
     return found
 end
 
-if cmd == "install" and pkg then
+function apt.fetch(pkg)
+    if not pkg then return false end
+
+    local repoBase = "https://palordersoftworksofficial.github.io/CloverOS/etc/apt/packages/"
+
+    local diskRoot = (function()
+        for i = 0, 99 do
+            local d = "disk"..(i == 0 and "" or i)
+            if fs.exists("/"..d.."/bin") and fs.exists("/"..d.."/apps") then
+                return "/"..d
+            end
+        end
+        if fs.exists("/bin") and fs.exists("/apps") then return "/" end
+        return nil
+    end)()
+
+    if not diskRoot then print("Error: could not detect running disk") return false end
+
+    local pkgPath = fs.combine(PACKAGES_PATH, pkg)
+    if not fs.exists(pkgPath) then fs.makeDir(pkgPath) end
+
+    local function fetchFile(filename, destFolder)
+        local url = repoBase .. pkg .. "/" .. filename
+        local dest
+        if destFolder then
+            if not fs.exists(destFolder) then fs.makeDir(destFolder) end
+            dest = fs.combine(destFolder, filename)
+        else
+            dest = fs.combine(pkgPath, filename)
+        end
+        local ok = shell.run("wget", url, dest)
+        if not ok then print("Failed to fetch: "..filename) return false end
+        return true
+    end
+
+    if not fetchFile("package.json") then
+        print("Failed to fetch package.json for package: "..pkg)
+        return false
+    end
+
+    local meta = readJSON(fs.combine(pkgPath,"package.json"))
+    if not meta then return false end
+
+    if meta.binary then
+        fetchFile(pkg..".exe", fs.combine(diskRoot, "bin"))
+    end
+    if meta.app then
+        fetchFile(pkg..".lua", fs.combine(diskRoot, "apps"))
+    end
+
+    print("Fetched package: "..pkg)
+    return true
+end
+
+if cmd=="install" and pkg then
     if apt.checkinstall(pkg) then print("Already installed: "..pkg)
-    elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild = true
-    else print("Package not found or missing package.json: "..pkg)
-    end
-elseif cmd == "remove" and pkg then
-    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild = true
-    else print("Package not installed: "..pkg)
-    end
-elseif cmd == "list-installed" then
-    for _, p in ipairs(apt.listInstalled()) do print(p) end
-elseif cmd == "list-available" then
-    for _, p in ipairs(apt.listAvailable()) do print(p) end
-elseif cmd == "rebuild" then
+    elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild=true
+    else print("Package not found or missing package.json: "..pkg) end
+elseif cmd=="remove" and pkg then
+    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild=true
+    else print("Package not installed: "..pkg) end
+elseif cmd=="list-installed" then
+    for _,p in ipairs(apt.listInstalled()) do print(p) end
+elseif cmd=="list-available" then
+    for _,p in ipairs(apt.listAvailable()) do print(p) end
+elseif cmd=="rebuild" then
     apt.rebuildSystem()
     print("System rebuilt from installed packages")
-elseif cmd == "scan" then
-    for _, p in ipairs(apt.scanPackages()) do print(p) end
+elseif cmd=="scan" then
+    for _,p in ipairs(apt.scanPackages()) do print(p) end
+elseif cmd=="fetch" and pkg then
+    if apt.fetch(pkg) then print("Package fetched: "..pkg)
+    else print("Failed to fetch package: "..pkg) end
 else
-    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan> <package>")
+    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package>")
 end
 
 if rebuild then
