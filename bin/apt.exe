@@ -156,13 +156,34 @@ end
 
 function apt.fetch(pkg)
     if not pkg then return false end
-    local repoBase = "https://raw.githubusercontent.com/YourRepoName/main/etc/apt/packages/"
-    local pkgPath = fs.combine(PACKAGES_PATH,pkg)
+
+    local repoBase = "https://yourusername.github.io/yourrepo/etc/apt/packages/"
+
+    local diskRoot = (function()
+        for i = 0, 99 do
+            local d = "disk"..(i == 0 and "" or i)
+            if fs.exists("/"..d.."/bin") and fs.exists("/"..d.."/apps") then
+                return "/"..d
+            end
+        end
+        if fs.exists("/bin") and fs.exists("/apps") then return "/" end
+        return nil
+    end)()
+
+    if not diskRoot then print("Error: could not detect running disk") return false end
+
+    local pkgPath = fs.combine(PACKAGES_PATH, pkg)
     if not fs.exists(pkgPath) then fs.makeDir(pkgPath) end
 
-    local function fetchFile(filename)
+    local function fetchFile(filename, destFolder)
         local url = repoBase .. pkg .. "/" .. filename
-        local dest = fs.combine(pkgPath, filename)
+        local dest
+        if destFolder then
+            if not fs.exists(destFolder) then fs.makeDir(destFolder) end
+            dest = fs.combine(destFolder, filename)
+        else
+            dest = fs.combine(pkgPath, filename)
+        end
         local ok = shell.run("wget", url, dest)
         if not ok then print("Failed to fetch: "..filename) return false end
         return true
@@ -176,8 +197,12 @@ function apt.fetch(pkg)
     local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
 
-    if meta.binary then fetchFile(pkg..".exe") end
-    if meta.app then fetchFile(pkg..".lua") end
+    if meta.binary then
+        fetchFile(pkg..".exe", fs.combine(diskRoot, "bin"))
+    end
+    if meta.app then
+        fetchFile(pkg..".lua", fs.combine(diskRoot, "apps"))
+    end
 
     print("Fetched package: "..pkg)
     return true
