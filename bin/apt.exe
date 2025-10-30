@@ -5,7 +5,7 @@ local rebuild = false
 
 local function readJSON(path)
     if not fs.exists(path) then return nil end
-    local f = fs.open(path, "r")
+    local f = fs.open(path,"r")
     local content = f.readAll()
     f.close()
     local ok, data = pcall(textutils.unserializeJSON, content)
@@ -13,11 +13,11 @@ local function readJSON(path)
     return nil
 end
 
-local function copyFile(src, dest)
-    local f = fs.open(src, "rb")
+local function copyFile(src,dest)
+    local f = fs.open(src,"rb")
     local content = f.readAll()
     f.close()
-    local f2 = fs.open(dest, "wb")
+    local f2 = fs.open(dest,"wb")
     f2.write(content)
     f2.close()
 end
@@ -40,14 +40,16 @@ local APPS_PATH = fs.combine(DISK_ROOT, "apps")
 
 if not fs.exists(BIN_PATH) then fs.makeDir(BIN_PATH) end
 if not fs.exists(APPS_PATH) then fs.makeDir(APPS_PATH) end
+if not fs.exists(PACKAGES_PATH) then fs.makeDir(PACKAGES_PATH) end
+if not fs.exists(INSTALLED_PATH) then fs.makeDir(INSTALLED_PATH) end
 
 local function copyPackageFiles(pkgPath)
-    local meta = readJSON(fs.combine(pkgPath, "package.json"))
+    local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
-    for _, f in ipairs(fs.list(pkgPath)) do
-        local fullPath = fs.combine(pkgPath, f)
-        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine(BIN_PATH, f)) end
-        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine(APPS_PATH, f)) end
+    for _,f in ipairs(fs.list(pkgPath)) do
+        local fullPath = fs.combine(pkgPath,f)
+        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine(BIN_PATH,f)) end
+        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine(APPS_PATH,f)) end
     end
     return true
 end
@@ -55,50 +57,46 @@ end
 local apt = {}
 
 function apt.checkinstall(pkg)
-    return fs.exists(fs.combine(INSTALLED_PATH, pkg))
+    return fs.exists(fs.combine(INSTALLED_PATH,pkg))
 end
 
 function apt.install(pkg)
-    if not fs.exists(PACKAGES_PATH) then return false end
-    local pkgPath = fs.combine(PACKAGES_PATH, pkg)
+    local pkgPath = fs.combine(PACKAGES_PATH,pkg)
     if not fs.exists(pkgPath) then return false end
-    if not fs.exists(INSTALLED_PATH) then fs.makeDir(INSTALLED_PATH) end
-    local installedPkgPath = fs.combine(INSTALLED_PATH, pkg)
-    if not fs.exists(installedPkgPath) then fs.makeDir(installedPkgPath) end
-    if fs.exists(fs.combine(pkgPath, "package.json")) then
-        copyFile(fs.combine(pkgPath, "package.json"), fs.combine(installedPkgPath, "package.json"))
+    local installedPath = fs.combine(INSTALLED_PATH,pkg)
+    if not fs.exists(installedPath) then fs.makeDir(installedPath) end
+    if fs.exists(fs.combine(pkgPath,"package.json")) then
+        copyFile(fs.combine(pkgPath,"package.json"), fs.combine(installedPath,"package.json"))
     end
     if copyPackageFiles(pkgPath) then return true end
     return false
 end
 
 function apt.uninstall(pkg)
-    local installedPkgPath = fs.combine(INSTALLED_PATH, pkg)
-    if not fs.exists(installedPkgPath) then return false end
+    local installedPath = fs.combine(INSTALLED_PATH,pkg)
+    if not fs.exists(installedPath) then return false end
     local function deleteRecursive(path)
         for _, f in ipairs(fs.list(path)) do
-            local full = fs.combine(path, f)
+            local full = fs.combine(path,f)
             if fs.isDir(full) then deleteRecursive(full) else fs.delete(full) end
         end
         fs.delete(path)
     end
-    deleteRecursive(installedPkgPath)
+    deleteRecursive(installedPath)
     return true
 end
 
 function apt.listInstalled()
-    if not fs.exists(INSTALLED_PATH) then return {} end
-    return fs.list(INSTALLED_PATH)
+    return fs.exists(INSTALLED_PATH) and fs.list(INSTALLED_PATH) or {}
 end
 
 function apt.listAvailable()
-    if not fs.exists(PACKAGES_PATH) then return {} end
-    return fs.list(PACKAGES_PATH)
+    return fs.exists(PACKAGES_PATH) and fs.list(PACKAGES_PATH) or {}
 end
 
 function apt.rebuildSystem()
     for _, pkg in ipairs(apt.listInstalled()) do
-        local pkgPath = fs.combine(INSTALLED_PATH, pkg)
+        local pkgPath = fs.combine(INSTALLED_PATH,pkg)
         if fs.exists(pkgPath) then copyPackageFiles(pkgPath) end
     end
 end
@@ -107,27 +105,20 @@ function apt.scanPackages()
     local found = {}
     if fs.exists(PACKAGES_PATH) then
         for _, pkg in ipairs(fs.list(PACKAGES_PATH)) do
-            table.insert(found, pkg.." (from packages)")
+            table.insert(found, pkg.." (from current disk)")
         end
     end
     return found
 end
 
 if cmd == "install" and pkg then
-    if apt.checkinstall(pkg) then
-        print("Already installed: "..pkg)
-    elseif apt.install(pkg) then
-        print("Package installed: "..pkg)
-        rebuild = true
-    else
-        print("Package not found or missing package.json: "..pkg)
+    if apt.checkinstall(pkg) then print("Already installed: "..pkg)
+    elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild = true
+    else print("Package not found or missing package.json: "..pkg)
     end
 elseif cmd == "remove" and pkg then
-    if apt.uninstall(pkg) then
-        print("Package removed: "..pkg)
-        rebuild = true
-    else
-        print("Package not installed: "..pkg)
+    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild = true
+    else print("Package not installed: "..pkg)
     end
 elseif cmd == "list-installed" then
     for _, p in ipairs(apt.listInstalled()) do print(p) end
@@ -143,5 +134,6 @@ else
 end
 
 if rebuild then
+    print("Reloading system files from installed packages")
     apt.rebuildSystem()
 end
