@@ -22,9 +22,14 @@ local function copyFile(src,dest)
     f2.close()
 end
 
+local function tableContains(tbl,val)
+    for _,v in ipairs(tbl) do if v == val then return true end end
+    return false
+end
+
 local DISK_ROOT = (function()
     for i=0,99 do
-        local d = "disk"..(i==0 and "" or i)
+        local d="disk"..(i==0 and "" or i)
         if fs.exists("/"..d) then return "/"..d end
     end
     return nil
@@ -34,10 +39,9 @@ if not DISK_ROOT then print("Error: could not detect running disk") return end
 
 local APT_PATH = (function()
     for i=0,99 do
-        local d = "disk"..(i==0 and "" or i)
+        local d="disk"..(i==0 and "" or i)
         if fs.exists("/"..d.."/etc/apt") then return "/"..d.."/etc/apt" end
     end
-    if fs.exists(DISK_ROOT.."/etc/apt") then return DISK_ROOT.."/etc/apt" end
     return fs.combine(DISK_ROOT,"etc/apt")
 end)()
 
@@ -71,8 +75,8 @@ end
 function apt.install(pkg)
     local pkgPath = (function()
         for i=0,99 do
-            local d = "disk"..(i==0 and "" or i)
-            local p = "/"..d.."/etc/apt/packages/"..pkg
+            local d="disk"..(i==0 and "" or i)
+            local p="/"..d.."/etc/apt/packages/"..pkg
             if fs.exists(p) then return p end
         end
         local localPkg = fs.combine(PACKAGES_PATH,pkg)
@@ -93,8 +97,8 @@ function apt.uninstall(pkg)
     local installedPath = fs.combine(INSTALLED_PATH,pkg)
     if not fs.exists(installedPath) then return false end
     local function deleteRecursive(path)
-        for _, f in ipairs(fs.list(path)) do
-            local full = fs.combine(path,f)
+        for _,f in ipairs(fs.list(path)) do
+            local full=fs.combine(path,f)
             if fs.isDir(full) then deleteRecursive(full) else fs.delete(full) end
         end
         fs.delete(path)
@@ -110,14 +114,14 @@ end
 function apt.listAvailable()
     local pkgs = {}
     if fs.exists(PACKAGES_PATH) then
-        for _, p in ipairs(fs.list(PACKAGES_PATH)) do table.insert(pkgs,p) end
+        for _,p in ipairs(fs.list(PACKAGES_PATH)) do table.insert(pkgs,p) end
     end
     for i=0,99 do
-        local d = "disk"..(i==0 and "" or i)
-        local diskPath = "/"..d.."/etc/apt/packages"
+        local d="disk"..(i==0 and "" or i)
+        local diskPath="/"..d.."/etc/apt/packages"
         if fs.exists(diskPath) then
-            for _, p in ipairs(fs.list(diskPath)) do
-                if not table.find(pkgs,p) then table.insert(pkgs,p) end
+            for _,p in ipairs(fs.list(diskPath)) do
+                if not tableContains(pkgs,p) then table.insert(pkgs,p) end
             end
         end
     end
@@ -125,47 +129,47 @@ function apt.listAvailable()
 end
 
 function apt.rebuildSystem()
-    for _, pkg in ipairs(apt.listInstalled()) do
+    for _,pkg in ipairs(apt.listInstalled()) do
         local pkgPath = fs.combine(INSTALLED_PATH,pkg)
         if fs.exists(pkgPath) then copyPackageFiles(pkgPath) end
     end
 end
 
 function apt.scanPackages()
-    local found = {}
+    local found={}
     if fs.exists(PACKAGES_PATH) then
-        for _, pkg in ipairs(fs.list(PACKAGES_PATH)) do table.insert(found,pkg.." (from current disk)") end
+        for _,pkg in ipairs(fs.list(PACKAGES_PATH)) do table.insert(found,pkg.." (from current disk)") end
     end
     for i=0,99 do
-        local d = "disk"..(i==0 and "" or i)
-        local diskPath = "/"..d.."/etc/apt/packages"
+        local d="disk"..(i==0 and "" or i)
+        local diskPath="/"..d.."/etc/apt/packages"
         if fs.exists(diskPath) then
-            for _, pkg in ipairs(fs.list(diskPath)) do
-                if not table.find(found,pkg) then table.insert(found,pkg.." (from "..d..")") end
+            for _,pkg in ipairs(fs.list(diskPath)) do
+                if not tableContains(found,pkg) then
+                    table.insert(found,pkg.." (from "..d..")")
+                end
             end
         end
     end
     return found
 end
 
-if cmd == "install" and pkg then
+if cmd=="install" and pkg then
     if apt.checkinstall(pkg) then print("Already installed: "..pkg)
-    elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild = true
-    else print("Package not found or missing package.json: "..pkg)
-    end
-elseif cmd == "remove" and pkg then
-    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild = true
-    else print("Package not installed: "..pkg)
-    end
-elseif cmd == "list-installed" then
-    for _, p in ipairs(apt.listInstalled()) do print(p) end
-elseif cmd == "list-available" then
-    for _, p in ipairs(apt.listAvailable()) do print(p) end
-elseif cmd == "rebuild" then
+    elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild=true
+    else print("Package not found or missing package.json: "..pkg) end
+elseif cmd=="remove" and pkg then
+    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild=true
+    else print("Package not installed: "..pkg) end
+elseif cmd=="list-installed" then
+    for _,p in ipairs(apt.listInstalled()) do print(p) end
+elseif cmd=="list-available" then
+    for _,p in ipairs(apt.listAvailable()) do print(p) end
+elseif cmd=="rebuild" then
     apt.rebuildSystem()
     print("System rebuilt from installed packages")
-elseif cmd == "scan" then
-    for _, p in ipairs(apt.scanPackages()) do print(p) end
+elseif cmd=="scan" then
+    for _,p in ipairs(apt.scanPackages()) do print(p) end
 else
     print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan> <package>")
 end
