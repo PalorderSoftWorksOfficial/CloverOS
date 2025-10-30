@@ -22,33 +22,37 @@ local function copyFile(src, dest)
     f2.close()
 end
 
-local function getRunningAPTPath()
+local function getRunningDiskRoot()
     local path = shell.getRunningProgram()
     local disk = path:match("^/(disk%d+)/")
-    if disk then
-        local aptPath = "/"..disk.."/etc/apt"
-        if fs.exists(aptPath) then
-            return aptPath
-        end
-    end
+    if disk then return "/"..disk end
     return nil
 end
 
-local APT_PATH = getRunningAPTPath()
-if not APT_PATH then
-    print("No valid /etc/apt folder found on the running disk")
+local DISK_ROOT = getRunningDiskRoot()
+if not DISK_ROOT then
+    print("Error: Could not detect running disk")
     return
 end
+
+local APT_PATH = DISK_ROOT.."/etc/apt"
+if not fs.exists(APT_PATH) then
+    print("Error: No /etc/apt folder found on this disk")
+    return
+end
+
+local BIN_PATH = DISK_ROOT.."/bin"
+local APPS_PATH = DISK_ROOT.."/apps"
 
 local function copyPackageFiles(pkgPath)
     local meta = readJSON(fs.combine(pkgPath, "package.json"))
     if not meta then return false end
-    if not fs.exists("/bin") then fs.makeDir("/bin") end
-    if not fs.exists("/apps") then fs.makeDir("/apps") end
+    if not fs.exists(BIN_PATH) then fs.makeDir(BIN_PATH) end
+    if not fs.exists(APPS_PATH) then fs.makeDir(APPS_PATH) end
     for _, f in ipairs(fs.list(pkgPath)) do
         local fullPath = fs.combine(pkgPath, f)
-        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine("/bin", f)) end
-        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine("/apps", f)) end
+        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine(BIN_PATH, f)) end
+        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine(APPS_PATH, f)) end
     end
     return true
 end
