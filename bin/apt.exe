@@ -22,17 +22,25 @@ local function copyFile(src,dest)
     f2.close()
 end
 
-local function getRunningDisk()
-    local cwd = shell.dir() or ""
-    local disk = cwd:match("^/(disk%d+)/")
-    if disk then return "/"..disk end
+local DISK_ROOT = (function()
+    for i=0,99 do
+        local d = "disk"..(i==0 and "" or i)
+        if fs.exists("/"..d) then return "/"..d end
+    end
     return nil
-end
+end)()
 
-local DISK_ROOT = getRunningDisk()
 if not DISK_ROOT then print("Error: could not detect running disk") return end
 
-local APT_PATH = fs.combine(DISK_ROOT,"etc/apt")
+local APT_PATH = (function()
+    for i=0,99 do
+        local d = "disk"..(i==0 and "" or i)
+        if fs.exists("/"..d.."/etc/apt") then return "/"..d.."/etc/apt" end
+    end
+    if fs.exists(DISK_ROOT.."/etc/apt") then return DISK_ROOT.."/etc/apt" end
+    return fs.combine(DISK_ROOT,"etc/apt")
+end)()
+
 local PACKAGES_PATH = fs.combine(APT_PATH,"packages")
 local INSTALLED_PATH = fs.combine(APT_PATH,"installed")
 local BIN_PATH = fs.combine(DISK_ROOT,"bin")
@@ -61,26 +69,24 @@ function apt.checkinstall(pkg)
 end
 
 function apt.install(pkg)
-    local pkgPath = nil
-    local localPkg = fs.combine(PACKAGES_PATH,pkg)
-    if fs.exists(localPkg) then pkgPath = localPkg end
-    if not pkgPath then
+    local pkgPath = (function()
         for i=0,99 do
-            local diskPkg = fs.combine("/disk"..i.."/etc/apt/packages",pkg)
-            if fs.exists(diskPkg) then pkgPath = diskPkg break end
+            local d = "disk"..(i==0 and "" or i)
+            local p = "/"..d.."/etc/apt/packages/"..pkg
+            if fs.exists(p) then return p end
         end
-    end
+        local localPkg = fs.combine(PACKAGES_PATH,pkg)
+        if fs.exists(localPkg) then return localPkg end
+        return nil
+    end)()
     if not pkgPath then return false end
 
     local installedPkgPath = fs.combine(INSTALLED_PATH,pkg)
     if not fs.exists(installedPkgPath) then fs.makeDir(installedPkgPath) end
-
     if fs.exists(fs.combine(pkgPath,"package.json")) then
         copyFile(fs.combine(pkgPath,"package.json"), fs.combine(installedPkgPath,"package.json"))
     end
-
-    if copyPackageFiles(pkgPath) then return true end
-    return false
+    return copyPackageFiles(pkgPath)
 end
 
 function apt.uninstall(pkg)
@@ -107,7 +113,8 @@ function apt.listAvailable()
         for _, p in ipairs(fs.list(PACKAGES_PATH)) do table.insert(pkgs,p) end
     end
     for i=0,99 do
-        local diskPath = "/disk"..i.."/etc/apt/packages"
+        local d = "disk"..(i==0 and "" or i)
+        local diskPath = "/"..d.."/etc/apt/packages"
         if fs.exists(diskPath) then
             for _, p in ipairs(fs.list(diskPath)) do
                 if not table.find(pkgs,p) then table.insert(pkgs,p) end
@@ -130,10 +137,11 @@ function apt.scanPackages()
         for _, pkg in ipairs(fs.list(PACKAGES_PATH)) do table.insert(found,pkg.." (from current disk)") end
     end
     for i=0,99 do
-        local diskPath = "/disk"..i.."/etc/apt/packages"
+        local d = "disk"..(i==0 and "" or i)
+        local diskPath = "/"..d.."/etc/apt/packages"
         if fs.exists(diskPath) then
             for _, pkg in ipairs(fs.list(diskPath)) do
-                if not table.find(found,pkg) then table.insert(found,pkg.." (from disk"..i..")") end
+                if not table.find(found,pkg) then table.insert(found,pkg.." (from "..d..")") end
             end
         end
     end
