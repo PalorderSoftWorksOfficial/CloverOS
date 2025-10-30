@@ -154,6 +154,35 @@ function apt.scanPackages()
     return found
 end
 
+function apt.fetch(pkg)
+    if not pkg then return false end
+    local repoBase = "https://raw.githubusercontent.com/YourRepoName/main/etc/apt/packages/"
+    local pkgPath = fs.combine(PACKAGES_PATH,pkg)
+    if not fs.exists(pkgPath) then fs.makeDir(pkgPath) end
+
+    local function fetchFile(filename)
+        local url = repoBase .. pkg .. "/" .. filename
+        local dest = fs.combine(pkgPath, filename)
+        local ok = shell.run("wget", url, dest)
+        if not ok then print("Failed to fetch: "..filename) return false end
+        return true
+    end
+
+    if not fetchFile("package.json") then
+        print("Failed to fetch package.json for package: "..pkg)
+        return false
+    end
+
+    local meta = readJSON(fs.combine(pkgPath,"package.json"))
+    if not meta then return false end
+
+    if meta.binary then fetchFile(pkg..".exe") end
+    if meta.app then fetchFile(pkg..".lua") end
+
+    print("Fetched package: "..pkg)
+    return true
+end
+
 if cmd=="install" and pkg then
     if apt.checkinstall(pkg) then print("Already installed: "..pkg)
     elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild=true
@@ -170,8 +199,11 @@ elseif cmd=="rebuild" then
     print("System rebuilt from installed packages")
 elseif cmd=="scan" then
     for _,p in ipairs(apt.scanPackages()) do print(p) end
+elseif cmd=="fetch" and pkg then
+    if apt.fetch(pkg) then print("Package fetched: "..pkg)
+    else print("Failed to fetch package: "..pkg) end
 else
-    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan> <package>")
+    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package>")
 end
 
 if rebuild then
