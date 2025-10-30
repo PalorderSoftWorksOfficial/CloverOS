@@ -23,8 +23,8 @@ local function copyFile(src,dest)
 end
 
 local function getRunningDisk()
-    local path = shell.getRunningProgram() or ""
-    local disk = path:match("^/(disk%d+)/")
+    local cwd = shell.dir() or ""
+    local disk = cwd:match("^/(disk%d+)/")
     if disk then return "/"..disk end
     return nil
 end
@@ -62,13 +62,13 @@ end
 
 function apt.install(pkg)
     local pkgPath = nil
-    for i=0,99 do
-        local diskPkg = fs.combine("/disk"..i.."/etc/apt/packages",pkg)
-        if fs.exists(diskPkg) then pkgPath = diskPkg break end
-    end
+    local localPkg = fs.combine(PACKAGES_PATH,pkg)
+    if fs.exists(localPkg) then pkgPath = localPkg end
     if not pkgPath then
-        local localPkg = fs.combine(PACKAGES_PATH,pkg)
-        if fs.exists(localPkg) then pkgPath = localPkg end
+        for i=0,99 do
+            local diskPkg = fs.combine("/disk"..i.."/etc/apt/packages",pkg)
+            if fs.exists(diskPkg) then pkgPath = diskPkg break end
+        end
     end
     if not pkgPath then return false end
 
