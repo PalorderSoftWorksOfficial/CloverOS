@@ -407,7 +407,7 @@ local function cmd()
         mirroredPrint("help")
     end,
         exit=function() running=false end,
-        shutdown=function() running=false end
+        shutdown=function() os.shutdown() end
     }
 
     drawWindow()
