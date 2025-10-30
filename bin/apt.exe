@@ -157,7 +157,7 @@ end
 function apt.fetch(pkg)
     if not pkg then return false end
 
-    local repoBase = "https://yourusername.github.io/yourrepo/etc/apt/packages/"
+    local repoBase = "https://palordersoftworksofficial.github.io/CloverOS/etc/apt/packages/"
 
     local diskRoot = (function()
         for i = 0, 99 do
