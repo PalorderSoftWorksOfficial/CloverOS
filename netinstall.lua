@@ -181,7 +181,14 @@ end
         "bin/mkdir.exe",
         "bin/rmdir.exe",
         "bin/type.exe",
-        "bin/man.exe"
+        "bin/man.exe",
+        "bin/makeboot.exe",
+        "bin/peripherals.exe",
+        "bin/eject.exe",
+        "bin/label.exe",
+        "bin/edit.exe",
+        "bin/drive.exe",
+        "bin/apt.exe"
     }
 
     local manFiles = {
