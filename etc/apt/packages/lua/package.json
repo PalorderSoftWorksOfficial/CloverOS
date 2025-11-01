@@ -2,5 +2,8 @@
     "name": "lua",
     "description": "An package to enter the Lua programming language environment.",
     "app": false,
-    "binary": true
+    "binary": true,
+    "files": [
+        "lua.exe"
+    ]
 }

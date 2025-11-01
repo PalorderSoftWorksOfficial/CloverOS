@@ -2,5 +2,8 @@
     "name": "exec",
     "description": "An package to execute commands for the command computers.",
     "app": false,
-    "binary": true
+    "binary": true,
+        "files": [
+        "exec.exe"
+    ]
 }
