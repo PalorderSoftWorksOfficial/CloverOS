@@ -58,10 +58,13 @@ if not fs.exists(INSTALLED_PATH) then fs.makeDir(INSTALLED_PATH) end
 local function copyPackageFiles(pkgPath)
     local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
-    for _,f in ipairs(fs.list(pkgPath)) do
-        local fullPath = fs.combine(pkgPath,f)
-        if meta.binary and f:match("%.exe$") then copyFile(fullPath, fs.combine(BIN_PATH,f)) end
-        if meta.app and f:match("%.lua$") then copyFile(fullPath, fs.combine(APPS_PATH,f)) end
+    if not meta.files then return true end
+    for _,f in ipairs(meta.files) do
+        local src = fs.combine(pkgPath,f)
+        if fs.exists(src) then
+            local dest = fs.combine(meta.target == "app" and APPS_PATH or BIN_PATH,f)
+            copyFile(src,dest)
+        end
     end
     return true
 end
@@ -145,7 +148,7 @@ function apt.scanPackages()
         local diskPath="/"..d.."/etc/apt/packages"
         if fs.exists(diskPath) then
             for _,pkg in ipairs(fs.list(diskPath)) do
-                if not tableContains(found,pkg) then
+                if not tableContains(found,pkg.." (from "..d..")") then
                     table.insert(found,pkg.." (from "..d..")")
                 end
             end
@@ -156,9 +159,7 @@ end
 
 function apt.fetch(pkg)
     if not pkg then return false end
-
     local repoBase = "https://palordersoftworksofficial.github.io/CloverOS/etc/apt/packages/"
-
     local diskRoot = (function()
         for i = 0, 99 do
             local d = "disk"..(i == 0 and "" or i)
@@ -169,12 +170,9 @@ function apt.fetch(pkg)
         if fs.exists("/bin") and fs.exists("/apps") then return "/" end
         return nil
     end)()
-
     if not diskRoot then print("Error: could not detect running disk") return false end
-
     local pkgPath = fs.combine(PACKAGES_PATH, pkg)
     if not fs.exists(pkgPath) then fs.makeDir(pkgPath) end
-
     local function fetchFile(filename, destFolder)
         local url = repoBase .. pkg .. "/" .. filename
         local dest
@@ -188,22 +186,12 @@ function apt.fetch(pkg)
         if not ok then print("Failed to fetch: "..filename) return false end
         return true
     end
-
     if not fetchFile("package.json") then
         print("Failed to fetch package.json for package: "..pkg)
         return false
     end
-
     local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
-
-    if meta.binary then
-        fetchFile(pkg..".exe", fs.combine(diskRoot, "bin"))
-    end
-    if meta.app then
-        fetchFile(pkg..".lua", fs.combine(diskRoot, "apps"))
-    end
-
     print("Fetched package: "..pkg)
     return true
 end
@@ -231,7 +219,7 @@ else
     print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package>")
 end
 
-if rebuild then
+if rebuild and (cmd == "install" or cmd == "remove") then
     print("Reloading system files from installed packages")
     apt.rebuildSystem()
 end
