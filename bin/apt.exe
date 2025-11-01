@@ -59,10 +59,18 @@ local function copyPackageFiles(pkgPath)
     local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
     if not meta.files then return true end
+
     for _,f in ipairs(meta.files) do
         local src = fs.combine(pkgPath,f)
         if fs.exists(src) then
-            local dest = fs.combine(meta.target == "app" and APPS_PATH or BIN_PATH,f)
+            local dest
+            if meta.app then
+                dest = fs.combine(APPS_PATH,f)
+            elseif meta.binary then
+                dest = fs.combine(BIN_PATH,f)
+            else
+                dest = fs.combine(DISK_ROOT,f)
+            end
             copyFile(src,dest)
         end
     end
