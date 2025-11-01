@@ -141,15 +141,21 @@ end
 function apt.scanPackages()
     local found={}
     if fs.exists(PACKAGES_PATH) then
-        for _,pkg in ipairs(fs.list(PACKAGES_PATH)) do table.insert(found,pkg.." (from current disk)") end
+        for _,pkg in ipairs(fs.list(PACKAGES_PATH)) do
+            local meta = readJSON(fs.combine(PACKAGES_PATH, pkg.."/package.json"))
+            local ver = meta and meta.version or "unknown"
+            table.insert(found, pkg.." "..ver.." (from current disk)")
+        end
     end
     for i=0,99 do
         local d="disk"..(i==0 and "" or i)
         local diskPath="/"..d.."/etc/apt/packages"
         if fs.exists(diskPath) then
             for _,pkg in ipairs(fs.list(diskPath)) do
-                if not tableContains(found,pkg.." (from "..d..")") then
-                    table.insert(found,pkg.." (from "..d..")")
+                local meta = readJSON(fs.combine(diskPath, pkg.."/package.json"))
+                local ver = meta and meta.version or "unknown"
+                if not tableContains(found,pkg.." "..ver.." (from "..d..")") then
+                    table.insert(found,pkg.." "..ver.." (from "..d..")")
                 end
             end
         end
@@ -192,7 +198,7 @@ function apt.fetch(pkg)
     end
     local meta = readJSON(fs.combine(pkgPath,"package.json"))
     if not meta then return false end
-    print("Fetched package: "..pkg)
+    print("Fetched package: "..pkg.." version "..(meta.version or "unknown").." by "..(meta.author or "unknown"))
     return true
 end
 

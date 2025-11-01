@@ -1,6 +1,8 @@
 {
     "name": "lua",
     "description": "An package to enter the Lua programming language environment.",
+    "author": "CloverOS Team, CC Tweaked Team.",
+    "version": "1.0.0",
     "app": false,
     "binary": true,
     "files": [
