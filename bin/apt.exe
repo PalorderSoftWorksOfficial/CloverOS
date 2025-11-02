@@ -32,16 +32,21 @@ local DISK_ROOT = (function()
         local d="disk"..(i==0 and "" or i)
         if fs.exists("/"..d) then return "/"..d end
     end
+    if fs.exists("/") and fs.exists("/CloverOS_OS.lua") then return "/" end
     return nil
 end)()
 
-if not DISK_ROOT then print("Error: could not detect running disk") return end
+if not DISK_ROOT then
+    print("Error: could not detect running disk or root installation")
+    return
+end
 
 local APT_PATH = (function()
     for i=0,99 do
         local d="disk"..(i==0 and "" or i)
         if fs.exists("/"..d.."/etc/apt") then return "/"..d.."/etc/apt" end
     end
+    if fs.exists("/etc/apt") then return "/etc/apt" end
     return fs.combine(DISK_ROOT,"etc/apt")
 end)()
 
