@@ -158,6 +158,7 @@ if edition == "default" then
             break
         end
     end
+    _G.softinstall = false
     else
         print("Failed to read manifest. Aborting.")
         return
@@ -222,6 +223,7 @@ for _, file in ipairs(fileList) do
 end
 
 print("CloverOS installed successfully to " .. selectedDisk.path)
+_G.softinstall = true
 sleep(1)
 
 local minuxChoice = nil
