@@ -105,16 +105,51 @@ function apt.install(pkg)
 end
 
 function apt.uninstall(pkg)
-    local installedPath = fs.combine(INSTALLED_PATH,pkg)
-    if not fs.exists(installedPath) then return false end
+    local installedPath = fs.combine(INSTALLED_PATH, pkg)
+    if not fs.exists(installedPath) then
+        printError("Package not installed: " .. pkg)
+        return false
+    end
+
+    -- Load package info to know where files were placed
+    local infoFile = fs.open(fs.combine(installedPath, "package.json"), "r")
+    if not infoFile then
+        printError("Missing package.json for " .. pkg)
+        return false
+    end
+
+    local packageData = textutils.unserializeJSON(infoFile.readAll())
+    infoFile.close()
+
+    local targetDir
+    if packageData.binary then
+        targetDir = fs.combine(RUNNING_DISK, "bin")
+    elseif packageData.app then
+        targetDir = fs.combine(RUNNING_DISK, "apps")
+    end
+
+    if targetDir and packageData.files then
+        for _, file in ipairs(packageData.files) do
+            local fullPath = fs.combine(targetDir, file)
+            if fs.exists(fullPath) then
+                fs.delete(fullPath)
+                print("Removed: " .. fullPath)
+            end
+        end
+    end
+
+    -- Delete registry entry
     local function deleteRecursive(path)
-        for _,f in ipairs(fs.list(path)) do
-            local full=fs.combine(path,f)
-            if fs.isDir(full) then deleteRecursive(full) else fs.delete(full) end
+        for _, f in ipairs(fs.list(path)) do
+            local full = fs.combine(path, f)
+            if fs.isDir(full) then deleteRecursive(full)
+            else fs.delete(full) end
         end
         fs.delete(path)
     end
     deleteRecursive(installedPath)
+
+    print("Uninstalled package: " .. pkg)
     return true
 end
 
