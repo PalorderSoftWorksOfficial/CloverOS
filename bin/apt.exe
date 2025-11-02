@@ -173,40 +173,47 @@ end
 
 function apt.fetch(pkg)
     if not pkg then return false end
+
     local repoBase = "https://palordersoftworksofficial.github.io/CloverOS/etc/apt/packages/"
-    local diskRoot = (function()
-        for i = 0, 99 do
-            local d = "disk"..(i == 0 and "" or i)
-            if fs.exists("/"..d.."/bin") and fs.exists("/"..d.."/apps") then
-                return "/"..d
-            end
-        end
-        if fs.exists("/bin") and fs.exists("/apps") then return "/" end
-        return nil
-    end)()
-    if not diskRoot then print("Error: could not detect running disk") return false end
     local pkgPath = fs.combine(PACKAGES_PATH, pkg)
     if not fs.exists(pkgPath) then fs.makeDir(pkgPath) end
-    local function fetchFile(filename, destFolder)
+
+    local function fetchFile(filename)
         local url = repoBase .. pkg .. "/" .. filename
-        local dest
-        if destFolder then
-            if not fs.exists(destFolder) then fs.makeDir(destFolder) end
-            dest = fs.combine(destFolder, filename)
-        else
-            dest = fs.combine(pkgPath, filename)
-        end
+        local dest = fs.combine(pkgPath, filename)
+        print("Downloading: " .. filename)
         local ok = shell.run("wget", url, dest)
-        if not ok then print("Failed to fetch: "..filename) return false end
+        if not ok then
+            print("Failed to fetch: " .. filename)
+            return false
+        end
         return true
     end
+
+    -- fetch package.json first
     if not fetchFile("package.json") then
-        print("Failed to fetch package.json for package: "..pkg)
+        print("Failed to fetch package.json for package: " .. pkg)
         return false
     end
-    local meta = readJSON(fs.combine(pkgPath,"package.json"))
-    if not meta then return false end
-    print("Fetched package: "..pkg.." version "..(meta.version or "unknown").." by "..(meta.author or "unknown"))
+
+    local meta = readJSON(fs.combine(pkgPath, "package.json"))
+    if not meta then
+        print("Error reading package.json for " .. pkg)
+        return false
+    end
+
+    -- fetch each file in files[]
+    if meta.files and #meta.files > 0 then
+        for _, f in ipairs(meta.files) do
+            if not fetchFile(f) then
+                print("Warning: failed to fetch " .. f)
+            end
+        end
+    else
+        print("No files listed in package.json for " .. pkg)
+    end
+
+    print("Fetched package: " .. pkg .. " version " .. (meta.version or "unknown") .. " by " .. (meta.author or "unknown"))
     return true
 end
 
