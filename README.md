@@ -34,10 +34,9 @@ To install CloverOS, open an Advanced Computer (or a CraftOS terminal) in Minecr
 wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua
 ```
 
-The installer will automatically download and set up CloverOS on your system, But you need to modify some configs.
-## 1
+The installer will automatically download and set up CloverOS on your system, But you need to modify some configs:
 Its recommended that you install configured mod installed.
-Alright first step is:
+Alright the steps are here:
 When your inside of your world, go to mods menu and select CC: Tweaked and click config.
 Then select the file sorted in the Server Configurations and click modify.
 Then when you see Computer Space Limit modify the value and set it to: 1073741824 exactly
