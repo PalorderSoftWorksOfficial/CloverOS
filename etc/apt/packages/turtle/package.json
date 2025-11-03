@@ -1,0 +1,11 @@
+{
+    "name": "turtle",
+    "description": "An turtle utility to control turtles.",
+    "author": "CloverOS Team",
+    "version": "1.0.0",
+    "app": false,
+    "binary": true,
+    "files": [
+        "turtle.exe"
+    ]
+}

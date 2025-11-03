@@ -1,0 +1,35 @@
+if not turtle then print("Must be ran on an turtle!") return end
+local modem = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modem then return end
+rednet.open(peripheral.getName(modem))
+
+local function safeRun(cmd)
+  local ok, res = pcall(function() return shell.run(cmd) end)
+  return ok, res
+end
+
+while true do
+  local senderID, message, protocol = rednet.receive("turtle_cmd")
+  if message and type(message) == "table" then
+    local reqID = message.reqID
+    local target = message.target
+    local cmd = message.command
+    if not target or target == os.getComputerID() then
+      local response = { reqID = reqID, from = os.getComputerID() }
+      if type(cmd) ~= "string" then
+        response.status = "error"
+        response.error = "Invalid command"
+      else
+        local ok, res = safeRun(cmd)
+        if ok then
+          response.status = "ok"
+          response.result = res
+        else
+          response.status = "error"
+          response.error = tostring(res)
+        end
+      end
+      rednet.send(senderID, response, "turtle_resp")
+    end
+  end
+end
