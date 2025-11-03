@@ -39,6 +39,7 @@ function menuOptions(title, tChoices, tActions)
         end
     until check == false
 end
+
 local dumpWindow = window.create(term.current(), 1, 1, 1, 1, false)
 function disableoutput()
     ogTerm = term.current()
@@ -96,14 +97,10 @@ end
 local choices = {}
 local actions = {}
 local selectedDisk = nil
-
 for i, d in ipairs(disks) do
     table.insert(choices, d.name)
-    actions[i] = function()
-        selectedDisk = d
-    end
+    actions[i] = function() selectedDisk = d end
 end
-
 menuOptions("Select target disk", choices, actions)
 
 if not selectedDisk then
@@ -116,7 +113,6 @@ print("Selected disk: " .. selectedDisk.name .. " (" .. selectedDisk.path .. ")"
 local sourceChoice = nil
 local baseURL = nil
 local manifestURL = nil
-
 menuOptions("Select source server", {"GitHub Pages (recommended)", "Raw GitHub"}, {
     function()
         baseURL = githubPagesBaseURL
@@ -136,6 +132,12 @@ menuOptions("Select CloverOS edition", {"default", "soft"}, {
     function() edition = "soft" end
 })
 
+local installMode = nil
+menuOptions("Installation Mode", {"Install", "Reinstall"}, {
+    function() installMode = "install" end,
+    function() installMode = "reinstall" end
+})
+
 local fileList = {}
 if edition == "default" then
     local manifestPath = selectedDisk.path .. "/files.manifest"
@@ -153,12 +155,12 @@ if edition == "default" then
         end
         f.close()
         for i, v in ipairs(fileList) do
-        if v == "netinstall.lua" then
-            table.remove(fileList, i)
-            break
+            if v == "netinstall.lua" then
+                table.remove(fileList, i)
+                break
+            end
         end
-    end
-    _G.softinstall = false
+        _G.softinstall = false
     else
         print("Failed to read manifest. Aborting.")
         return
@@ -166,63 +168,34 @@ if edition == "default" then
 elseif edition == "soft" then
     table.insert(fileList, "CloverOS_OS.lua")
     for i, v in ipairs(fileList) do
-    if v == "netinstall.lua" then
-        table.remove(fileList, i)
-        break
+        if v == "netinstall.lua" then
+            table.remove(fileList, i)
+            break
+        end
     end
-end
     local basicCommands = {
-        "bin/cd.exe",
-        "bin/cls.exe",
-        "bin/dir.exe",
-        "bin/del.exe",
-        "bin/copy.exe",
-        "bin/move.exe",
-        "bin/ren.exe",
-        "bin/mkdir.exe",
-        "bin/rmdir.exe",
-        "bin/type.exe",
-        "bin/man.exe",
-        "bin/makeboot.exe",
-        "bin/peripherals.exe",
-        "bin/eject.exe",
-        "bin/label.exe",
-        "bin/edit.exe",
-        "bin/drive.exe",
-        "bin/apt.exe"
+        "bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
     }
-
     local manFiles = {
-        "etc/man/cd.man",
-        "etc/man/cls.man",
-        "etc/man/dir.man",
-        "etc/man/del.man",
-        "etc/man/copy.man",
-        "etc/man/move.man",
-        "etc/man/ren.man",
-        "etc/man/mkdir.man",
-        "etc/man/rmdir.man",
-        "etc/man/type.man",
-        "etc/man/man.man"
+        "etc/man/cd.man","etc/man/cls.man","etc/man/dir.man","etc/man/del.man","etc/man/copy.man","etc/man/move.man","etc/man/ren.man","etc/man/mkdir.man","etc/man/rmdir.man","etc/man/type.man","etc/man/man.man"
     }
-
-    for _, file in ipairs(basicCommands) do
-        table.insert(fileList, file)
-    end
-
-    for _, man in ipairs(manFiles) do
-        table.insert(fileList, man)
-    end
+    for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
+    for _, man in ipairs(manFiles) do table.insert(fileList, man) end
 end
 
 for _, file in ipairs(fileList) do
-    print("Downloading " .. file)
+    local target = selectedDisk.path .. "/" .. file
     local dir = file:match("(.*/)")
     if dir then fs.makeDir(selectedDisk.path .. "/" .. dir) end
-    shell.run("wget " .. baseURL .. file .. " " .. selectedDisk.path .. "/" .. file)
+    if fs.exists(target) and installMode == "install" then
+        print("Skipping existing " .. file)
+    else
+        print("Downloading " .. file)
+        shell.run("wget " .. baseURL .. file .. " " .. target)
+    end
 end
 
-print("CloverOS installed successfully to " .. selectedDisk.path)
+print("CloverOS " .. (installMode == "reinstall" and "reinstalled" or "installed") .. " successfully to " .. selectedDisk.path)
 _G.softinstall = true
 sleep(1)
 
