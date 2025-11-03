@@ -405,9 +405,13 @@ local function cmd()
         mirroredPrint("exit")
         mirroredPrint("shutdown")
         mirroredPrint("help")
+        mirroredPrint("installer")
     end,
         exit=function() running=false end,
-        shutdown=function() os.shutdown() end
+        shutdown=function() os.shutdown() end,
+        installer=function() 
+        shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
+        end
     }
 
     drawWindow()
