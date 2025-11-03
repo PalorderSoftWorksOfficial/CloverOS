@@ -1,0 +1,76 @@
+local turtlelib = {}
+
+function turtlelib.forward(n)
+    for i = 1, n or 1 do
+        while not turtle.forward() do
+            turtle.attack()
+            turtle.dig()
+            sleep(0.2)
+        end
+    end
+end
+
+function turtlelib.back(n)
+    for i = 1, n or 1 do
+        turtle.back()
+    end
+end
+
+function turtlelib.up(n)
+    for i = 1, n or 1 do
+        while not turtle.up() do
+            turtle.attackUp()
+            turtle.digUp()
+            sleep(0.2)
+        end
+    end
+end
+
+function turtlelib.down(n)
+    for i = 1, n or 1 do
+        while not turtle.down() do
+            turtle.attackDown()
+            turtle.digDown()
+            sleep(0.2)
+        end
+    end
+end
+
+function turtlelib.turnLeft(n)
+    for i = 1, n or 1 do
+        turtle.turnLeft()
+    end
+end
+
+function turtlelib.turnRight(n)
+    for i = 1, n or 1 do
+        turtle.turnRight()
+    end
+end
+
+function turtlelib.tryTurnLeft(n)
+    for i = 1, n or 1 do
+        local ok = turtle.turnLeft()
+        if not ok then
+            turtle.dig()
+            turtle.attack()
+            sleep(0.2)
+            turtle.turnLeft()
+        end
+    end
+end
+
+function turtlelib.tryTurnRight(n)
+    for i = 1, n or 1 do
+        local ok = turtle.turnRight()
+        if not ok then
+            turtle.dig()
+            turtle.attack()
+            sleep(0.2)
+            turtle.turnRight()
+        end
+    end
+end
+
+_G.turtlelib = turtlelib
+return turtlelib

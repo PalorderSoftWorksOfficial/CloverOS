@@ -7,7 +7,6 @@ local function safeRun(cmd)
   local ok, res = pcall(function() return shell.run(cmd) end)
   return ok, res
 end
-
 while true do
   local senderID, message, protocol = rednet.receive("turtle_cmd")
   if message and type(message) == "table" then

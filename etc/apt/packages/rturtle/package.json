@@ -6,6 +6,7 @@
     "app": false,
     "binary": true,
     "files": [
-        "rturtle.exe"
+        "rturtle.exe",
+        "exampleturtle.exe"
     ]
 }
