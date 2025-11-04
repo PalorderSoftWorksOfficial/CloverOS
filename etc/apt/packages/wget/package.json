@@ -1,0 +1,11 @@
+{
+    "name": "wget",
+    "description": "wget command line utility for downloading files from the web. Supports HTTP and HTTPS.",
+    "author": "CloverOS Team, CC: Tweaked Team.",
+    "version": "1.0.0",
+    "app": false,
+    "binary": true,
+    "files": [
+        "wget.exe"
+    ]
+}

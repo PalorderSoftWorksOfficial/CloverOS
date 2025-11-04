@@ -1,0 +1,31 @@
+local function up(n)
+    for i = 1, n do
+        turtle.up()
+    end
+end
+
+local function down(n)
+    for i = 1, n do
+        turtle.down()
+    end
+end
+
+local function tryForward(n)
+    for i = 1, n do
+        while not turtle.forward() do
+            turtle.dig()
+            sleep(0.4)
+        end
+    end
+end
+
+up(5)
+tryForward(5)
+turtle.turnRight()
+tryForward(5)
+turtle.turnRight()
+tryForward(5)
+turtle.turnRight()
+tryForward(4)
+turtle.turnRight()
+down(5)

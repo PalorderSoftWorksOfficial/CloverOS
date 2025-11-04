@@ -1,0 +1,24 @@
+type, displays a file
+executable location: 
+'/bin/type.exe'  
+alias: 'type'
+type is part of base
+
+type is used to display 
+the contents of a file
+without having to use 
+the 'edit' command,it 
+simply reads a file 
+and displays it
+
+syntax : 
+'type filename option'
+
+option parameters:
+p : providing 'p' after
+the filename will cause
+it to pause every so 
+often to allow the user
+to read the file.
+		 
+options are optional.

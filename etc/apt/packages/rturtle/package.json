@@ -1,0 +1,12 @@
+{
+    "name": "rturtle",
+    "description": "Depedency for turtle command, MUST BE INSTALLED ON THE TURTLE",
+    "author": "CloverOS Team",
+    "version": "1.0.0",
+    "app": false,
+    "binary": true,
+    "files": [
+        "rturtle.exe",
+        "exampleturtle.exe"
+    ]
+}

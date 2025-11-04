@@ -1,0 +1,9 @@
+REN.EXE - rename files
+Usage: ren <oldname> <newname>
+
+Renames a file or directory.
+Example: ren test.txt info.txt
+
+Notes:
+- Works for both files and directories.
+- The new name replaces the old one completely.

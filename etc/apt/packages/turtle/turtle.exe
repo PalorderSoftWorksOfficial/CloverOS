@@ -1,0 +1,39 @@
+local modem = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modem then return end
+rednet.open(peripheral.getName(modem))
+
+local tArgs = { ... }
+if #tArgs < 2 then
+  print("Usage: turtle <turtleID> <command...>")
+  return
+end
+
+local target = tonumber(tArgs[1])
+if not target then
+  print("Invalid turtle ID")
+  return
+end
+table.remove(tArgs, 1)
+local cmd = table.concat(tArgs, " ")
+
+local reqID = os.time() * 1000 + math.random(1, 999)
+local packet = { reqID = reqID, target = target, command = cmd }
+
+local maxAttempts = 3
+local timeout = 5
+
+for attempt = 1, maxAttempts do
+  rednet.send(target, packet, "turtle_cmd")
+  local sender, response = rednet.receive("turtle_resp", timeout)
+  if response and type(response) == "table" and response.reqID == reqID then
+    if response.status == "ok" then
+      print("Success:", response.result)
+      return
+    else
+      print("Error:", response.error or "unknown")
+      return
+    end
+  end
+end
+
+print("No response from turtle", target)

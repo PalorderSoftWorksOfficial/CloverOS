@@ -1,0 +1,11 @@
+{
+    "name": "example",
+    "description": "A simple hello world binary",
+    "author": "CloverOS Team",
+    "version": "0.0.1",
+    "app": false,
+    "binary": true,
+    "files": [
+        "example.exe"
+    ]
+}

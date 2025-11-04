@@ -1,0 +1,11 @@
+{
+    "name": "exec",
+    "description": "An package to execute commands for the command computers.",
+    "author": "CloverOS Team, CC Tweaked Team.",
+    "version": "1.0.0",
+    "app": false,
+    "binary": true,
+        "files": [
+        "exec.exe"
+    ]
+}

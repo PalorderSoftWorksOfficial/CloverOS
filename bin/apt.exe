@@ -1,0 +1,302 @@
+local args = {...}
+local cmd = args[1]
+local pkg = args[2]
+local rebuild = false
+
+local function readJSON(path)
+    if not fs.exists(path) then return nil end
+    local f = fs.open(path,"r")
+    local content = f.readAll()
+    f.close()
+    local ok, data = pcall(textutils.unserializeJSON, content)
+    if ok then return data end
+    return nil
+end
+
+local function copyFile(src,dest)
+    local f = fs.open(src,"rb")
+    local content = f.readAll()
+    f.close()
+    local f2 = fs.open(dest,"wb")
+    f2.write(content)
+    f2.close()
+end
+
+local function tableContains(tbl,val)
+    for _,v in ipairs(tbl) do if v == val then return true end end
+    return false
+end
+
+local DISK_ROOT = (function()
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        if fs.exists("/"..d) then return "/"..d end
+    end
+    if fs.exists("/") and fs.exists("/CloverOS_OS.lua") then return "/" end
+    return nil
+end)()
+
+if not DISK_ROOT then
+    print("Error: could not detect running disk or root installation")
+    return
+end
+
+local APT_PATH = (function()
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        if fs.exists("/"..d.."/etc/apt") then return "/"..d.."/etc/apt" end
+    end
+    if fs.exists("/etc/apt") then return "/etc/apt" end
+    return fs.combine(DISK_ROOT,"etc/apt")
+end)()
+
+local PACKAGES_PATH = fs.combine(APT_PATH,"packages")
+local INSTALLED_PATH = fs.combine(APT_PATH,"installed")
+local BIN_PATH = fs.combine(DISK_ROOT,"bin")
+local APPS_PATH = fs.combine(DISK_ROOT,"apps")
+
+if not fs.exists(BIN_PATH) then fs.makeDir(BIN_PATH) end
+if not fs.exists(APPS_PATH) then fs.makeDir(APPS_PATH) end
+if not fs.exists(PACKAGES_PATH) then fs.makeDir(PACKAGES_PATH) end
+if not fs.exists(INSTALLED_PATH) then fs.makeDir(INSTALLED_PATH) end
+
+local function copyPackageFiles(pkgPath)
+    local meta = readJSON(fs.combine(pkgPath,"package.json"))
+    if not meta then return false end
+    if not meta.files then return true end
+
+    for _,f in ipairs(meta.files) do
+        local src = fs.combine(pkgPath,f)
+        if fs.exists(src) then
+            local dest
+            if meta.app then
+                dest = fs.combine(APPS_PATH,f)
+            elseif meta.binary then
+                dest = fs.combine(BIN_PATH,f)
+            else
+                dest = fs.combine(DISK_ROOT,f)
+            end
+            copyFile(src,dest)
+        end
+    end
+    return true
+end
+
+local apt = {}
+
+function apt.checkinstall(pkg)
+    return fs.exists(fs.combine(INSTALLED_PATH,pkg))
+end
+
+function apt.install(pkg)
+    local pkgPath = (function()
+        for i=0,99 do
+            local d="disk"..(i==0 and "" or i)
+            local p="/"..d.."/etc/apt/packages/"..pkg
+            if fs.exists(p) then return p end
+        end
+        local localPkg = fs.combine(PACKAGES_PATH,pkg)
+        if fs.exists(localPkg) then return localPkg end
+        return nil
+    end)()
+    if not pkgPath then return false end
+
+    local installedPkgPath = fs.combine(INSTALLED_PATH,pkg)
+    if not fs.exists(installedPkgPath) then fs.makeDir(installedPkgPath) end
+    if fs.exists(fs.combine(pkgPath,"package.json")) then
+        copyFile(fs.combine(pkgPath,"package.json"), fs.combine(installedPkgPath,"package.json"))
+    end
+    return copyPackageFiles(pkgPath)
+end
+
+function apt.uninstall(pkg)
+    if not pkg then
+        printError("Usage: apt uninstall <package>")
+        return false
+    end
+
+    local installedPath = fs.combine(INSTALLED_PATH, pkg)
+    if not fs.exists(installedPath) then
+        printError("Package not installed: " .. pkg)
+        return false
+    end
+
+    -- Load package.json
+    local infoPath = fs.combine(installedPath, "package.json")
+    if not fs.exists(infoPath) then
+        printError("Missing package.json for " .. pkg)
+        return false
+    end
+
+    local file = fs.open(infoPath, "r")
+    local ok, packageData = pcall(textutils.unserializeJSON, file.readAll())
+    file.close()
+
+    if not ok or not packageData then
+        printError("Failed to parse package.json for " .. pkg)
+        return false
+    end
+
+    -- Determine target directory
+    local targetDir
+    if packageData.binary then
+        targetDir = fs.combine(DISK_ROOT, "bin")
+    elseif packageData.app then
+        targetDir = fs.combine(DISK_ROOT, "apps")
+    end
+
+    -- Delete installed files
+    if targetDir and packageData.files then
+        for _, fileName in ipairs(packageData.files) do
+            local filePath = fs.combine(targetDir, fileName)
+            if fs.exists(filePath) then
+                fs.delete(filePath)
+                print("Removed: " .. filePath)
+            end
+        end
+    end
+
+    -- Delete registry entry
+    local function deleteRecursive(path)
+        for _, f in ipairs(fs.list(path)) do
+            local full = fs.combine(path, f)
+            if fs.isDir(full) then
+                deleteRecursive(full)
+            else
+                fs.delete(full)
+            end
+        end
+        fs.delete(path)
+    end
+
+    deleteRecursive(installedPath)
+    print("Uninstalled package: " .. pkg)
+    return true
+end
+
+function apt.listInstalled()
+    return fs.exists(INSTALLED_PATH) and fs.list(INSTALLED_PATH) or {}
+end
+
+function apt.listAvailable()
+    local pkgs = {}
+    if fs.exists(PACKAGES_PATH) then
+        for _,p in ipairs(fs.list(PACKAGES_PATH)) do table.insert(pkgs,p) end
+    end
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        local diskPath="/"..d.."/etc/apt/packages"
+        if fs.exists(diskPath) then
+            for _,p in ipairs(fs.list(diskPath)) do
+                if not tableContains(pkgs,p) then table.insert(pkgs,p) end
+            end
+        end
+    end
+    return pkgs
+end
+
+function apt.rebuildSystem()
+    for _,pkg in ipairs(apt.listInstalled()) do
+        local pkgPath = fs.combine(INSTALLED_PATH,pkg)
+        if fs.exists(pkgPath) then copyPackageFiles(pkgPath) end
+    end
+end
+
+function apt.scanPackages()
+    local found={}
+    if fs.exists(PACKAGES_PATH) then
+        for _,pkg in ipairs(fs.list(PACKAGES_PATH)) do
+            local meta = readJSON(fs.combine(PACKAGES_PATH, pkg.."/package.json"))
+            local ver = meta and meta.version or "unknown"
+            table.insert(found, pkg.." "..ver.." (from current disk)")
+        end
+    end
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        local diskPath="/"..d.."/etc/apt/packages"
+        if fs.exists(diskPath) then
+            for _,pkg in ipairs(fs.list(diskPath)) do
+                local meta = readJSON(fs.combine(diskPath, pkg.."/package.json"))
+                local ver = meta and meta.version or "unknown"
+                if not tableContains(found,pkg.." "..ver.." (from "..d..")") then
+                    table.insert(found,pkg.." "..ver.." (from "..d..")")
+                end
+            end
+        end
+    end
+    return found
+end
+
+function apt.fetch(pkg)
+    if not pkg then return false end
+
+    local repoBase = "https://palordersoftworksofficial.github.io/CloverOS/etc/apt/packages/"
+    local pkgPath = fs.combine(PACKAGES_PATH, pkg)
+    if not fs.exists(pkgPath) then fs.makeDir(pkgPath) end
+
+    local function fetchFile(filename)
+        local url = repoBase .. pkg .. "/" .. filename
+        local dest = fs.combine(pkgPath, filename)
+        print("Downloading: " .. filename)
+        local ok = shell.run("wget", url, dest)
+        if not ok then
+            print("Failed to fetch: " .. filename)
+            return false
+        end
+        return true
+    end
+
+    -- fetch package.json first
+    if not fetchFile("package.json") then
+        print("Failed to fetch package.json for package: " .. pkg)
+        return false
+    end
+
+    local meta = readJSON(fs.combine(pkgPath, "package.json"))
+    if not meta then
+        print("Error reading package.json for " .. pkg)
+        return false
+    end
+
+    -- fetch each file in files[]
+    if meta.files and #meta.files > 0 then
+        for _, f in ipairs(meta.files) do
+            if not fetchFile(f) then
+                print("Warning: failed to fetch " .. f)
+            end
+        end
+    else
+        print("No files listed in package.json for " .. pkg)
+    end
+
+    print("Fetched package: " .. pkg .. " version " .. (meta.version or "unknown") .. " by " .. (meta.author or "unknown"))
+    return true
+end
+
+if cmd=="install" and pkg then
+    if apt.checkinstall(pkg) then print("Already installed: "..pkg)
+    elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild=true
+    else print("Package not found or missing package.json: "..pkg) end
+elseif cmd=="remove" and pkg then
+    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild=true
+    else print("Package not installed: "..pkg) end
+elseif cmd=="list-installed" then
+    for _,p in ipairs(apt.listInstalled()) do print(p) end
+elseif cmd=="list-available" then
+    for _,p in ipairs(apt.listAvailable()) do print(p) end
+elseif cmd=="rebuild" then
+    apt.rebuildSystem()
+    print("System rebuilt from installed packages")
+elseif cmd=="scan" then
+    for _,p in ipairs(apt.scanPackages()) do print(p) end
+elseif cmd=="fetch" and pkg then
+    if apt.fetch(pkg) then print("Package fetched: "..pkg)
+    else print("Failed to fetch package: "..pkg) end
+else
+    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package>")
+end
+
+if rebuild and (cmd == "install" or cmd == "remove") then
+    print("Reloading system files from installed packages")
+    apt.rebuildSystem()
+end

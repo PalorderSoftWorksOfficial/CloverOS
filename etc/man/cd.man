@@ -1,0 +1,13 @@
+CD.EXE - change directory
+Usage: cd <path>
+
+Changes the current working directory.
+
+Examples:
+  cd /etc
+  cd ..
+  cd /
+
+Notes:
+- Without arguments, prints current directory.
+- Paths are relative to current location unless prefixed with '/'.

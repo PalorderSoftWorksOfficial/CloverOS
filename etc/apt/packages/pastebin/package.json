@@ -1,0 +1,11 @@
+{
+    "name": "pastebin",
+    "description": "pastebin command line utility for CloverOS, allows uploading and downloading pastes from pastebin.com",
+    "author": "CloverOS Team, CC: Tweaked Team.",
+    "version": "1.0.0",
+    "app": false,
+    "binary": true,
+    "files": [
+        "pastebin.exe"
+    ]
+}

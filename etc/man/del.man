@@ -1,0 +1,9 @@
+DEL.EXE - delete files
+Usage: del <file>
+
+Deletes the specified file.
+Example: del log.txt
+
+Notes:
+- Files only. Use RMDIR.EXE for directories.
+- Once deleted, data cannot be recovered.

@@ -1,0 +1,88 @@
+name: Deploy CloverOS HTML index
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate files.manifest
+        run: |
+          echo "🧩 Generating files.manifest..."
+          find . -type f \
+            ! -path "./.git/*" \
+            ! -path "./.github/*" \
+            ! -name "index.html" \
+            ! -name "files.manifest" \
+            ! -name ".nojekyll" \
+            -printf "%P\n" > files.manifest
+          cat files.manifest
+
+      - name: Generate HTML index
+        run: |
+          BASE_DIR=$(pwd)
+
+          {
+            echo "<!DOCTYPE html>"
+            echo "<html>"
+            echo "<head>"
+            echo "  <meta charset='utf-8'>"
+            echo "  <title>Index of CloverOS</title>"
+            echo "  <style>"
+            echo "    body { background:#0d1117; color:#c9d1d9; font-family: monospace; padding:20px; }"
+            echo "    a { color:#58a6ff; text-decoration:none; }"
+            echo "    a:hover { text-decoration:underline; }"
+            echo "    h1 { color:#58a6ff; }"
+            echo "    hr { border:0; border-top:1px solid #30363d; }"
+            echo "    pre { line-height:1.6; }"
+            echo "  </style>"
+            echo "</head>"
+            echo "<body>"
+            echo "  <h1>Index of CloverOS</h1>"
+            echo "  <hr>"
+            echo "  <pre>"
+          } > "$BASE_DIR/index.html"
+
+          while read -r file; do
+            [ -z "$file" ] && continue
+            echo "  <a href=\"$file\">$file</a>" >> "$BASE_DIR/index.html"
+          done < "$BASE_DIR/files.manifest"
+
+          {
+            echo "  </pre>"
+            echo "  <hr>"
+            echo "  <footer>Generated automatically for CloverOS — $(date -u)</footer>"
+            echo "</body>"
+            echo "</html>"
+          } >> "$BASE_DIR/index.html"
+
+      - name: Upload artifact for Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
