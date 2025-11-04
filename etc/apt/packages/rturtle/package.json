@@ -7,6 +7,7 @@
     "binary": true,
     "files": [
         "rturtle.exe",
-        "exampleturtle.exe"
+        "turtlelib.exe",
+        "d1"
     ]
 }
