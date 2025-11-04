@@ -174,7 +174,7 @@ elseif edition == "soft" then
         end
     end
     local basicCommands = {
-        "bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
+        "bin/run","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
     }
     local components = {
     "startup.lua","LICENSE","instructions.txt"
