@@ -1,4 +1,4 @@
-turtlelib = require(_G.turtlelib)
+turtlelib = _G.turtlelib
 
 turtlelib.up(5)
 turtlelib.tryForward(5)
