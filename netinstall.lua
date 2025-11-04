@@ -176,11 +176,15 @@ elseif edition == "soft" then
     local basicCommands = {
         "bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
     }
+    local components = {
+    "startup.lua","LICENSE","instructions.txt"
+    }
     local manFiles = {
         "etc/man/cd.man","etc/man/cls.man","etc/man/dir.man","etc/man/del.man","etc/man/copy.man","etc/man/move.man","etc/man/ren.man","etc/man/mkdir.man","etc/man/rmdir.man","etc/man/type.man","etc/man/man.man"
     }
     for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
     for _, man in ipairs(manFiles) do table.insert(fileList, man) end
+    for _, components in ipairs(components) do table.insert(fileList, components) end
 end
 
 for _, file in ipairs(fileList) do
