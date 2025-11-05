@@ -142,8 +142,7 @@ elseif settings.get("turtle") == true then
     GDI.text(12, 9, "Some features may not work as expected, We will install turtle toolkits.", colors.white, colors.green)
     GDI.text(12, 11, "Press any key to continue...", colors.yellow, colors.green)
     os.pullEvent("key")
-    shell.run(DISK_ROOT.."/bin/apt fetch rturtle")
-    shell.run(DISK_ROOT.."/bin/apt install rturtle")
+    shell.run(DISK_ROOT.."/bin/apt install all")
 elseif settings.get("softinstall") == true then
     GDI.clear(colors.black)
     GDI.box(10, 5, 60, 15, "CloverOS Soft Installation Detected", colors.white, colors.magenta)
@@ -162,7 +161,7 @@ if fs.exists(filePath) then
     file.close()
     term.clear()
     term.setCursorPos(1, 1)
-    print(content)
+    shell.run("edit "..filePath)
     
     print("\nAuto booting CloverOS in 10 seconds...")
     os.sleep(10)
