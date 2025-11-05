@@ -1,0 +1,11 @@
+{
+    "name": "ccemux",
+    "description": "A CloverOS Toolkit, That contains commands and funtionality for the CraftOS Emulator, and CCemux.",
+    "author": "CloverOS Team",
+    "version": "0.1.0",
+    "app": false,
+    "binary": true,
+    "files": [
+        "ccemux.exe"
+    ]
+}
