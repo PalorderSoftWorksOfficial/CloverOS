@@ -127,9 +127,11 @@ menuOptions("Select source server", {"GitHub Pages (recommended)", "Raw GitHub"}
 })
 
 local edition = nil
-menuOptions("Select CloverOS edition", {"default", "soft"}, {
+menuOptions("Select CloverOS edition", {"default (Recommended)", "soft (Recommended for low storage installs or lightweight.)","turtle (Recommended for turtles)","emulator (Recommended edition for Emulated CC: Tweaked computers)"}, {
     function() edition = "default" end,
-    function() edition = "soft" end
+    function() edition = "soft" end,
+    function() edition = "turtle" end,
+    function() edition = "emulator" end
 })
 
 local installMode = nil
@@ -160,11 +162,14 @@ if edition == "default" then
                 break
             end
         end
-        _G.softinstall = false
+        settings.set("softinstall",false)
     else
         print("Failed to read manifest. Aborting.")
         return
     end
+        settings.set("default",true)
+        settings.set("emulator",false)
+        settings.set("turtle",false)
 elseif edition == "soft" then
     table.insert(fileList, "CloverOS_OS.lua")
     for i, v in ipairs(fileList) do
@@ -185,6 +190,61 @@ elseif edition == "soft" then
     for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
     for _, man in ipairs(manFiles) do table.insert(fileList, man) end
     for _, components in ipairs(components) do table.insert(fileList, components) end
+    settings.set("softinstall",true)
+    settings.set("emulator",false)
+    settings.set("default",false)
+elseif edition == "turtle" then
+    table.insert(fileList, "CloverOS_OS.lua")
+    for i, v in ipairs(fileList) do
+        if v == "netinstall.lua" then
+            table.remove(fileList, i)
+            break
+        end
+    end
+    local basicCommands = {
+        "bin/run","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
+    }
+    local components = {
+    "startup.lua","LICENSE","instructions.txt","etc/apt/packages/rturtle/rturtle.exe","etc/apt/packages/rturtle/package.json","etc/apt/packages/rturtle/turtlelib.exe","etc/apt/packages/autominer/package.json","etc/apt/packages/autominer/autominer.exe"
+    }
+    local manFiles = {
+        "etc/man/cd.man","etc/man/cls.man","etc/man/dir.man","etc/man/del.man","etc/man/copy.man","etc/man/move.man","etc/man/ren.man","etc/man/mkdir.man","etc/man/rmdir.man","etc/man/type.man","etc/man/man.man"
+    }
+    for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
+    for _, man in ipairs(manFiles) do table.insert(fileList, man) end
+    for _, components in ipairs(components) do table.insert(fileList, components) end
+    settings.set("turtle",true)
+    settings.set("default",false)
+    settings.set("softinstall",false)
+elseif edition == "emulator" then
+    local manifestPath = selectedDisk.path .. "/files.manifest"
+    shell.run("wget " .. manifestURL .. " " .. manifestPath)
+    if not fs.exists(manifestPath) then
+        print("Failed to download manifest. Aborting.")
+        return
+    end
+    local f = fs.open(manifestPath, "r")
+    if f then
+        local line = f.readLine()
+        while line do
+            table.insert(fileList, line)
+            line = f.readLine()
+        end
+        f.close()
+        for i, v in ipairs(fileList) do
+            if v == "netinstall.lua" then
+                table.remove(fileList, i)
+                break
+            end
+        end
+        
+    else
+        print("Failed to read manifest. Aborting.")
+        return
+    end
+    settings.set("softinstall",false)
+    settings.set("emulator",true)
+    settings.set("default",false)
 end
 
 for _, file in ipairs(fileList) do
@@ -200,7 +260,6 @@ for _, file in ipairs(fileList) do
 end
 
 print("CloverOS " .. (installMode == "reinstall" and "reinstalled" or "installed") .. " successfully to " .. selectedDisk.path)
-_G.softinstall = true
 sleep(1)
 
 local minuxChoice = nil

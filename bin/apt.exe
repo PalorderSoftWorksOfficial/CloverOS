@@ -121,7 +121,6 @@ function apt.uninstall(pkg)
         return false
     end
 
-    -- Load package.json
     local infoPath = fs.combine(installedPath, "package.json")
     if not fs.exists(infoPath) then
         printError("Missing package.json for " .. pkg)
@@ -137,7 +136,6 @@ function apt.uninstall(pkg)
         return false
     end
 
-    -- Determine target directory
     local targetDir
     if packageData.binary then
         targetDir = fs.combine(DISK_ROOT, "bin")
@@ -145,7 +143,6 @@ function apt.uninstall(pkg)
         targetDir = fs.combine(DISK_ROOT, "apps")
     end
 
-    -- Delete installed files
     if targetDir and packageData.files then
         for _, fileName in ipairs(packageData.files) do
             local filePath = fs.combine(targetDir, fileName)
@@ -156,7 +153,6 @@ function apt.uninstall(pkg)
         end
     end
 
-    -- Delete registry entry
     local function deleteRecursive(path)
         for _, f in ipairs(fs.list(path)) do
             local full = fs.combine(path, f)
@@ -246,7 +242,6 @@ function apt.fetch(pkg)
         return true
     end
 
-    -- fetch package.json first
     if not fetchFile("package.json") then
         print("Failed to fetch package.json for package: " .. pkg)
         return false
@@ -258,7 +253,6 @@ function apt.fetch(pkg)
         return false
     end
 
-    -- fetch each file in files[]
     if meta.files and #meta.files > 0 then
         for _, f in ipairs(meta.files) do
             if not fetchFile(f) then
@@ -274,12 +268,36 @@ function apt.fetch(pkg)
 end
 
 if cmd=="install" and pkg then
-    if apt.checkinstall(pkg) then print("Already installed: "..pkg)
-    elseif apt.install(pkg) then print("Package installed: "..pkg) rebuild=true
-    else print("Package not found or missing package.json: "..pkg) end
+    if pkg=="all" then
+        for _,p in ipairs(apt.listAvailable()) do
+            if not apt.checkinstall(p) then
+                print("Installing "..p)
+                apt.install(p)
+            else
+                print("Already installed: "..p)
+            end
+        end
+        rebuild=true
+    elseif apt.checkinstall(pkg) then
+        print("Already installed: "..pkg)
+    elseif apt.install(pkg) then
+        print("Package installed: "..pkg)
+        rebuild=true
+    else
+        print("Package not found or missing package.json: "..pkg)
+    end
 elseif cmd=="remove" and pkg then
-    if apt.uninstall(pkg) then print("Package removed: "..pkg) rebuild=true
-    else print("Package not installed: "..pkg) end
+    if pkg=="all" then
+        for _,p in ipairs(apt.listInstalled()) do
+            apt.uninstall(p)
+        end
+        rebuild=true
+    elseif apt.uninstall(pkg) then
+        print("Package removed: "..pkg)
+        rebuild=true
+    else
+        print("Package not installed: "..pkg)
+    end
 elseif cmd=="list-installed" then
     for _,p in ipairs(apt.listInstalled()) do print(p) end
 elseif cmd=="list-available" then
@@ -290,10 +308,17 @@ elseif cmd=="rebuild" then
 elseif cmd=="scan" then
     for _,p in ipairs(apt.scanPackages()) do print(p) end
 elseif cmd=="fetch" and pkg then
-    if apt.fetch(pkg) then print("Package fetched: "..pkg)
-    else print("Failed to fetch package: "..pkg) end
+    if pkg=="all" then
+        for _,p in ipairs(apt.listAvailable()) do
+            apt.fetch(p)
+        end
+    elseif apt.fetch(pkg) then
+        print("Package fetched: "..pkg)
+    else
+        print("Failed to fetch package: "..pkg)
+    end
 else
-    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package>")
+    print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package|all>")
 end
 
 if rebuild and (cmd == "install" or cmd == "remove") then

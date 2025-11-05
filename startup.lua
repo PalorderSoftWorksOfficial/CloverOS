@@ -119,3 +119,45 @@ osAPIFunc = {
 }
 osAPI = osAPIFunc
 GDI = osAPI.GDI
+
+if settings.get("emulator") == true then
+    GDI.clear(colors.black)
+    GDI.box(10, 5, 60, 15, "CloverOS Emulator Detected", colors.white, colors.blue)
+    GDI.text(12, 7, "CloverOS is running in an emulated environment.", colors.white, colors.blue)
+    GDI.text(12, 9, "Some features may not work as expected, We will install emulator toolkits.", colors.white, colors.blue)
+    GDI.text(12, 11, "Press any key to continue...", colors.yellow, colors.blue)
+    os.pullEvent("key")
+    local DISK_ROOT = (function()
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        if fs.exists("/"..d) then return "/"..d end
+    end
+    if fs.exists("/") and fs.exists("/CloverOS_OS.lua") then return "/" end
+    return nil
+    end)()
+
+    if not DISK_ROOT then
+        print("Error: could not detect running disk or root installation, cannot proceed with installing emulator toolkits.")
+        return
+    end
+    shell.run(DISK_ROOT.."/bin/apt fetch ccemux")
+    shell.run(DISK_ROOT.."/bin/apt install ccemux")
+elseif settings.get("turtle") == true then
+    GDI.clear(colors.black)
+    GDI.box(10, 5, 60, 15, "CloverOS Turtle Detected", colors.white, colors.green)
+    GDI.text(12, 7, "CloverOS is running on a Turtle.", colors.white, colors.green)
+    GDI.text(12, 9, "Some features may not work as expected, We will install turtle toolkits.", colors.white, colors.green)
+    GDI.text(12, 11, "Press any key to continue...", colors.yellow, colors.green)
+    os.pullEvent("key")
+    shell.run(DISK_ROOT.."/bin/apt fetch rturtle")
+    shell.run(DISK_ROOT.."/bin/apt install rturtle")
+elseif settings.get("softinstall") == true then
+    GDI.clear(colors.black)
+    GDI.box(10, 5, 60, 15, "CloverOS Soft Installation Detected", colors.white, colors.magenta)
+    GDI.text(12, 7, "CloverOS is running a soft installation.", colors.white, colors.magenta)
+    GDI.text(12, 9, "Some features may not work as expected, We dont have any toolkit for softinstall's", colors.white, colors.magenta)
+    GDI.text(12, 11, "Press any key to continue...", colors.yellow, colors.magenta)
+    os.pullEvent("key")
+    shell.run(DISK_ROOT.."/bin/apt fetch softinstall-tools")
+
+end

@@ -435,7 +435,7 @@ local function cmd()
     mirroredPrint("Welcome to Clover OS Command Prompt")
     mirroredSetCursor(3,4)
     mirroredPrint("Type 'help' to list available commands")
-    if _G.softinstall == true then
+    if settings.get("softinstall") == true then
         mirroredSetCursor(3,5)
         mirroredPrint("Note: You are running a soft installation, apt fetch packages if you want apps etc.")
     end
