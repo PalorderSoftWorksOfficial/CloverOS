@@ -1,26 +1,5 @@
 local filePath=(function()for i=0,99 do local d="disk"..(i==0 and""or i)if fs.exists(d.."/instructions.txt")then return d.."/instructions.txt"end end if fs.exists("/instructions.txt")then return"/instructions.txt"end return"/etc/instructions.txt"end)()
 
-if fs.exists(filePath) then
-    local file = fs.open(filePath, "r")
-    local content = file.readAll()
-    file.close()
-    term.clear()
-    term.setCursorPos(1, 1)
-    print(content)
-    
-    print("\nAuto booting CloverOS in 10 seconds...")
-    os.sleep(10)
-    shell.run((function()
-        for i=0,99 do
-            local d = "disk"..(i==0 and "" or i)
-            if fs.exists(d.."/CloverOS_OS.lua") then return d.."/CloverOS_OS.lua" end
-        end
-        if fs.exists("/CloverOS_OS.lua") then return "/CloverOS_OS.lua" end
-    end)())
-else
-    print("Instructions file not found. Please ensure the disk is inserted correctly.")
-end
-
 local function mirroredPrint(text)
     print(text)
     if monitor then
@@ -119,7 +98,19 @@ osAPIFunc = {
 }
 osAPI = osAPIFunc
 GDI = osAPI.GDI
+local DISK_ROOT = (function()
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        if fs.exists("/"..d) then return "/"..d end
+    end
+    if fs.exists("/") and fs.exists("/CloverOS_OS.lua") then return "/" end
+    return nil
+end)()
 
+if not DISK_ROOT then
+    print("Error: could not detect running disk or root installation")
+    return
+end
 if settings.get("emulator") == true then
     GDI.clear(colors.black)
     GDI.box(10, 5, 60, 15, "CloverOS Emulator Detected", colors.white, colors.blue)
@@ -164,4 +155,24 @@ elseif settings.get("softinstall") == true then
     shell.run(DISK_ROOT.."/bin/apt install all")
 elseif settings.get("default") == true then
     shell.run(DISK_ROOT.."/bin/apt install all")
+end
+if fs.exists(filePath) then
+    local file = fs.open(filePath, "r")
+    local content = file.readAll()
+    file.close()
+    term.clear()
+    term.setCursorPos(1, 1)
+    print(content)
+    
+    print("\nAuto booting CloverOS in 10 seconds...")
+    os.sleep(10)
+    shell.run((function()
+        for i=0,99 do
+            local d = "disk"..(i==0 and "" or i)
+            if fs.exists(d.."/CloverOS_OS.lua") then return d.."/CloverOS_OS.lua" end
+        end
+        if fs.exists("/CloverOS_OS.lua") then return "/CloverOS_OS.lua" end
+    end)())
+else
+    print("Instructions file not found. Please ensure the disk is inserted correctly.")
 end
