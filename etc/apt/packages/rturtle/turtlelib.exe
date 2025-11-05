@@ -71,6 +71,38 @@ function turtlelib.tryTurnRight(n)
         end
     end
 end
-
+function turtlelib.tryForward(n)
+    for i = 1, n or 1 do
+        local ok = turtle.forward()
+        if not ok then
+            turtle.dig()
+            turtle.attack()
+            sleep(0.2)
+            turtle.forward()
+        end
+    end
+end
+function turtlelib.tryBack(n)
+    for i = 1, n or 1 do
+        local ok = turtle.back()
+        if not ok then
+            turtle.dig()
+            turtle.attack()
+            sleep(0.2)
+            turtle.back()
+        end
+    end
+end
+function turtlelib.tryDown(n)
+    for i = 1, n or 1 do
+        local ok = turtle.down()
+        if not ok then
+            turtle.dig()
+            turtle.attack()
+            sleep(0.2)
+            turtle.down()
+        end
+    end
+end
 _G.turtlelib = turtlelib
 return turtlelib
