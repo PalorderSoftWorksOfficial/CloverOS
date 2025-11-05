@@ -4,6 +4,7 @@ if not cmd then
     print("Usage:")
     print("  ccemux attach <side> <peripheral> [options-json]")
     print("  ccemux detach <side>")
+    print("  ccemux open <ComputerID> <X> <Y>")
     print("  ccemux setclipboard <text>")
     print("  ccemux getclipboard")
     print("  ccemux setlabel <label>")
@@ -41,7 +42,10 @@ if cmd=="attach" then
     if ok then print("Attached "..target.." to "..tostring(side)) else print("Error: "..tostring(err)) end
     return
 end
-
+if cmd == "open" then
+    print(ccemux.openEmuWithSize,args[2],args[3],args[4])
+    print("Opened computer ID " .. (ccemux.openEmuWithSize and ccemux.openEmuWithSize(tonumber(args[2]),tonumber(args[3]),tonumber(args[4])) or ccemux.openEmu(tonumber(args[2]))))
+end
 if cmd=="detach" then
     local side=tostring(args[2])
     if not side then print("Usage: ccemux detach <side|number>") return end
