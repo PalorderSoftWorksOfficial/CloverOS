@@ -1,0 +1,11 @@
+{
+    "name": "autominer",
+    "description": "An simple autominer for cobblestone farms or anything that is infront of it (turtle).",
+    "author": "CloverOS Team",
+    "version": "1.0.1",
+    "app": false,
+    "binary": true,
+    "files": [
+        "autominer.exe"
+    ]
+}
