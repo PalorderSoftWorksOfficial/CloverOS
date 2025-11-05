@@ -142,6 +142,8 @@ if settings.get("emulator") == true then
     end
     shell.run(DISK_ROOT.."/bin/apt fetch ccemux")
     shell.run(DISK_ROOT.."/bin/apt install ccemux")
+    shell.run(DISK_ROOT.."/bin/apt fetch all")
+    shell.run(DISK_ROOT.."/bin/apt install all")
 elseif settings.get("turtle") == true then
     GDI.clear(colors.black)
     GDI.box(10, 5, 60, 15, "CloverOS Turtle Detected", colors.white, colors.green)
@@ -158,6 +160,8 @@ elseif settings.get("softinstall") == true then
     GDI.text(12, 9, "Some features may not work as expected, We dont have any toolkit for softinstall's", colors.white, colors.magenta)
     GDI.text(12, 11, "Press any key to continue...", colors.yellow, colors.magenta)
     os.pullEvent("key")
-    shell.run(DISK_ROOT.."/bin/apt fetch softinstall-tools")
-
+    shell.run(DISK_ROOT.."/bin/apt fetch all")
+    shell.run(DISK_ROOT.."/bin/apt install all")
+elseif settings.get("default") == true then
+    shell.run(DISK_ROOT.."/bin/apt install all")
 end
