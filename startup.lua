@@ -105,7 +105,7 @@ function GDI.box(x, y, w, h, title, fg, bg)
     GDI.text(x, y + h - 1, "+" .. string.rep("-", w - 2) .. "+", fg, bg)
     if title then GDI.text(x + 2, y, title, colors.cyan, bg) end
 end
-osAPI = {
+osAPIFunc = {
    version = function ()
     return "CloverOS v1.0.0"
    end,
@@ -117,4 +117,5 @@ osAPI = {
     end,
     GDI = GDI,
 }
-osAPI = osAPI
+osAPI = osAPIFunc
+GDI = osAPI.GDI

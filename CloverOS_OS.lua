@@ -92,8 +92,8 @@ function GDI.box(x, y, w, h, title, fg, bg)
     if title then GDI.text(x + 2, y, title, colors.cyan, bg) end
 end
 -- Register OSAPI's if it doesnt exist
-if not osAPI then
-osAPI = {
+if not osAPI or not osAPI.GDI then
+osAPIFunc = {
    version = function ()
     return "CloverOS v1.0.0"
    end,
@@ -105,7 +105,8 @@ osAPI = {
     end,
     GDI = GDI,
 }
-osAPI = osAPI
+osAPI = osAPIFunc
+GDI = osAPI.GDI
 end
 -- Stream display (send monitor contents to modem)
 local function streamDisplay()
