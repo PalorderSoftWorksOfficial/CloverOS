@@ -1,0 +1,161 @@
+local args = { ... }
+local cmd = args[1]
+if not cmd then
+    print("Usage: ae2 <command> [args]")
+    print("Type: man ae2")
+    return
+end
+
+local bridge = peripheral.find("meBridge")
+if not bridge then
+    print("Error: ME Bridge peripheral not found")
+    return
+end
+
+local function pauseIfNeeded(tbl)
+    for i=1,#tbl do
+        print(tbl[i])
+        if i % 4 == 0 and i < #tbl then
+            io.write("Press any key to continue…")
+            os.pullEvent("key")
+        end
+    end
+end
+
+local function parseFilter(name,count)
+    if not name then return nil end
+    return { name = name, count = tonumber(count) or 1 }
+end
+
+if cmd == "man" and args[2] == "ae2" then
+    local manFile = "ae2.man"
+    if fs.exists(manFile) then
+        shell.run("less", manFile)
+    else
+        print("Manual not found.")
+    end
+    return
+end
+
+if cmd == "listItems" then
+    local t, err = bridge.listItems()
+    if not t then print("Error:", err); return end
+    local out = {}
+    for _,v in ipairs(t) do table.insert(out, v.name .. " x" .. (v.amount or 0)) end
+    pauseIfNeeded(out)
+    return
+end
+
+if cmd == "listFluids" then
+    local t, err = bridge.listFluid()
+    if not t then print("Error:", err); return end
+    local out = {}
+    for _,v in ipairs(t) do table.insert(out, v.name .. " x" .. (v.amount or 0)) end
+    pauseIfNeeded(out)
+    return
+end
+
+if cmd == "listGases" then
+    local t, err = bridge.listGas()
+    if not t then print("Error:", err); return end
+    local out = {}
+    for _,v in ipairs(t) do table.insert(out, v.name .. " x" .. (v.amount or 0)) end
+    pauseIfNeeded(out)
+    return
+end
+
+if cmd == "listCells" then
+    local t, err = bridge.listCells()
+    if not t then print("Error:", err); return end
+    local out = {}
+    for _,c in ipairs(t) do
+        table.insert(out, c.item .. " ["..c.cellType.."] bytes:" .. (c.totalBytes or 0))
+    end
+    pauseIfNeeded(out)
+    return
+end
+
+if cmd == "listCraftableItems" then
+    local t, err = bridge.listCraftableItems()
+    if not t then print("Error:", err); return end
+    local out = {}
+    for _,v in ipairs(t) do table.insert(out, v.name .. " craftable:" .. tostring(v.isCraftable)) end
+    pauseIfNeeded(out)
+    return
+end
+
+if cmd == "listCraftableFluids" then
+    local t, err = bridge.listCraftableFluid()
+    if not t then print("Error:", err); return end
+    local out = {}
+    for _,v in ipairs(t) do table.insert(out, v.name .. " craftable:" .. tostring(v.isCraftable)) end
+    pauseIfNeeded(out)
+    return
+end
+
+if cmd == "listPatterns" then
+    local t, err = bridge.getPatterns()
+    if not t then print("Error:", err); return end
+    local out = {}
+    for _,p in ipairs(t) do
+        local name = p.output and p.output.name or "<unknown>"
+        table.insert(out, "Pattern ID:"..(p.id or "?").." -> "..name)
+    end
+    pauseIfNeeded(out)
+    return
+end
+
+if cmd == "getItem" then
+    local f = parseFilter(args[2], args[3])
+    if not f then print("Usage: ae2 getItem <item> [count]"); return end
+    local res, err = bridge.getItem(f)
+    if not res then print("Error:", err) else print(f.name .. " x" .. (res.amount or 0)) end
+    return
+end
+
+if cmd == "exportItem" then
+    local f = parseFilter(args[2], args[3])
+    local dir = args[4]
+    if not f or not dir then print("Usage: ae2 exportItem <item> <count> <direction>"); return end
+    local res, err = bridge.exportItem(f, dir)
+    if not res then print("Error:", err) else print("Exported "..res.." of "..f.name.." to "..dir) end
+    return
+end
+
+if cmd == "importItem" then
+    local f = parseFilter(args[2], args[3])
+    local dir = args[4]
+    if not f or not dir then print("Usage: ae2 importItem <item> <count> <direction>"); return end
+    local res, err = bridge.importItem(f, dir)
+    if not res then print("Error:", err) else print("Imported "..res.." of "..f.name.." from "..dir) end
+    return
+end
+
+if cmd == "craftItem" then
+    local f = parseFilter(args[2], args[3])
+    if not f then print("Usage: ae2 craftItem <item> [count]"); return end
+    local ok, err = bridge.craftItem(f)
+    if not ok then print("Error:", err) else print("Crafting job submitted for "..f.name) end
+    return
+end
+
+if cmd == "craftFluid" then
+    local f = parseFilter(args[2], args[3])
+    if not f then print("Usage: ae2 craftFluid <fluid> [count]"); return end
+    local ok, err = bridge.craftFluid(f)
+    if not ok then print("Error:", err) else print("Crafting fluid job submitted for "..f.name) end
+    return
+end
+
+if cmd == "energy" then
+    local usage, err1 = bridge.getEnergyUsage()
+    local capacity, err2 = bridge.getTotalItemStorage()
+    if not usage or not capacity then print("Error fetching stats:", err1, err2)
+    else
+        print("Energy usage AE/t:", usage)
+        print("Item storage capacity bytes:", capacity)
+    end
+    return
+end
+
+print("Unknown command. Type: man ae2 for full manual.")

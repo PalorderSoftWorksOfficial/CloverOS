@@ -1,0 +1,73 @@
+AE2 Command Manual
+==================
+
+Name
+    ae2 – Advanced Peripherals ME Bridge command interface
+
+Synopsis
+    ae2 <command> [arguments]
+
+Description
+    Provides a unified interface to control an Applied Energistics 2 ME network via an ME Bridge peripheral in CC:Tweaked (Advanced Peripherals addon required!).
+
+Commands
+    listItems
+        List all stored items in the ME system.
+
+    listFluids
+        List all stored fluids in the ME system.
+
+    listGases
+        List all stored gases (if supported) in the ME system.
+
+    listCells
+        List all storage cells in the ME system with their types and capacities.
+
+    listCraftableItems
+        List all craftable items that the system can produce.
+
+    listCraftableFluids
+        List all craftable fluids that the system can produce.
+
+    listPatterns
+        List all crafting patterns installed in the system.
+
+    getItem <item> [count]
+        Retrieve information about the stored amount of <item>.
+        Example: ae2 getItem minecraft:diamond 10
+
+    exportItem <item> <count> <direction>
+        Export <count> of <item> from the ME system to the inventory in <direction>.
+        Example: ae2 exportItem minecraft:iron_ingot 20 north
+
+    importItem <item> <count> <direction>
+        Import <count> of <item> from the inventory in <direction> into the ME system.
+
+    craftItem <item> [count]
+        Submit a crafting job for <item> in the ME network.
+        Example: ae2 craftItem minecraft:glass 64
+
+    craftFluid <fluid> [count]
+        Submit a crafting job for <fluid> in the ME network.
+
+    energy
+        Display current energy usage (AE/t) and item storage capacity of the system.
+
+Usage Tips
+    • Long output is paused every 4 lines; press any key to continue.
+    • Make sure the ME Bridge peripheral is connected to the ME network and properly placed.
+    • Direction arguments accept: up, down, left, right, front, back, north, east, south, west.
+
+Errors
+    • “ME Bridge peripheral not found” – ensure a peripheral of type “meBridge” is placed and wrapped.
+    • Invalid arguments will show usage hints.
+
+See Also
+    • Advanced Peripherals ME Bridge API Documentation: https://docs.advanced-peripherals.de/0.7/peripherals/me_bridge/
+    • Crafting System Guide: https://docs.advanced-peripherals.de/0.7-bridges/guides/storage_system_functions/
+
+Author
+    Based on script created by CloverOS Team.
+
+Revision
+    2025-11-05
