@@ -91,7 +91,22 @@ function GDI.box(x, y, w, h, title, fg, bg)
     GDI.text(x, y + h - 1, "+" .. string.rep("-", w - 2) .. "+", fg, bg)
     if title then GDI.text(x + 2, y, title, colors.cyan, bg) end
 end
-
+-- Register OSAPI's if it doesnt exist
+if not osAPI then
+osAPI = {
+   version = function ()
+    return "CloverOS v1.0.0"
+   end,
+    author = function ()
+     return "CloverOS Team"
+    end,
+    runInstaller = function ()
+    shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
+    end,
+    GDI = GDI,
+}
+osAPI = osAPI
+end
 -- Stream display (send monitor contents to modem)
 local function streamDisplay()
     if not monitor or not modem then return end
