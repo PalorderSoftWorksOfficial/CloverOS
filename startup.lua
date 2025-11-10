@@ -155,7 +155,7 @@ elseif settings.get("softinstall") == true then
 elseif settings.get("default") == true then
     shell.run(DISK_ROOT.."/bin/apt install all")
 end
-if fs.exists(filePath) and settings.get("manualshown") == true then
+if fs.exists(filePath) and settings.get("manualshown") == false then
     local file = fs.open(filePath, "r")
     local content = file.readAll()
     file.close()
@@ -173,6 +173,6 @@ if fs.exists(filePath) and settings.get("manualshown") == true then
         end
         if fs.exists("/CloverOS_OS.lua") then return "/CloverOS_OS.lua" end
     end)())
-else
+elseif fs.exists(filePath) == false then
     print("Instructions file not found. Please ensure the disk is inserted correctly.")
 end
