@@ -102,16 +102,15 @@ function mergeTables(t1, t2)
     end
     return t1
 end
-local path = DISK_ROOT.."/CloverOS_API.lua"
-local f = fs.open(path, "r")
-
+local f = fs.open(fs.combine(DISK_ROOT, "CloverOS_API.lua"), "r")
 if not f then
-    error("Failed to open file: "..path)
+    error("Failed to open CloverOS_API.lua at path: " .. fs.combine(DISK_ROOT, "CloverOS_API.lua"))
 end
 
 local c = load(f.readAll(), "CloverOS_API.lua", "t")
 f.close()
 local API = c()
+
 osAPIFunc = {
    version = function ()
     return "CloverOS v1.0.0"
