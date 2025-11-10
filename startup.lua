@@ -98,6 +98,7 @@ osAPIFunc = {
 }
 osAPI = osAPIFunc
 GDI = osAPI.GDI
+os.sleep(1)
 local DISK_ROOT = (function()
     for i=0,99 do
         local d="disk"..(i==0 and "" or i)
