@@ -1,3 +1,6 @@
+if not ccemux or not periphemu then
+break
+end
 local args={...}
 local cmd=args[1]
 if not cmd then
