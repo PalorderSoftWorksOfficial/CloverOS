@@ -84,6 +84,14 @@ function GDI.box(x, y, w, h, title, fg, bg)
     GDI.text(x, y + h - 1, "+" .. string.rep("-", w - 2) .. "+", fg, bg)
     if title then GDI.text(x + 2, y, title, colors.cyan, bg) end
 end
+local DISK_ROOT = (function()
+    for i=0,99 do
+        local d="disk"..(i==0 and "" or i)
+        if fs.exists("/"..d) then return "/"..d end
+    end
+    if fs.exists("/") and fs.exists("/CloverOS_OS.lua") then return "/" end
+    return nil
+end)()
 osAPIFunc = {
    version = function ()
     return "CloverOS v1.0.0"
@@ -99,15 +107,6 @@ osAPIFunc = {
 osAPI = osAPIFunc
 GDI = osAPI.GDI
 os.sleep(1)
-local DISK_ROOT = (function()
-    for i=0,99 do
-        local d="disk"..(i==0 and "" or i)
-        if fs.exists("/"..d) then return "/"..d end
-    end
-    if fs.exists("/") and fs.exists("/CloverOS_OS.lua") then return "/" end
-    return nil
-end)()
-
 if not DISK_ROOT then
     print("Error: could not detect running disk or root installation")
     return
