@@ -356,7 +356,7 @@ end
 -- CMD terminal
 local function cmd()
     local w,h=term.getSize()
-    local cc_completion = cc.completion
+    local cc_completion = require(cc.completion)
 
     local function drawWindow()
         mirroredClear()
