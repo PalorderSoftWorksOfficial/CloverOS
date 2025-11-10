@@ -102,7 +102,7 @@ function mergeTables(t1, t2)
     end
     return t1
 end
-local API = require(DISK_ROOT.."/CloverOS_API.lua")
+local API = loadfile(DISK_ROOT.."/CloverOS_API.lua", "t", _ENV)()
 osAPIFunc = {
    version = function ()
     return "CloverOS v1.0.0"
