@@ -36,7 +36,7 @@ if cmd=="attach" then
     if not side or not target then print("Usage: ccemux attach <side|number> <peripheral> [options-json]") return end
     if tonumber(side) then side=tonumber(side) end
     local ok,err=pcall(function()
-        if opts then ccemux.attach(side,target,opts) else ccemux.attach(side,target) end
+        if opts then periphemu.attach(side,target,opts) else periphemu.attach(side,target) end
     end)
     if ok then print("Attached "..target.." to "..tostring(side)) else print("Error: "..tostring(err)) end
     return

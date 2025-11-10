@@ -155,12 +155,13 @@ elseif settings.get("softinstall") == true then
 elseif settings.get("default") == true then
     shell.run(DISK_ROOT.."/bin/apt install all")
 end
-if fs.exists(filePath) then
+if fs.exists(filePath) and settings.get("manualshown") == true then
     local file = fs.open(filePath, "r")
     local content = file.readAll()
     file.close()
     term.clear()
     term.setCursorPos(1, 1)
+    settings.set("manualshown", true)
     shell.run("edit "..filePath)
     
     print("\nAuto booting CloverOS in 10 seconds...")
