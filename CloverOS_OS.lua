@@ -420,11 +420,15 @@ local function cmd()
             mirroredPrint("shutdown")
             mirroredPrint("help")
             mirroredPrint("installer")
+            mirroredPrint("run")
         end,
         exit=function() running=false end,
         shutdown=function() os.shutdown() end,
         installer=function() 
             shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
+        end,
+        run=function()
+            mirroredPrint("Not implemented yet.")    
         end
     }
 
@@ -436,6 +440,10 @@ local function cmd()
     if settings.get("softinstall") == true then
         mirroredSetCursor(3,5)
         mirroredPrint("Note: You are running a soft installation, apt fetch packages if you want apps etc.")
+    elseif settings.get("default") == true or settings.get("softinstall") == true or settings.get("emulator") == true or settings.get("turtle") == true then
+        mirroredSetCursor(3,5)
+        mirroredPrint("Thanks, for using CoverOS \n Hey while your reading this maybey install the PalorderSMP-tweaked mod it has a computercraft intergration.")
+        mirroredPrint("\n https://github.com/PalorderSoftWorksOfficial/PalorderSMP/releases/latest")
     end
 
     while running do

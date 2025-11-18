@@ -61,13 +61,12 @@ if envType == "craftos" then
     pcall(function()
         shell.run("attach left drive")
         shell.run("attach right speaker")
-        shell.run("attach back monitor")
         if disk and disk.insertDisk then
             disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
         end
     end)
     print("Environment setup complete.")
-    sleep(1)
+    sleep(5)
 end
 
 local githubPagesBaseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
@@ -179,7 +178,7 @@ elseif edition == "soft" then
         end
     end
     local basicCommands = {
-        "bin/run","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
+        "bin/run.exe","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
     }
     local components = {
     "startup.lua","LICENSE","instructions.txt"
@@ -202,7 +201,7 @@ elseif edition == "turtle" then
         end
     end
     local basicCommands = {
-        "bin/run","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
+        "bin/run.exe","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
     }
     local components = {
     "startup.lua","LICENSE","instructions.txt","etc/apt/packages/rturtle/rturtle.exe","etc/apt/packages/rturtle/package.json","etc/apt/packages/rturtle/turtlelib.exe","etc/apt/packages/autominer/package.json","etc/apt/packages/autominer/autominer.exe"
