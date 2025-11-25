@@ -69,7 +69,7 @@ if envType == "craftos" then
     sleep(5)
 end
 
-local githubPagesBaseURL = "https://palordersoftworksofficial.github.io/CloverOS/"
+local githubPagesBaseURL = "https://cloveros.madefor.cc/"
 local rawBaseURL = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
 local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
 local manifestURL_Raw = manifestURL_Pages
@@ -112,7 +112,7 @@ print("Selected disk: " .. selectedDisk.name .. " (" .. selectedDisk.path .. ")"
 local sourceChoice = nil
 local baseURL = nil
 local manifestURL = nil
-menuOptions("Select source server", {"GitHub Pages (recommended)", "Raw GitHub"}, {
+menuOptions("Select source server", {"CDN (recommended)", "Raw GitHub"}, {
     function()
         baseURL = githubPagesBaseURL
         manifestURL = manifestURL_Pages
