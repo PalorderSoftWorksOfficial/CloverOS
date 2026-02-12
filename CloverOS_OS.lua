@@ -355,38 +355,26 @@ local function fileManager()
 end
 -- CMD terminal
 local function cmd()
-    local w,h=term.getSize()
+    local w,h = term.getSize()
     local cc_completion = require("cc.completion")
 
     local function drawWindow()
         mirroredClear()
         mirroredSetCursor(1,1)
-        term.setBackgroundColor(colors.lightGray)
-        term.setTextColor(colors.black)
-        local title=" Clover OS Command Prompt "
-        mirroredSetCursor(math.floor((w-#title)/2),1)
-        mirroredWrite(title)
         term.setBackgroundColor(colors.black)
         term.setTextColor(colors.white)
-        for i=2,h-1 do
-            mirroredSetCursor(1,i)
-            mirroredWrite(string.rep(" ",w))
-        end
-        mirroredSetCursor(1,h)
-        term.setBackgroundColor(colors.lightGray)
-        term.setTextColor(colors.black)
-        term.setBackgroundColor(colors.black)
-        term.setTextColor(colors.white)
+        for i=1,h do mirroredWrite(string.rep(" ", w) .. "\n") end
+        mirroredSetCursor(1,1)
     end
 
     local function listCommands()
-        local commands={}
-        local paths={"disk/bin","disk2/bin","disk3/bin","disk4/bin","disk5/bin","/bin"}
-        for _,path in ipairs(paths) do
+        local commands = {}
+        local paths = {"disk/bin","disk2/bin","disk3/bin","disk4/bin","disk5/bin","/bin"}
+        for _, path in ipairs(paths) do
             if fs.exists(path) then
-                for _,file in ipairs(fs.list(path)) do
+                for _, file in ipairs(fs.list(path)) do
                     if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
-                        commands[file:gsub("%..+$","")]=path.."/"..file
+                        commands[file:gsub("%..+$","")] = path.."/"..file
                     end
                 end
             end
@@ -394,117 +382,125 @@ local function cmd()
         return commands
     end
 
-    local running=true
-    local builtin={
+    local builtin = {
         help = function()
-            local cmds = listCommands()
-            local cmdList = {}
-            for c, _ in pairs(cmds) do
-                table.insert(cmdList, c)
-            end
-            table.sort(cmdList)
-            local i = 1
-            while i <= #cmdList do
-                for j = 0, 3 do
-                    if cmdList[i + j] then
-                        mirroredPrint(cmdList[i + j])
-                    end
-                end
-                i = i + 4
-                if i <= #cmdList then
-                    mirroredPrint("Press Enter to see more...")
-                    read()
-                end
-            end
-            mirroredPrint("exit")
-            mirroredPrint("shutdown")
-            mirroredPrint("help")
-            mirroredPrint("installer")
-            mirroredPrint("run")
+            mirroredPrint("Available commands:")
+            for k,_ in pairs(listCommands()) do mirroredPrint(" - "..k) end
+            mirroredPrint(" - exit\n - shutdown\n - installer\n - run")
         end,
-        exit=function() running=false end,
-        shutdown=function() os.shutdown() end,
-        installer=function() 
-            shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
-        end,
-        run=function()
-            mirroredPrint("Not implemented yet.")    
-        end
+        exit = function() return true end,
+        shutdown = function() os.shutdown() end,
+        installer = function() shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua") end,
+        run = function() mirroredPrint("Not implemented yet.") end
     }
 
     drawWindow()
-    mirroredSetCursor(3,3)
-    mirroredPrint("Welcome to Clover OS Command Prompt")
-    mirroredSetCursor(3,4)
-    mirroredPrint("Type 'help' to list available commands")
-    if settings.get("softinstall") == true then
-        mirroredSetCursor(3,5)
-        mirroredPrint("Note: You are running a soft installation, apt fetch packages if you want apps etc.")
-    elseif settings.get("default") == true or settings.get("softinstall") == true or settings.get("emulator") == true or settings.get("turtle") == true then
-        mirroredSetCursor(3,5)
-        mirroredPrint("Thanks, for using CoverOS \n Hey while your reading this maybey install the PalorderSMP-tweaked mod it has a computercraft intergration.")
-        mirroredPrint("\n https://github.com/PalorderSoftWorksOfficial/PalorderSMP/releases/latest")
-    end
+    mirroredSetCursor(1,1)
+    mirroredPrint("Welcome to Clover OS Linux-like Shell")
+    mirroredPrint("Type 'help' for commands\n")
 
+    local running = true
     while running do
-        mirroredWrite("\nroot@CloverOS:~$ ")
-        local input = ""
+        local prompt = "root@CloverOS:~$ "
+        mirroredWrite(prompt)
+        local input = {}
         local cursor = 0
+        local lineStartX, lineStartY = term.getCursorPos()
 
         while true do
-            local event,key = os.pullEvent("key")
+            local event, key = os.pullEvent("key")
+
+            -- Enter submits command
             if key == keys.enter then
                 mirroredWrite("\n")
                 break
+            -- Backspace
             elseif key == keys.backspace then
-                if #input > 0 then
-                    input = input:sub(1,-2)
+                if cursor > 0 then
+                    table.remove(input, cursor)
                     cursor = cursor - 1
-                    mirroredSetCursor(1,h)
-                    mirroredWrite(input .. " ")
-                    mirroredSetCursor(cursor+1,h)
+                    mirroredSetCursor(lineStartX, lineStartY)
+                    mirroredWrite(table.concat(input) .. " ")
+                    mirroredSetCursor(lineStartX + cursor, lineStartY)
                 end
+            -- Delete (optional, same as backspace)
+            elseif key == keys.delete then
+                if cursor < #input then
+                    table.remove(input, cursor + 1)
+                    mirroredSetCursor(lineStartX, lineStartY)
+                    mirroredWrite(table.concat(input) .. " ")
+                    mirroredSetCursor(lineStartX + cursor, lineStartY)
+                end
+            -- Left/Right arrows
+            elseif key == keys.left and cursor > 0 then
+                cursor = cursor - 1
+                mirroredSetCursor(lineStartX + cursor, lineStartY)
+            elseif key == keys.right and cursor < #input then
+                cursor = cursor + 1
+                mirroredSetCursor(lineStartX + cursor, lineStartY)
+            -- Home/End
+            elseif key == keys.home then
+                cursor = 0
+                mirroredSetCursor(lineStartX + cursor, lineStartY)
+            elseif key == keys["end"] then
+                cursor = #input
+                mirroredSetCursor(lineStartX + cursor, lineStartY)
+            -- Tab completion
             elseif key == keys.tab then
                 local allCommands = {}
                 for k in pairs(builtin) do table.insert(allCommands, k) end
-                local external = listCommands()
-                for k in pairs(external) do table.insert(allCommands, k) end
-                local matches = cc_completion.complete(input, allCommands)
+                for k in pairs(listCommands()) do table.insert(allCommands, k) end
+                local current = table.concat(input)
+                local matches = cc_completion.complete(current, allCommands)
                 if #matches == 1 then
-                    input = matches[1]
+                    input = {}
+                    for c in matches[1]:gmatch(".") do table.insert(input,c) end
                     cursor = #input
-                    mirroredSetCursor(1,h)
-                    mirroredWrite(input)
+                    mirroredSetCursor(lineStartX, lineStartY)
+                    mirroredWrite(table.concat(input))
                 elseif #matches > 1 then
-                    mirroredPrint("\nSuggestions: " .. table.concat(matches, ", "))
-                    mirroredWrite("root@CloverOS:~$ " .. input)
+                    mirroredPrint("\nSuggestions: "..table.concat(matches, ", "))
+                    mirroredSetCursor(lineStartX, lineStartY)
+                    mirroredWrite(table.concat(input))
                 end
+            -- Regular characters
             else
-                local char = keys.getName(key)
-                if #char == 1 then
-                    input = input .. char
+                local charName = keys.getName(key)
+                local char = nil
+                if key == keys.space then
+                    char = " "
+                elseif #charName == 1 then
+                    char = charName
+                end
+                if char then
+                    table.insert(input, cursor + 1, char)
                     cursor = cursor + 1
-                    mirroredWrite(char)
+                    mirroredSetCursor(lineStartX, lineStartY)
+                    mirroredWrite(table.concat(input))
+                    mirroredSetCursor(lineStartX + cursor, lineStartY)
                 end
             end
         end
 
-        if input=="" then goto continue end
-        local parts={}
-        for word in input:gmatch("%S+") do table.insert(parts,word) end
-        local command=table.remove(parts,1)
-        local commands=listCommands()
-        if builtin[command] then
-            builtin[command](table.unpack(parts))
-        elseif commands[command] then
-            local ok,err=pcall(function() shell.run(commands[command],table.unpack(parts)) end)
-            if not ok then mirroredPrint("Error: "..tostring(err)) end
-        else
-            mirroredPrint("Command not found: "..tostring(command))
+        local finalInput = table.concat(input)
+        if finalInput ~= "" then
+            local parts = {}
+            for word in finalInput:gmatch("%S+") do table.insert(parts, word) end
+            local command = table.remove(parts, 1)
+            local commands = listCommands()
+            if builtin[command] then
+                local exitSignal = builtin[command](table.unpack(parts))
+                if exitSignal then running = false end
+            elseif commands[command] then
+                local ok, err = pcall(function() shell.run(commands[command], table.unpack(parts)) end)
+                if not ok then mirroredPrint("Error: "..tostring(err)) end
+            else
+                mirroredPrint("Command not found: "..tostring(command))
+            end
         end
-        ::continue::
     end
 end
+
 -- Simple games and apps
 local function playTetris()
     mirroredClear()
