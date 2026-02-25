@@ -102,9 +102,15 @@ function mergeTables(t1, t2)
     end
     return t1
 end
-local f = fs.open(fs.combine(DISK_ROOT, "CloverOS_API.lua"), "r")
+if not DISK_ROOT then
+    print("Error: could not detect running disk or root installation")
+    return
+end
+
+local apiPath = fs.combine(DISK_ROOT, "CloverOS_API.lua")
+local f = fs.open(apiPath, "r")
 if not f then
-    error("Failed to open CloverOS_API.lua at path: " .. fs.combine(DISK_ROOT, "CloverOS_API.lua"))
+    error("Failed to open CloverOS_API.lua at path: " .. apiPath)
 end
 
 local c = load(f.readAll(), "CloverOS_API.lua", "t")
@@ -184,10 +190,11 @@ if fs.exists(filePath) and settings.get("manualshown") == false then
     term.clear()
     term.setCursorPos(1, 1)
     settings.set("manualshown", true)
-    shell.run("edit "..filePath)
-    
-    print("\nAuto booting CloverOS in 10 seconds...")
-    os.sleep(10)
+    -- Instead of opening the editor (which can block or be unavailable), print the instructions
+    print(content)
+
+    print("\nAuto booting CloverOS in 3 seconds...")
+    os.sleep(3)
     shell.run((function()
         for i=0,99 do
             local d = "disk"..(i==0 and "" or i)
