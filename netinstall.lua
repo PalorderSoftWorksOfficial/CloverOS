@@ -246,31 +246,73 @@ elseif edition == "emulator" then
     settings.set("default",false)
 end
 
+local MAX_CONCURRENT = 6
+local createdDirs = {}
+
+local queue = {}
 for _, file in ipairs(fileList) do
     local target = selectedDisk.path .. "/" .. file
-    local dir = file:match("(.*/)")
-    if dir then fs.makeDir(selectedDisk.path .. "/" .. dir) end
-
-    if fs.exists(target) and installMode == "install" then
-        print("Skipping existing " .. file)
+    if not (fs.exists(target) and installMode == "install") then
+        table.insert(queue, file)
     else
-        print("Downloading " .. file)
-        local url = baseURL .. file
-        local ok, err = pcall(function()
-            local response = http.get(url)
-            if response then
-                local content = response.readAll()
-                response.close()
-                local f = fs.open(target, "wb")
-                f.write(content)
-                f.close()
-            else
-                error("Failed to download " .. file)
-            end
-        end)
-        if not ok then
-            print("Error: " .. err)
-        end
+        print("Skipping existing " .. file)
+    end
+end
+
+local active = {}
+local running = 0
+
+local function ensureDir(file)
+    local dir = file:match("(.*/)")
+    if dir and not createdDirs[dir] then
+        fs.makeDir(selectedDisk.path .. "/" .. dir)
+        createdDirs[dir] = true
+    end
+end
+
+local function startNext()
+    if #queue == 0 then return end
+    if running >= MAX_CONCURRENT then return end
+
+    local file = table.remove(queue, 1)
+    local url = baseURL .. file
+
+    print("Downloading " .. file)
+    http.request(url)
+
+    active[url] = file
+    running = running + 1
+end
+
+for i = 1, MAX_CONCURRENT do
+    startNext()
+end
+
+while running > 0 do
+    local event, url, handle = os.pullEvent()
+
+    if event == "http_success" and active[url] then
+        local file = active[url]
+        local target = selectedDisk.path .. "/" .. file
+
+        ensureDir(file)
+
+        local content = handle.readAll()
+        handle.close()
+
+        local f = fs.open(target, "wb")
+        f.write(content)
+        f.close()
+
+        active[url] = nil
+        running = running - 1
+        startNext()
+
+    elseif event == "http_failure" and active[url] then
+        print("Failed: " .. active[url])
+        active[url] = nil
+        running = running - 1
+        startNext()
     end
 end
 
