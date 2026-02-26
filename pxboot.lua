@@ -259,30 +259,50 @@ config = setmetatable({
         end
     end,
     include = function(path)
-        expect(1, path, "string")
-        if not path:match "^/" then path = fs.combine(runningDir, path) end
-        for _, v in ipairs(fs.find(path)) do
-            repeat
-                local fn, err = loadfile(v, "t", getfenv(2))
-                if not fn then
-                    printError("Could not load config file: " .. err)
-                    print("Press any key to continue...")
-                    os.pullEvent("key")
-                    break
+    expect(1, path, "string")
+
+    if not path:match("^/") then
+        path = fs.combine(runningDir or "", path)
+    end
+
+    local function safeFind(p)
+        if fs.find then
+            return fs.find(p)
+        else
+            local dir = fs.getDir(p)
+            local name = fs.getName(p)
+            local results = {}
+            if fs.exists(dir) then
+                for _, f in ipairs(fs.list(dir)) do
+                    if f:match(name:gsub("%.", "%%."):gsub("%*", ".*")) then
+                        table.insert(results, fs.combine(dir, f))
+                    end
                 end
-                local old = runningDir
-                runningDir = fs.getDir(v)
-                local ok, err = pcall(fn)
-                runningDir = old
-                if not ok then
-                    printError("Failed to execute config file: " .. err)
-                    print("Press any key to continue...")
-                    os.pullEvent("key")
-                    break
-                end
-            until true
+            end
+            return results
         end
-    end,
+    end
+
+    for _, v in ipairs(safeFind(path)) do
+        local fn, err = loadfile(v, "t", getfenv(2))
+        if not fn then
+            printError("Could not load config file: " .. err)
+            print("Press any key to continue...")
+            os.pullEvent("key")
+            break
+        end
+        local old = runningDir
+        runningDir = fs.getDir(v)
+        local ok, err = pcall(fn)
+        runningDir = old
+        if not ok then
+            printError("Failed to execute config file: " .. err)
+            print("Press any key to continue...")
+            os.pullEvent("key")
+            break
+        end
+    end
+end,
     loadmod = function(path, args)
         expect(1, path, "string")
         expect(2, args, "table", "nil")
