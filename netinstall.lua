@@ -250,11 +250,27 @@ for _, file in ipairs(fileList) do
     local target = selectedDisk.path .. "/" .. file
     local dir = file:match("(.*/)")
     if dir then fs.makeDir(selectedDisk.path .. "/" .. dir) end
+
     if fs.exists(target) and installMode == "install" then
         print("Skipping existing " .. file)
     else
         print("Downloading " .. file)
-        shell.run("wget " .. baseURL .. file .. " " .. target)
+        local url = baseURL .. file
+        local ok, err = pcall(function()
+            local response = http.get(url)
+            if response then
+                local content = response.readAll()
+                response.close()
+                local f = fs.open(target, "wb")
+                f.write(content)
+                f.close()
+            else
+                error("Failed to download " .. file)
+            end
+        end)
+        if not ok then
+            print("Error: " .. err)
+        end
     end
 end
 
