@@ -227,7 +227,7 @@ end
 
 local runningDir
 config = setmetatable({
-    title = "Phoenix pxboot",
+    title = "CloverOS pxboot",
     titlecolor = colors.white,
     backgroundcolor = colors.black,
     textcolor = colors.white,
@@ -364,7 +364,16 @@ local function findConfig()
         local p = fs.combine(d, "pxboot/config.lua")
         if fs.exists(p) then return p, d end
     end
+
+    for i = 0, 99 do
+        local d = "/disk" .. (i == 0 and "" or i)
+        local p = fs.combine(d, "config.lua")
+        if fs.exists(p) then return p, d end
+    end
+
     if fs.exists("/pxboot/config.lua") then return "/pxboot/config.lua", "/pxboot" end
+    if fs.exists("/config.lua") then return "/config.lua", "/" end
+
     return nil, nil
 end
 
