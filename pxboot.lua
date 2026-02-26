@@ -227,7 +227,7 @@ end
 
 local runningDir
 config = setmetatable({
-    title = "CloverOS pxboot",
+    title = "PXBOOT bootloader",
     titlecolor = colors.white,
     backgroundcolor = colors.black,
     textcolor = colors.white,
