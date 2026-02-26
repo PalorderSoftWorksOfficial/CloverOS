@@ -1,0 +1,11 @@
+{
+    "name": "cash",
+    "description": "None",
+    "author": "JackMacWindows",
+    "version": "1.0.1",
+    "app": false,
+    "binary": true,
+    "files": [
+        "cash.exe"
+    ]
+}
