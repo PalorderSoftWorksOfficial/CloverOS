@@ -246,7 +246,7 @@ elseif edition == "emulator" then
     settings.set("default",false)
 end
 
-local MAX_CONCURRENT = 6
+local MAX_CONCURRENT = 16
 local createdDirs = {}
 
 local queue = {}
