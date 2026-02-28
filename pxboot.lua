@@ -12,40 +12,6 @@ local userGlobals = {}
 local monitor
 local config
 
-function fs.find(pattern)
-    expect(1, pattern, "string")
-
-    pattern = fs.combine(pattern) -- Normalise the path, removing ".."s.
-
-    -- If the pattern is trying to search outside the computer root, just abort.
-    -- This will fail later on anyway.
-    if pattern == ".." or pattern:sub(1, 3) == "../" then
-        error("/" .. pattern .. ": Invalid Path", 2)
-    end
-
-    -- If we've no wildcards, just check the file exists.
-    if not pattern:find("[*?]") then
-        if fs.exists(pattern) then return { pattern } else return {} end
-    end
-
-    local parts = {}
-    for part in pattern:gmatch("[^/]+") do
-        if part:find("[*?]") then
-            parts[#parts + 1] = {
-                exact = false,
-                contents = "^" .. part:gsub(".", find_escape) .. "$",
-            }
-        else
-            parts[#parts + 1] = { exact = true, contents = part }
-        end
-    end
-
-    local out = {}
-    find_aux("", parts, 1, out)
-    return out
-end
-
-
 local function unbios(path, ...)
     -- UnBIOS by JackMacWindows
     -- This will undo most of the changes/additions made in the BIOS, but some things may remain wrapped if `debug` is unavailable
@@ -294,11 +260,42 @@ config = setmetatable({
     end,
     include = function(path)
     expect(1, path, "string")
+    function fs.find(pattern)
+    expect(1, pattern, "string")
 
+    pattern = fs.combine(pattern) -- Normalise the path, removing ".."s.
+
+    -- If the pattern is trying to search outside the computer root, just abort.
+    -- This will fail later on anyway.
+    if pattern == ".." or pattern:sub(1, 3) == "../" then
+        error("/" .. pattern .. ": Invalid Path", 2)
+    end
+
+    -- If we've no wildcards, just check the file exists.
+    if not pattern:find("[*?]") then
+        if fs.exists(pattern) then return { pattern } else return {} end
+    end
+
+    local parts = {}
+    for part in pattern:gmatch("[^/]+") do
+        if part:find("[*?]") then
+            parts[#parts + 1] = {
+                exact = false,
+                contents = "^" .. part:gsub(".", find_escape) .. "$",
+            }
+        else
+            parts[#parts + 1] = { exact = true, contents = part }
+        end
+    end
+
+    local out = {}
+    find_aux("", parts, 1, out)
+    return out
+end
     if not path:match("^/") then
         path = fs.combine(runningDir or "", path)
     end
-
+    
     local function safeFind(p)
         if fs.find then
             return fs.find(p)
