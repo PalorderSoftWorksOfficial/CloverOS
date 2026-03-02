@@ -260,7 +260,7 @@ config = setmetatable({
     end,
     include = function(path)
     expect(1, path, "string")
-    function fs.find(pattern)
+    function fss.find(pattern)
     expect(1, pattern, "string")
 
     pattern = fs.combine(pattern) -- Normalise the path, removing ".."s.
@@ -297,8 +297,8 @@ end
     end
     
     local function safeFind(p)
-        if fs.find then
-            return fs.find(p)
+        if fss.find then
+            return fss.find(p)
         else
             local dir = fs.getDir(p)
             local name = fs.getName(p)
