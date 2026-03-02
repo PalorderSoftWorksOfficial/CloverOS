@@ -261,59 +261,42 @@ config = setmetatable({
     end,
     include = function(path)
     expect(1, path, "string")
-    function fss.find(pattern)
-    expect(1, pattern, "string")
-
-    pattern = fs.combine(pattern) -- Normalise the path, removing ".."s.
-
-    -- If the pattern is trying to search outside the computer root, just abort.
-    -- This will fail later on anyway.
-    if pattern == ".." or pattern:sub(1, 3) == "../" then
-        error("/" .. pattern .. ": Invalid Path", 2)
-    end
-
-    -- If we've no wildcards, just check the file exists.
-    if not pattern:find("[*?]") then
-        if fs.exists(pattern) then return { pattern } else return {} end
-    end
-
-    local parts = {}
-    for part in pattern:gmatch("[^/]+") do
-        if part:find("[*?]") then
-            parts[#parts + 1] = {
-                exact = false,
-                contents = "^" .. part:gsub(".", find_escape) .. "$",
-            }
-        else
-            parts[#parts + 1] = { exact = true, contents = part }
-        end
-    end
-
-    local out = {}
-    find_aux("", parts, 1, out)
-    return out
-end
     if not path:match("^/") then
         path = fs.combine(runningDir or "", path)
     end
-    
-    local function safeFind(p)
-        if fss.find then
-            return fss.find(p)
+    local function safeFind(path)
+    if not path:find("[*?]") then
+        if fs.exists(path) then
+            return { path }
         else
-            local dir = fs.getDir(p)
-            local name = fs.getName(p)
-            local results = {}
-            if fs.exists(dir) then
-                for _, f in ipairs(fs.list(dir)) do
-                    if f:match(name:gsub("%.", "%%."):gsub("%*", ".*")) then
-                        table.insert(results, fs.combine(dir, f))
-                    end
-                end
-            end
-            return results
+            return {}
         end
     end
+
+    local dir = fs.getDir(path)
+    if dir == "" then dir = "/" end
+
+    local name = fs.getName(path)
+    local pattern = "^" ..
+        name
+            :gsub("%%", "%%%%")
+            :gsub("%.", "%%.")
+            :gsub("%*", ".*")
+            :gsub("%?", ".")
+        .. "$"
+
+    local results = {}
+
+    if fs.exists(dir) then
+        for _, file in ipairs(fs.list(dir)) do
+            if file:match(pattern) then
+                table.insert(results, fs.combine(dir, file))
+            end
+        end
+    end
+
+    return results
+end
 
     for _, v in ipairs(safeFind(path)) do
         local fn, err = loadfile(v, "t", getfenv(2))
