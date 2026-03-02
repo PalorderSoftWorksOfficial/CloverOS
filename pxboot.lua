@@ -261,42 +261,58 @@ config = setmetatable({
     end,
     include = function(path)
     expect(1, path, "string")
-    if not path:match("^/") then
+
+    if type(path) ~= "string" then return end
+
+    if string.sub(path, 1, 1) ~= "/" then
         path = fs.combine(runningDir or "", path)
     end
-    local function safeFind(path)
-    if not path:find("[*?]") then
-        if fs.exists(path) then
-            return { path }
-        else
+
+    local function safeFind(p)
+        if type(p) ~= "string" then
             return {}
         end
-    end
 
-    local dir = fs.getDir(path)
-    if dir == "" then dir = "/" end
-
-    local name = fs.getName(path)
-    local pattern = "^" ..
-        name
-            :gsub("%%", "%%%%")
-            :gsub("%.", "%%.")
-            :gsub("%*", ".*")
-            :gsub("%?", ".")
-        .. "$"
-
-    local results = {}
-
-    if fs.exists(dir) then
-        for _, file in ipairs(fs.list(dir)) do
-            if file:match(pattern) then
-                table.insert(results, fs.combine(dir, file))
+        if not string.find(p, "[*?]") then
+            if fs.exists(p) then
+                return { p }
+            else
+                return {}
             end
         end
-    end
 
-    return results
-end
+        local dir = fs.getDir(p)
+        if dir == "" then dir = "/" end
+
+        if not fs.exists(dir) then
+            return {}
+        end
+
+        local name = fs.getName(p)
+
+        local pattern = "^" ..
+            string.gsub(
+                string.gsub(
+                    string.gsub(
+                        string.gsub(name, "%%", "%%%%"),
+                        "%.", "%%."
+                    ),
+                    "%*", ".*"
+                ),
+                "%?", "."
+            )
+            .. "$"
+
+        local results = {}
+
+        for _, file in ipairs(fs.list(dir)) do
+            if string.match(file, pattern) then
+                results[#results + 1] = fs.combine(dir, file)
+            end
+        end
+
+        return results
+    end
 
     for _, v in ipairs(safeFind(path)) do
         local fn, err = loadfile(v, "t", getfenv(2))
@@ -306,12 +322,15 @@ end
             os.pullEvent("key")
             break
         end
+
         local old = runningDir
         runningDir = fs.getDir(v)
-        local ok, err = pcall(fn)
+
+        local ok, execErr = pcall(fn)
         runningDir = old
+
         if not ok then
-            printError("Failed to execute config file: " .. err)
+            printError("Failed to execute config file: " .. execErr)
             print("Press any key to continue...")
             os.pullEvent("key")
             break
