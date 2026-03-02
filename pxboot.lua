@@ -9,6 +9,7 @@ local entry_names = {}
 local bootcfg = {}
 local cmds = {}
 local userGlobals = {}
+local fss = {}
 local monitor
 local config
 
