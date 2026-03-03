@@ -1,3 +1,32 @@
+local path
+for i = 0, 99 do
+    local d = "/disk" .. (i == 0 and "" or i)
+    if fs.exists(d .. "/CloverOS_API.lua") then
+        path = d .. "/CloverOS_API.lua"
+        break
+    end
+end
+
+if not path then
+    error("CloverOS_API.lua not found")
+end
+
+API = dofile(path)
+
+local osAPIFunc = {
+    version = function() return "CloverOS v1.0.0" end,
+    author = function() return "CloverOS Team" end,
+    runInstaller = function()
+        shell.run("wget", "https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua", "netinstall.lua")
+        shell.run("netinstall.lua")
+    end
+}
+for k,v in pairs(osAPIFunc) do
+    API[k] = v
+end
+
+_G.CloverOS = API
+
 local function safeFindOS(fileName)
     local ok, path = pcall(function()
         for i = 0, 99 do
@@ -19,28 +48,4 @@ end
 -- Precompute kernel path
 local cloverOS = safeFindOS("CloverOS_OS.lua")
 
-local oldG = _G
-local _G = {}
-_G._G = _G
-
-local rom = oldG._ROM or {}
-
-local function restoreAPI(name)
-    if not _G[name] then
-        local val = oldG[name] or rom[name]
-        if type(val) == "table" then
-            local t = {}
-            for k,v in pairs(val) do t[k]=v end
-            _G[name] = t
-        else
-            _G[name] = val
-        end
-    end
-end
-
-for _,v in ipairs{"term","fs","os","colors","shell","io","bit","textutils","pocket"} do
-    restoreAPI(v)
-end
-
-if not _G.term.native then _G.term.native=_G.term end
 shell.run(cloverOS)
