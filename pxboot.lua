@@ -202,27 +202,72 @@ local function boot(entry)
     term.setTextColor(colors.white)
     term.clear()
     term.setCursorPos(1, 1)
-    for i = 0, 15 do term.setPaletteColor(2^i, term.nativePaletteColor(2^i)) end
-    for _, v in ipairs(entry.commands) do
-        local ok, err
-        if type(v) == "function" then ok, err = pcall(v)
-        else ok, err = pcall(cmds[v.cmd], v) end
-        if not ok then
-            bootcfg = {}
-            printError("Could not run boot script: " .. err)
-            print("Press any key to continue.")
-            os.pullEventRaw("key")
-            return false
-        end
+
+    for i = 0, 15 do
+        term.setPaletteColor(2^i, term.nativePaletteColor(2^i))
     end
-    if not bootcfg.fn then
+
+    -- If entry has command list, use normal PXBOOT command system
+    if entry and entry.commands and #entry.commands > 0 then
         bootcfg = {}
-        printError("Could not run boot script: missing boot type command")
+
+        for _, v in ipairs(entry.commands) do
+            local ok, err
+            if type(v) == "function" then
+                ok, err = pcall(v)
+            else
+                ok, err = pcall(cmds[v.cmd], v)
+            end
+
+            if not ok then
+                bootcfg = {}
+                printError("Could not run boot script: " .. err)
+                print("Press any key to continue.")
+                os.pullEventRaw("key")
+                return false
+            end
+        end
+
+        if bootcfg.fn then
+            bootcfg.fn(table.unpack(bootcfg.args or {}))
+            return true
+        end
+
+        -- If commands existed but no boot type was set,
+        -- fall through to direct execution instead of erroring.
+    end
+
+    -- Fallback: directly run file
+    local path = entry and (entry.path or entry.file)
+    if not path then
+        printError("Boot failed: no file specified.")
         print("Press any key to continue.")
         os.pullEventRaw("key")
         return false
     end
-    bootcfg.fn(table.unpack(bootcfg.args))
+
+    if not fs.exists(path) then
+        printError("Boot failed: file does not exist: " .. path)
+        print("Press any key to continue.")
+        os.pullEventRaw("key")
+        return false
+    end
+
+    local ok, err = pcall(function()
+        if shell then
+            shell.run(path)
+        else
+            os.run(_ENV, path)
+        end
+    end)
+
+    if not ok then
+        printError("Boot failed: " .. err)
+        print("Press any key to continue.")
+        os.pullEventRaw("key")
+        return false
+    end
+
     return true
 end
 
@@ -263,7 +308,6 @@ config = setmetatable({
     expect(1, path, "string")
 
     if type(path) ~= "string" then return end
-
     if string.sub(path, 1, 1) ~= "/" then
         path = fs.combine(runningDir or "", path)
     end
