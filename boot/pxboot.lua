@@ -31,10 +31,8 @@ local function unbios(path, ...)
     -- Modified by adpalorder for CloverOS
     local old_dofile = _G.dofile
     local kernelArgs = table.pack(...)
-    local keptAPIs = {bit32 = true, bit = true, ccemux = true, config = true, coroutine = true, debug = true, ffi = true, fs = true, http = true, io = true, jit = true, mounter = true, os = true, periphemu = true, peripheral = true, redstone = true, rs = true, term = true, utf8 = true, _HOST = true, _CC_DEFAULT_SETTINGS = true, _CC_DISABLE_LUA51_FEATURES = true, _VERSION = true, assert = true, collectgarbage = true, error = true, gcinfo = true, getfenv = true, getmetatable = true, ipairs = true, load = true, loadstring = true, math = true, newproxy = true, next = true, pairs = true, pcall = true, rawequal = true, rawget = true, rawlen = true, rawset = true, select = true, setfenv = true, setmetatable = true, string = true, table = true, tonumber = true, tostring = true, type = true, unpack = true, xpcall = true, turtle = true, pocket = true, commands = true, _G = true, sound = true}
     local t = {}
-    for k in pairs(_G) do if not keptAPIs[k] and not userGlobals[k] then table.insert(t, k) end end
-    for _,k in ipairs(t) do _G[k] = nil end
+    for k in pairs(_G) do if not userGlobals[k] then table.insert(t, k) end end
     local native = monitor or _G.term.native()
     for _, method in ipairs { "nativePaletteColor", "nativePaletteColour", "screenshot" } do
         native[method] = _G.term[method]
@@ -46,8 +44,6 @@ local function unbios(path, ...)
     end
     if _G.commands then _G.commands = _G.commands.native end
     if _G.turtle then _G.turtle.native, _G.turtle.craft = nil end
-    local delete = {os = {"version", "pullEventRaw", "pullEvent", "run", "loadAPI", "unloadAPI", "sleep"}, http = _G.http and {"get", "post", "put", "delete", "patch", "options", "head", "trace", "listen", "checkURLAsync", "websocketAsync"}, fs = {"complete", "isDriveRoot"}}
-    for k,v in pairs(delete) do for _,a in ipairs(v) do _G[k][a] = nil end end
     -- Set up TLCO
     -- This functions by crashing `rednet.run` by removing `os.pullEventRaw`. Normally
     -- this would cause `parallel` to throw an error, but we replace `error` with an
