@@ -1,26 +1,21 @@
-local DISK_ROOT = (function()
+local pxbootPath = (function()
     for i = 0, 99 do
         local d = "/disk" .. (i == 0 and "" or i)
-        if fs.exists(d .. "/pxboot.lua") then
-            return d
+        local path = d .. "/boot/pxboot.lua"
+        if fs.exists(path) then
+            return path
         end
     end
-    if fs.exists("/pxboot.lua") then
-        return "/"
+
+    if fs.exists("/boot/pxboot.lua") then
+        return "/boot/pxboot.lua"
     end
+
     return nil
 end)()
 
-if not DISK_ROOT then
-    print("Error: bootloader isn't found, Does pxboot.lua exist?")
-    return
-end
-
-local pxbootPath = fs.combine(DISK_ROOT, "pxboot.lua")
-
-if not fs.exists(pxbootPath) then
-    print("Error: bootloader not found at " .. pxbootPath)
-    return
+if not pxbootPath then
+    error("Bootloader not found. Does pxboot.lua exist?")
 end
 
 shell.run(pxbootPath)
