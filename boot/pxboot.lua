@@ -485,10 +485,15 @@ local function findConfig()
 
     for i = 0, 99 do
         local d = "/disk" .. (i == 0 and "" or i)
+        -- Old locations for config.lua, for backwards compatibility with older versions of PXBOOT
         local p = fs.combine(d, "config.lua")
         if fs.exists(p) then return p, d end
     end
-
+    for i = 0, 99 do
+        local d = "/disk" .. (i == 0 and "" or i)
+        local p = fs.combine(d, "boot/config.lua")
+        if fs.exists(p) then return p, d end
+    end
     if fs.exists("/pxboot/config.lua") then return "/pxboot/config.lua", "/pxboot" end
     if fs.exists("/config.lua") then return "/config.lua", "/" end
 

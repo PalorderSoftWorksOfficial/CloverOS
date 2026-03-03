@@ -9,15 +9,15 @@ local function safeFindKernel(fileName)
         return nil
     end)
     if ok then
-        return path or "/root/boot/kernel.lua" -- fallback
+        return path or "/boot/kernel.lua"
     else
         printError("Error finding kernel: " .. tostring(path))
-        return "/root/boot/kernel.lua"
+        return "/boot/kernel.lua"
     end
 end
 
 -- Precompute kernel path
-local cloverKernel = safeFindKernel("CloverOS_OS.lua")
+local cloverKernel = safeFindKernel("boot/kernel.lua")
 
 defaultentry = "CloverOS"
 timeout = 5
