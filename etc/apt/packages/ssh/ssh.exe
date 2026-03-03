@@ -1,0 +1,473 @@
+local st = {}
+local modem = peripheral.find("modem")
+
+function modexp(base, exponent, modulus)
+    if modulus == 1 then
+        return 0
+    end
+
+    local result = 1
+    base = base % modulus
+
+    while exponent > 0 do
+        if exponent % 2 == 1 then
+            result = (result * base) % modulus
+        end
+        exponent = math.floor(exponent / 2)
+        base = (base * base) % modulus
+    end
+
+    return result
+end
+
+function receiveModem(filter, timeout)
+    if filter == nil then
+        filter = function()
+            return true
+        end
+    end
+    local event, side, channel, replyChannel, message, distance = nil
+    local function m()
+        while true do
+            local levent, lside, lchannel, lreplyChannel, lmessage, ldistance = os.pullEvent("modem_message")
+            if filter(levent, lside, lchannel, lreplyChannel, lmessage, ldistance) then
+                event, side, channel, replyChannel, message, distance = levent, lside, lchannel, lreplyChannel, lmessage, ldistance
+                break
+            end
+        end
+    end
+    local function t()
+        os.sleep(timeout)
+    end
+    if timeout ~= nil then
+        parallel.waitForAny(m, t)
+    else
+        m()
+    end
+    return event, side, channel, replyChannel, message, distance
+end
+
+function randomNumSeed(seed)
+    local m = 2147483647  -- 2^31 - 1 (a large prime number)
+    local a = 16807       -- Multiplier
+    local q = math.floor(m / a)
+    local r = m % a
+
+    local state = seed or os.time() -- Use current time as seed if not provided
+    return function()
+        local hi = state / q
+        local lo = state % q
+        local t = a * lo - r * hi
+        if t > 0 then
+            state = t
+        else
+            state = t + m
+        end
+        return state / m
+    end
+end
+
+function createPassword(sharedSecret, len)
+    local ran = randomNumSeed(sharedSecret)
+    local out = ""
+    for i=1,len do
+        out = out .. string.char(math.floor(ran() * 255))
+    end
+    return out
+end
+
+function xorED(key, message)
+    local out = ""
+    local ci = 1
+    for i=1,#message do
+        out = out .. string.char(bit.bxor(message:byte(i), key:byte(ci)))
+        ci = ci + 1
+        if ci > #key then
+            ci = 1
+        end
+    end
+    return out
+end
+
+local function outputSocket(ch, rch, socketId, sharedSecret, password)
+    local out = {}
+    out.events = {}
+    out.secret = sharedSecret
+    out.key = password
+    out.id = socketId
+    out.closed = false
+    out.nextMsgId = 1
+    out.on = function(event, callback)
+        if (event == nil) or (callback == nil) then
+            return false, "No event/callback received"
+        end
+        if out.events[event] == nil then
+            out.events[event] = {}
+        end
+        table.insert(out.events[event], callback)
+        return true
+    end
+    out.call = function(event, ...)
+        if (event == nil) then
+            return false, "No callback received"
+        end
+        if out.events[event] == nil then
+            out.events[event] = {}
+        end
+        for k,v in ipairs(out.events[event]) do
+            v(...)
+        end
+        return true
+    end
+    out.transmit = function(...)
+        if out.closed then
+            return false, "The socket is closed"
+        end
+        modem.transmit(rch, ch, {
+            mode = "data",
+            data = xorED(password, textutils.serialise({
+                event = {...},
+                messageId = out.nextMsgId
+            })),
+            socketId = socketId
+        })
+        out.nextMsgId = out.nextMsgId + 1
+        return true
+    end
+    out.close = function()
+        out.closed = true
+        out.call("closed", "The local system closed the connection", "Connection closed")
+        modem.transmit(rch, ch, {
+            mode = "disconnect",
+            message = "Connection closed",
+            socketId = socketId
+        })
+    end
+    return out
+end
+
+function st.createServer(callback)
+    local out = {}
+    out.callback = callback
+    out.nextId = 1
+    out.sockets = {}
+    local function onMessage(channel, replyChannel, message)
+        if message.mode == "connect" then
+            if (message.sharedBase == nil) or (message.sharedMod == nil) or (message.publicKey == nil) then
+                modem.transmit(replyChannel, channel, {
+                    mode = "disconnect",
+                    message = "sharedBase, sharedMod, publicKey must be specified",
+                    ["type"] = "arguments_must_be_specified"
+                })
+                return
+            end
+            local privateKey = math.random(10000,99999)
+            local publicKey = modexp(message.sharedBase, privateKey, message.sharedMod)
+            local sharedSecret = modexp(message.publicKey, privateKey, message.sharedMod)
+            modem.transmit(replyChannel, channel, {
+                mode = "accepted",
+                socketId = out.nextId,
+                publicKey = publicKey
+            })
+            local pass = createPassword(sharedSecret,32)
+            local oss = outputSocket(channel, replyChannel, out.nextId, sharedSecret, pass)
+            out.sockets[out.nextId] = oss
+            out.nextId = out.nextId + 1
+            callback(oss)
+        elseif message.mode == "data" then
+            if (message.socketId == nil) then
+                modem.transmit(replyChannel, channel, {
+                    mode = "disconnect",
+                    message = "socketId must be specified",
+                    ["type"] = "arguments_must_be_specified"
+                })
+                return
+            end
+            if (out.sockets[message.socketId] == nil) or out.sockets[message.socketId].closed then
+                modem.transmit(replyChannel, channel, {
+                    mode = "disconnect",
+                    message = "Invalid/Closed socket",
+                    ["type"] = "invalid_socket",
+                    socketId = message.socketId
+                })
+                return
+            end
+            local data = textutils.unserialise(xorED(out.sockets[message.socketId].key, message.data))
+            if data.messageId ~= out.sockets[message.socketId].nextMsgId then
+                modem.transmit(replyChannel, channel, {
+                    mode = "disconnect",
+                    message = "Invalid messageId",
+                    ["type"] = "invalid_message_id",
+                    socketId = message.socketId
+                })
+                out.sockets[message.socketId].closed = true
+                out.sockets[message.socketId].call("closed", "The local system closed the connection", "Invalid messageId")
+                return
+            end
+            out.sockets[message.socketId].nextMsgId = out.sockets[message.socketId].nextMsgId + 1
+            out.sockets[message.socketId].call(table.unpack(data.event))
+        elseif message.mode == "disconnect" then
+            if (message.socketId == nil) or (message.message == nil) then
+                modem.transmit(replyChannel, channel, {
+                    mode = "disconnect",
+                    message = "socketId, message must be specified",
+                    ["type"] = "arguments_must_be_specified"
+                })
+                return
+            end
+            if (out.sockets[message.socketId] == nil) or out.sockets[message.socketId].closed then
+                modem.transmit(replyChannel, channel, {
+                    mode = "disconnect",
+                    message = "Invalid/Closed socket",
+                    ["type"] = "invalid_socket",
+                    socketId = message.socketId
+                })
+                return
+            end
+            out.sockets[message.socketId].closed = true
+            out.sockets[message.socketId].call("closed", "The remote system closed the connection", message.message)
+        end
+    end
+    out.listen = function(port)
+        modem.open(port)
+        local function modemms()
+            while true do
+                local event, side, channel, replyChannel, message = os.pullEvent("modem_message")
+                if (channel == port) and (type(message) == "table") then
+                    onMessage(channel, replyChannel, message)
+                end
+            end
+        end
+        local function keepalives()
+            while true do
+                for k,v in ipairs(out.sockets) do
+                    if not v.closed then
+                        modem.transmit(port, port, {
+                            mode = "keepalive",
+                            socketId = v.id
+                        })
+                        local event, side, channel, replyChannel, message = receiveModem(function(event, side, channel, replyChannel, message)
+                            return (channel == port) and (type(message) == "table") and (message.mode == "keepaliver") and (message.socketId == v.id)
+                        end, 3)
+                        if event == nil then
+                            v.closed = true
+                            v.call("closed", "The remote system closed the connection", "Timed out")
+                        end
+                    end
+                end
+                os.sleep(20)
+            end
+        end
+        parallel.waitForAny(modemms, keepalives)
+    end
+    return out
+end
+
+function st.createClient(port)
+    local out = {}
+    out.connect = function()
+        modem.open(port)
+        local sharedBase = math.random(10000,99999)
+        local sharedMod = math.random(10000,99999)
+        local privateKey = math.random(10000,99999)
+        local publicKey = modexp(sharedBase, privateKey, sharedMod)
+        modem.transmit(port, port, {
+            mode = "connect",
+            sharedBase = sharedBase,
+            sharedMod = sharedMod,
+            publicKey = publicKey
+        })
+        local event, side, channel, replyChannel, message = receiveModem(function(event, side, channel, replyChannel, message)
+            return (channel == port) and (type(message) == "table")
+        end, 3)
+        if event ~= nil then
+            if message.mode == "accepted" then
+                local sharedSecret = modexp(message.publicKey, privateKey, sharedMod)
+                local pass = createPassword(sharedSecret,32)
+                out.socket = outputSocket(port, port, message.socketId, sharedSecret, pass)
+                return true
+            elseif message.mode == "disconnect" then
+                return false, message.message
+            end
+        else
+            return false, "Timed out"
+        end
+    end
+    out.listen = function()
+        if out.socket == nil then
+            return nil, "No socket is opened"
+        end
+        local function modems()
+            while true do
+                local event, side, channel, replyChannel, message = os.pullEvent("modem_message")
+                if (channel == port) and (type(message) == "table") and (message.socketId == out.socket.id) then
+                    if out.socket.closed then
+                        return
+                    end
+                    if message.mode == "data" then
+                        local data = textutils.unserialise(xorED(out.socket.key, message.data))
+                        if data.messageId ~= out.socket.nextMsgId then
+                            out.socket.closed = true
+                            out.socket.call("closed", "The local system closed the connection", "Invalid messageId")
+                        else
+                            out.socket.nextMsgId = out.socket.nextMsgId + 1
+                            out.socket.call(table.unpack(data.event))
+                        end
+                    elseif message.mode == "keepalive" then
+                        modem.transmit(replyChannel, channel, {
+                            mode = "keepaliver",
+                            socketId = out.socket.id
+                        })
+                    elseif message.mode == "disconnect" then
+                        out.socket.closed = true
+                        out.socket.call("closed", "The remote system closed the connection", message.message)
+                    end
+                end
+            end
+        end
+        local function offer()
+            while not out.socket.closed do
+                os.sleep(0)
+            end
+        end
+        parallel.waitForAny(modems, offer)
+    end
+    return out
+end
+
+local args = {...}
+
+local options = {
+    host = nil,
+    port = nil,
+    logfile = nil,
+    timeout = 5,
+    retries = 3,
+    verbose = false,
+    password = nil
+}
+
+local function parseArgs(args)
+    local i = 1
+    while i <= #args do
+        local a = args[i]
+        if a == "-h" or a == "--host" then
+            i = i + 1
+            options.host = tonumber(args[i])
+        elseif a == "-p" or a == "--port" then
+            i = i + 1
+            options.port = tonumber(args[i])
+        elseif a == "-l" or a == "--log" then
+            i = i + 1
+            options.logfile = args[i]
+        elseif a == "-t" or a == "--timeout" then
+            i = i + 1
+            options.timeout = tonumber(args[i])
+        elseif a == "-r" or a == "--retries" then
+            i = i + 1
+            options.retries = tonumber(args[i])
+        elseif a == "-v" or a == "--verbose" then
+            options.verbose = true
+        elseif a == "--password" then
+            i = i + 1
+            options.password = args[i]
+        else
+            print("Unknown argument:", a)
+            return false
+        end
+        i = i + 1
+    end
+    return true
+end
+
+local function usage()
+    print("Usage: ssh [options]")
+    print("Options:")
+    print("  -h, --host <host>         Host channel number (required)")
+    print("  -p, --port <port>         Port number (required)")
+    print("  -l, --log <file>          Log file path (optional)")
+    print("  -t, --timeout <seconds>   Connection timeout (default 5)")
+    print("  -r, --retries <num>       Connection retry attempts (default 3)")
+    print("  -v, --verbose             Verbose output")
+    print("  --password <secret>       Optional pre-shared secret for SSH")
+end
+
+if not parseArgs(args) or not options.host or not options.port then
+    usage()
+    return
+end
+
+local log
+if options.logfile then
+    local f, err = io.open(options.logfile, "a")
+    if f then
+        log = f
+        print("Logging enabled to " .. options.logfile)
+    else
+        print("Warning: could not open log file:", err)
+    end
+end
+
+local function logmsg(msg)
+    if log then
+        log:write(os.date("[%Y-%m-%d %H:%M:%S] ") .. msg .. "\n")
+        log:flush()
+    end
+    if options.verbose then
+        print("[DEBUG]", msg)
+    end
+end
+
+local client
+local attempts = 0
+repeat
+    attempts = attempts + 1
+    client = st.createClient(options.port)
+    if options.password then
+        client.socket = st.createClient(options.port).socket
+        client.socket.key = options.password
+    end
+    local ok, err = client.connect()
+    if not ok then
+        logmsg("Connection attempt " .. attempts .. " failed: " .. err)
+        os.sleep(2)
+    end
+until client.socket or attempts >= options.retries
+
+if not client.socket then
+    print("Failed to connect after " .. options.retries .. " attempts.")
+    return
+end
+
+logmsg("Connected to host channel " .. options.host .. " on port " .. options.port)
+print("Connected. Type 'exit' to disconnect.")
+
+client.socket.on("command", function(data)
+    local msg = data.input or tostring(data)
+    print(msg)
+    logmsg("Received: " .. msg)
+end)
+
+client.socket.on("closed", function(msg)
+    print("Connection closed:", msg)
+    logmsg("Connection closed: " .. msg)
+end)
+
+parallel.waitForAny(
+    function()
+        client.listen()
+    end,
+    function()
+        while not client.socket.closed do
+            io.write("ssh> ")
+            local input = io.read()
+            if not input then break end
+            if input:lower() == "exit" then
+                client.socket.close()
+                break
+            end
+            client.socket.transmit({event="command", input=input})
+            logmsg("Sent: " .. input)
+        end
+    end
+)

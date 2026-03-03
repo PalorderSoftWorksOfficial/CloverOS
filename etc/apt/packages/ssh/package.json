@@ -1,0 +1,12 @@
+{
+    "name": "ssh",
+    "description": "Secure Shell (SSH) client for encrypted remote connections with modems.",
+    "license": "GPL-3.0",
+    "author": "CloverOS Team",
+    "version": "1.0.0",
+    "app": false,
+    "binary": true,
+    "files": [
+        "ssh.exe"
+    ]
+}
