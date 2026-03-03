@@ -170,6 +170,8 @@ if edition == "default" then
         settings.set("emulator",false)
         settings.set("turtle",false)
 elseif edition == "soft" then
+    table.insert(fileList, "boot/pxboot.lua")
+    table.insert(fileList, "boot/kernel.lua")
     table.insert(fileList, "CloverOS_OS.lua")
     for i, v in ipairs(fileList) do
         if v == "netinstall.lua" then
@@ -194,6 +196,8 @@ elseif edition == "soft" then
     settings.set("default",false)
 elseif edition == "turtle" then
     table.insert(fileList, "CloverOS_OS.lua")
+    table.insert(fileList, "boot/pxboot.lua")
+    table.insert(fileList, "boot/kernel.lua")
     for i, v in ipairs(fileList) do
         if v == "netinstall.lua" then
             table.remove(fileList, i)
