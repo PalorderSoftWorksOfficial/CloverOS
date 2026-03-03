@@ -2,6 +2,7 @@
     "name": "cash",
     "description": "None",
     "author": "JackMacWindows",
+    "license": "MIT",
     "version": "1.0.1",
     "app": false,
     "binary": true,

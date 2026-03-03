@@ -1,0 +1,12 @@
+{
+    "name": "aeslib",
+    "description": "Advanced Encryption Standard (AES) libary for CC: Tweaked",
+    "license": "MIT",
+    "author": "afonya",
+    "version": "unknown",
+    "app": false,
+    "binary": true,
+    "files": [
+        "AES.exe"
+    ]
+}

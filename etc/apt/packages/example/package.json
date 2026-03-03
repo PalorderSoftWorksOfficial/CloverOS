@@ -2,6 +2,7 @@
     "name": "example",
     "description": "A simple hello world binary",
     "author": "CloverOS Team",
+    "license": "GPL-3.0",
     "version": "0.0.1",
     "app": false,
     "binary": true,

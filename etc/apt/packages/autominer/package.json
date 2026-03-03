@@ -2,6 +2,7 @@
     "name": "autominer",
     "description": "An simple autominer for cobblestone farms or anything that is infront of it (turtle).",
     "author": "CloverOS Team",
+    "license": "GPL-3.0",
     "version": "1.0.1",
     "app": false,
     "binary": true,

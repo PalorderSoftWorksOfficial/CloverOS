@@ -2,6 +2,7 @@
     "name": "turtle",
     "description": "An turtle utility to control turtles.",
     "author": "CloverOS Team",
+    "license": "GPL-3.0",
     "version": "1.0.0",
     "app": false,
     "binary": true,

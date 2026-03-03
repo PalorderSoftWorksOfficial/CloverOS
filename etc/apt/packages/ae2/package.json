@@ -1,6 +1,7 @@
 {
     "name": "ae2",
     "description": "An advanced management system for Applied Energetics 2 (Advanced Peripherals mod needed).",
+    "license": "GPL-3.0",
     "author": "CloverOS Team",
     "version": "2.0.0",
     "app": false,

@@ -1,6 +1,7 @@
 {
     "name": "ccemux",
     "description": "A CloverOS Toolkit, That contains commands and funtionality for the CraftOS Emulator, and CCemux.",
+    "license": "GPL-3.0",
     "author": "CloverOS Team",
     "version": "0.1.1",
     "app": false,
