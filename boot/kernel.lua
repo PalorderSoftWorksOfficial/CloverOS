@@ -11,8 +11,32 @@ if not path then
     error("CloverOS_API.lua not found")
 end
 
-API = dofile(path)
+local path2
+for i = 0, 99 do
+    local d = "/disk" .. (i == 0 and "" or i)
+    if fs.exists(d .. "/CloverOS_API.lua") then
+        path2 = d .. "/CloverOS_API.lua"
+        break
+    end
+end
 
+if not path2 then
+    error("CloverOS_API.lua not found")
+end
+
+API = dofile(path)
+API2 = dofile(path2)
+function mergeTables(t1, t2)
+    for k, v in pairs(t2) do
+        if type(v) == "table" and type(t1[k]) == "table" then
+            mergeTables(t1[k], v)
+        else
+            t1[k] = v
+        end
+    end
+    return t1
+end
+mergeTables(API2, API)
 local osAPIFunc = {
     version = function() return "CloverOS v1.0.0" end,
     author = function() return "CloverOS Team" end,

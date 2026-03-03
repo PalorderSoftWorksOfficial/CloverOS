@@ -117,7 +117,6 @@ function module.mirroredRead(hidden)
     return mirroredRead(hidden)
 end
 
-
 mergeTables(GDI, module)
 
 return module
