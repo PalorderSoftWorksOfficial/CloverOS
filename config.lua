@@ -1,12 +1,23 @@
-local function findKernel(fileName)
-    for i = 0, 99 do
-        local d = "/disk" .. (i == 0 and "" or i)
-        local p = d .. "/" .. fileName
-        if fs.exists(p) then return p end
+local function safeFindKernel(fileName)
+    local ok, path = pcall(function()
+        for i = 0, 99 do
+            local d = "/disk" .. (i == 0 and "" or i)
+            local p = d .. "/" .. fileName
+            if fs.exists(p) then return p end
+        end
+        if fs.exists("/" .. fileName) then return "/" .. fileName end
+        return nil
+    end)
+    if ok then
+        return path or "/root/boot/kernel.lua" -- fallback
+    else
+        printError("Error finding kernel: " .. tostring(path))
+        return "/root/boot/kernel.lua"
     end
-    if fs.exists("/" .. fileName) then return "/" .. fileName end
-    return nil
 end
+
+-- Precompute kernel path
+local cloverKernel = safeFindKernel("CloverOS_OS.lua")
 
 defaultentry = "CloverOS"
 timeout = 5
@@ -16,7 +27,7 @@ titlecolor = colors.lightGray
 
 menuentry "CloverOS" {
     description "Boot CloverOS normally.";
-    kernel(findKernel("CloverOS_OS.lua") or "/root/boot/kernel.lua");
+    kernel(cloverKernel);
     args "";
 }
 

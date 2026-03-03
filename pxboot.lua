@@ -150,8 +150,20 @@ local function unbios(path, ...)
 end
 
 function cmds.kernel(t)
-    bootcfg.fn = unbios
-    bootcfg.args = {t.path}
+    -- Wrap kernel boot in pcall so errors don’t crash the bootloader,
+    -- but still pass through any kernel arguments collected via `args`.
+    bootcfg.fn = function(path, ...)
+        local ok, err = pcall(unbios, path, ...)
+        if not ok then
+            term.setTextColor(colors.red)
+            term.write("Kernel boot failed: " .. tostring(err))
+            term.setCursorPos(1, 2)
+            term.write("Press any key to return...")
+            os.pullEvent("key")
+        end
+    end
+    -- Start args with the kernel path so later `args` directives append to it.
+    bootcfg.args = { t.path }
 end
 
 function cmds.chainloader(t)
@@ -160,13 +172,21 @@ function cmds.chainloader(t)
 end
 
 function cmds.craftos(t)
+    -- Keep CraftOS in its original enviroment
     bootcfg.fn = function()
-        term.setTextColor(colors.yellow)
-        print(os.version())
-        term.setTextColor(colors.white)
-        if settings.get("motd.enable") then
-            if shell then shell.run("motd")
-            else os.run({}, "/rom/programs/motd.lua") end
+        local ok, err = pcall(function()
+            term.setTextColor(colors.yellow)
+            print(os.version())
+            term.setTextColor(colors.white)
+            if settings.get("motd.enable") then
+                if shell then shell.run("motd")
+                else os.run({}, "/rom/programs/motd.lua") end
+            end
+        end)
+        if not ok then
+            printError("CraftOS failed to run: " .. tostring(err))
+            print("Press any key to continue...")
+            os.pullEvent("key")
         end
     end
     bootcfg.args = {}
