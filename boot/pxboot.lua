@@ -29,7 +29,6 @@ local function unbios(path, ...)
     -- * `turtle.equip[Left|Right]`
     -- Licensed under the MIT license
     -- Modified by adpalorder for CloverOS
-    local old_dofile = _G.dofile
     local kernelArgs = table.pack(...)
     local t = {}
     for k in pairs(_G) do if not userGlobals[k] then table.insert(t, k) end end
