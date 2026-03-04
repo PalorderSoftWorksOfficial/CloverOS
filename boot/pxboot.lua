@@ -33,17 +33,6 @@ local function unbios(path, ...)
     local kernelArgs = table.pack(...)
     local t = {}
     for k in pairs(_G) do if not userGlobals[k] then table.insert(t, k) end end
-    local native = monitor or _G.term.native()
-    for _, method in ipairs { "nativePaletteColor", "nativePaletteColour", "screenshot" } do
-        native[method] = _G.term[method]
-    end
-    _G.term = native
-    if _G.http then
-        _G.http.checkURL = _G.http.checkURLAsync
-        _G.http.websocket = _G.http.websocketAsync
-    end
-    if _G.commands then _G.commands = _G.commands.native end
-    if _G.turtle then _G.turtle.native, _G.turtle.craft = nil end
     -- Set up TLCO
     -- This functions by crashing `rednet.run` by removing `os.pullEventRaw`. Normally
     -- this would cause `parallel` to throw an error, but we replace `error` with an
