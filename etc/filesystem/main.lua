@@ -910,5 +910,5 @@ function filesystem.walk(path)
     scan(resolve(path))
     return results
 end
-
+_G.CloverOS.filesystem = filesystem
 return filesystem

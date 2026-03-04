@@ -763,10 +763,10 @@ function GDI.box(x, y, w, h, title, fg, bg)
     if title then GDI.text(x + 2, y, title, colors.cyan, bg) end
 end
 
-function mergeTables(t1, t2)
+function module.mergeTables(t1, t2)
     for k, v in pairs(t2) do
         if type(v) == "table" and type(t1[k]) == "table" then
-            mergeTables(t1[k], v)
+            module.mergeTables(t1[k], v)
         else
             t1[k] = v
         end
@@ -793,6 +793,6 @@ function module.mirroredRead(hidden)
     return mirroredRead(hidden)
 end
 
-mergeTables(GDI, module)
-
+module.mergeTables(GDI, module)
+_G.GDI = GDI
 return module
