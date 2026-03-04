@@ -97,40 +97,6 @@ local function unbios(path, ...)
             return fn(table.unpack(kernelArgs, 1, kernelArgs.n))
         end
     end
-    if debug then
-        -- Restore functions that were overwritten in the BIOS
-        -- Apparently this has to be done *after* redefining term.native
-        local function restoreValue(tab, idx, name, hint)
-            local i, key, value = 1, debug.getupvalue(tab[idx], hint)
-            while key ~= name and not (key == nil and i > 1) do
-                key, value = debug.getupvalue(tab[idx], i)
-                i=i+1
-            end
-            tab[idx] = value or tab[idx]
-        end
-        restoreValue(_G, "loadstring", "nativeloadstring", 1)
-        restoreValue(_G, "load", "nativeload", 5)
-        if http then restoreValue(http, "request", "nativeHTTPRequest", 3) end
-        restoreValue(os, "shutdown", "nativeShutdown", 1)
-        restoreValue(os, "reboot", "nativeReboot", 1)
-        if turtle then
-            restoreValue(turtle, "equipLeft", "v", 1)
-            restoreValue(turtle, "equipRight", "v", 1)
-        end
-        do
-            local i, key, value = 1, debug.getupvalue(peripheral.isPresent, 2)
-            while key ~= "native" and key ~= nil do
-                key, value = debug.getupvalue(peripheral.isPresent, i)
-                i=i+1
-            end
-            _G.peripheral = value or peripheral
-        end
-        -- Restore Discord plugin in CraftOS-PC
-        if debug.getupvalue(old_dofile, 2) == "status" then
-            local _, status = debug.getupvalue(old_dofile, 2)
-            _, _G.discord = debug.getupvalue(status, 4)
-        end
-    end
     coroutine.yield()
 end
 
@@ -278,7 +244,7 @@ end
 
 local runningDir
 config = setmetatable({
-    title = "PXBOOT bootloader",
+    title = "UNBIOS bootloader",
     titlecolor = colors.white,
     backgroundcolor = colors.black,
     textcolor = colors.white,
