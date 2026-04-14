@@ -1031,26 +1031,27 @@ local function fileManager()
 end
 -- CMD terminal
 local function cmd()
-    local w,h = term.getSize()
-    local cc_completion = require("cc.completion")
+    local w, h = term.getSize()
 
     local function drawWindow()
         mirroredClear()
-        mirroredSetCursor(1,1)
+        mirroredSetCursor(1, 1)
         term.setBackgroundColor(colors.black)
         term.setTextColor(colors.white)
-        for i=1,h do mirroredWrite(string.rep(" ", w) .. "\n") end
-        mirroredSetCursor(1,1)
+        for i = 1, h do
+            mirroredWrite(string.rep(" ", w) .. "\n")
+        end
+        mirroredSetCursor(1, 1)
     end
 
     local function listCommands()
         local commands = {}
-        local paths = {"disk/bin","disk2/bin","disk3/bin","disk4/bin","disk5/bin","/bin"}
+        local paths = { "disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "/bin" }
         for _, path in ipairs(paths) do
             if fs.exists(path) then
                 for _, file in ipairs(fs.list(path)) do
                     if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
-                        commands[file:gsub("%..+$","")] = path.."/"..file
+                        commands[file:gsub("%..+$", "")] = path .. "/" .. file
                     end
                 end
             end
@@ -1061,7 +1062,7 @@ local function cmd()
     local builtin = {
         help = function()
             mirroredPrint("Available commands:")
-            for k,_ in pairs(listCommands()) do mirroredPrint(" - "..k) end
+            for k in pairs(listCommands()) do mirroredPrint(" - " .. k) end
             mirroredPrint(" - exit\n - shutdown\n - installer\n - run")
         end,
         exit = function() return true end,
@@ -1071,7 +1072,7 @@ local function cmd()
     }
 
     drawWindow()
-    mirroredSetCursor(1,1)
+    mirroredSetCursor(1, 1)
     mirroredPrint("Welcome to Clover OS Linux-like Shell")
     mirroredPrint("Type 'help' for commands\n")
 
@@ -1079,81 +1080,82 @@ local function cmd()
     while running do
         local prompt = "root@CloverOS:~$ "
         mirroredWrite(prompt)
+
         local input = {}
         local cursor = 0
         local lineStartX, lineStartY = term.getCursorPos()
 
         while true do
-            local event, key = os.pullEvent("key")
+            local event, p1 = os.pullEvent()
 
-            -- Enter submits command
-            if key == keys.enter then
-                mirroredWrite("\n")
-                break
-            -- Backspace
-            elseif key == keys.backspace then
-                if cursor > 0 then
-                    table.remove(input, cursor)
-                    cursor = cursor - 1
-                    mirroredSetCursor(lineStartX, lineStartY)
-                    mirroredWrite(table.concat(input) .. " ")
-                    mirroredSetCursor(lineStartX + cursor, lineStartY)
-                end
-            -- Delete (optional, same as backspace)
-            elseif key == keys.delete then
-                if cursor < #input then
-                    table.remove(input, cursor + 1)
-                    mirroredSetCursor(lineStartX, lineStartY)
-                    mirroredWrite(table.concat(input) .. " ")
-                    mirroredSetCursor(lineStartX + cursor, lineStartY)
-                end
-            -- Left/Right arrows
-            elseif key == keys.left and cursor > 0 then
-                cursor = cursor - 1
-                mirroredSetCursor(lineStartX + cursor, lineStartY)
-            elseif key == keys.right and cursor < #input then
+            if event == "char" then
+                table.insert(input, cursor + 1, p1)
                 cursor = cursor + 1
+                mirroredSetCursor(lineStartX, lineStartY)
+                mirroredWrite(table.concat(input) .. " ")
                 mirroredSetCursor(lineStartX + cursor, lineStartY)
-            -- Home/End
-            elseif key == keys.home then
-                cursor = 0
-                mirroredSetCursor(lineStartX + cursor, lineStartY)
-            elseif key == keys["end"] then
-                cursor = #input
-                mirroredSetCursor(lineStartX + cursor, lineStartY)
-            -- Tab completion
-            elseif key == keys.tab then
-                local allCommands = {}
-                for k in pairs(builtin) do table.insert(allCommands, k) end
-                for k in pairs(listCommands()) do table.insert(allCommands, k) end
-                local current = table.concat(input)
-                local matches = cc_completion.complete(current, allCommands)
-                if #matches == 1 then
-                    input = {}
-                    for c in matches[1]:gmatch(".") do table.insert(input,c) end
-                    cursor = #input
-                    mirroredSetCursor(lineStartX, lineStartY)
-                    mirroredWrite(table.concat(input))
-                elseif #matches > 1 then
-                    mirroredPrint("\nSuggestions: "..table.concat(matches, ", "))
-                    mirroredSetCursor(lineStartX, lineStartY)
-                    mirroredWrite(table.concat(input))
-                end
-            -- Regular characters
-            else
-                local charName = keys.getName(key)
-                local char = nil
-                if key == keys.space then
-                    char = " "
-                elseif #charName == 1 then
-                    char = charName
-                end
-                if char then
-                    table.insert(input, cursor + 1, char)
-                    cursor = cursor + 1
-                    mirroredSetCursor(lineStartX, lineStartY)
-                    mirroredWrite(table.concat(input))
+
+            elseif event == "key" then
+                local key = p1
+
+                if key == keys.enter then
+                    mirroredWrite("\n")
+                    break
+
+                elseif key == keys.backspace then
+                    if cursor > 0 then
+                        table.remove(input, cursor)
+                        cursor = cursor - 1
+                        mirroredSetCursor(lineStartX, lineStartY)
+                        mirroredWrite(table.concat(input) .. " ")
+                        mirroredSetCursor(lineStartX + cursor, lineStartY)
+                    end
+
+                elseif key == keys.delete then
+                    if cursor < #input then
+                        table.remove(input, cursor + 1)
+                        mirroredSetCursor(lineStartX, lineStartY)
+                        mirroredWrite(table.concat(input) .. " ")
+                        mirroredSetCursor(lineStartX + cursor, lineStartY)
+                    end
+
+                elseif key == keys.left and cursor > 0 then
+                    cursor = cursor - 1
                     mirroredSetCursor(lineStartX + cursor, lineStartY)
+
+                elseif key == keys.right and cursor < #input then
+                    cursor = cursor + 1
+                    mirroredSetCursor(lineStartX + cursor, lineStartY)
+
+                elseif key == keys.home then
+                    cursor = 0
+                    mirroredSetCursor(lineStartX, lineStartY)
+
+                elseif key == keys["end"] then
+                    cursor = #input
+                    mirroredSetCursor(lineStartX + cursor, lineStartY)
+
+                elseif key == keys.tab then
+                    local allCommands = {}
+                    for k in pairs(builtin) do table.insert(allCommands, k) end
+                    for k in pairs(listCommands()) do table.insert(allCommands, k) end
+
+                    local current = table.concat(input)
+                    local matches = textutils.complete(current, allCommands)
+
+                    if #matches == 1 then
+                        input = {}
+                        for c in matches[1]:gmatch(".") do
+                            table.insert(input, c)
+                        end
+                        cursor = #input
+                        mirroredSetCursor(lineStartX, lineStartY)
+                        mirroredWrite(table.concat(input))
+                    elseif #matches > 1 then
+                        mirroredPrint("\nSuggestions: " .. table.concat(matches, ", "))
+                        mirroredSetCursor(lineStartX, lineStartY)
+                        mirroredWrite(table.concat(input))
+                    end
                 end
             end
         end
@@ -1162,21 +1164,24 @@ local function cmd()
         if finalInput ~= "" then
             local parts = {}
             for word in finalInput:gmatch("%S+") do table.insert(parts, word) end
+
             local command = table.remove(parts, 1)
             local commands = listCommands()
+
             if builtin[command] then
                 local exitSignal = builtin[command](table.unpack(parts))
                 if exitSignal then running = false end
             elseif commands[command] then
-                local ok, err = pcall(function() shell.run(commands[command], table.unpack(parts)) end)
-                if not ok then mirroredPrint("Error: "..tostring(err)) end
+                local ok, err = pcall(function()
+                    shell.run(commands[command], table.unpack(parts))
+                end)
+                if not ok then mirroredPrint("Error: " .. tostring(err)) end
             else
-                mirroredPrint("Command not found: "..tostring(command))
+                mirroredPrint("Command not found: " .. tostring(command))
             end
         end
     end
 end
-
 -- Simple games and apps
 local function playTetris()
     mirroredClear()
