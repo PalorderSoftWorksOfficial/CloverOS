@@ -1321,61 +1321,70 @@ local icons = {
       local function restore()
         term.setBackgroundColor(old.bg)
         term.setTextColor(old.fg)
-        term.setCursorPos(old.x, old.y)
         term.clear()
+        term.setCursorPos(1, 1)
       end
 
-      local w, h = term.getSize()
+      local function centerText(y, text)
+        local w, _ = term.getSize()
+        term.setCursorPos(math.max(1, math.floor((w - #text) / 2)), y)
+        term.write(text)
+      end
 
-      GDI.clear(colors.black)
+      local function drawBox(title)
+        local w, h = term.getSize()
+        term.clear()
 
-      local bw, bh = 60, 20
-      local bx, by = math.floor((w - bw) / 2) + 1, math.floor((h - bh) / 2) + 1
-      GDI.box(bx, by, bw, bh, " Music Player ", colors.white, colors.blue)
+        centerText(1, "=== " .. title .. " ===")
+        centerText(3, "Select track number and press Enter")
+        centerText(4, "P = pause/resume | Q = stop")
+      end
 
       local speakers = {}
       for _, name in pairs(peripheral.getNames()) do
         if peripheral.getType(name) == "speaker" then
-          table.insert(speakers, peripheral.wrap(name))
+          speakers[#speakers + 1] = peripheral.wrap(name)
         end
       end
 
       if #speakers == 0 then
-        GDI.text(bx + 2, by + 2, "Error: No speakers attached!", colors.red, colors.blue)
-        os.pullEvent("key")
         restore()
+        print("ERROR: No speakers attached.")
         return
       end
 
       local tracks = {
-        { name = "Hunt in the dark - Sapheria_xplicit", file = "m1.dfpwm" },
-        { name = "BFDI OST - Lickie",                   file = "BFDI_OST_Lickie.dfpwm" },
-        { name = "Joke",                                file = "joke.dfpwm" },
-        { name = "Panic Track",                         file = "Panic_Track.dfpwm" },
-        { name = "zero-project - Gothic (2020)",        file = "gothic.dfpwm" },
-        { name = "145 (Poodles)",                       file = "m2.dfpwm" },
-        { name = "Chaos Theme",                         file = "m3.dfpwm" },
-        { name = "RUINOUS INTNT",                       file = "m4.dfpwm" },
-        { name = "WOTFI 2024",                          file = "m5.dfpwm" },
+        { name = "Hunt in the dark", file = "m1.dfpwm" },
+        { name = "BFDI OST",         file = "BFDI_OST_Lickie.dfpwm" },
+        { name = "Joke",             file = "joke.dfpwm" },
+        { name = "Panic Track",      file = "Panic_Track.dfpwm" },
+        { name = "Gothic",           file = "gothic.dfpwm" },
+        { name = "Poodles",          file = "m2.dfpwm" },
+        { name = "Chaos Theme",      file = "m3.dfpwm" },
+        { name = "RUINOUS INTNT",    file = "m4.dfpwm" },
+        { name = "WOTFI 2024",       file = "m5.dfpwm" },
       }
 
+      drawBox("Music Player")
+
       for i, t in ipairs(tracks) do
-        GDI.text(bx + 2, by + 1 + i, i .. ". " .. t.name, colors.white, colors.blue)
+        term.setCursorPos(2, 6 + i)
+        term.write(i .. ". " .. t.name)
       end
 
-      GDI.text(bx + 2, by + bh - 3, "Enter number | P=pause | Q=stop", colors.white, colors.blue)
+      term.setCursorPos(2, 6 + #tracks + 2)
+      term.write("Choice: ")
 
-      GDI.setCursor(bx + 2, by + bh - 2)
       local choice = read()
 
-      if choice == "q" or choice == "exit" then
+      if choice == "q" then
         restore()
         return
       end
 
       local index = tonumber(choice)
       if not index or not tracks[index] then
-        GDI.text(bx + 2, by + 2, "Invalid choice.", colors.red, colors.blue)
+        print("Invalid selection.")
         os.sleep(1)
         restore()
         return
@@ -1395,7 +1404,7 @@ local icons = {
       local filePath = fs.combine(basePath, tracks[index].file)
 
       if not fs.exists(filePath) then
-        GDI.text(bx + 2, by + 2, "Missing file: " .. filePath, colors.red, colors.blue)
+        print("Missing file: " .. filePath)
         os.sleep(1.5)
         restore()
         return
@@ -1407,19 +1416,19 @@ local icons = {
       local paused = false
       local stop = false
 
-      local function handleInput()
+      local function inputThread()
         while not stop do
-          local e, k = os.pullEvent("key")
+          local _, key = os.pullEvent("key")
 
-          if k == keys.q then
+          if key == keys.q then
             stop = true
-          elseif k == keys.p then
+          elseif key == keys.p then
             paused = not paused
           end
         end
       end
 
-      local function playAudio()
+      local function audioThread()
         while not stop do
           if paused then
             os.sleep(0.1)
@@ -1444,12 +1453,12 @@ local icons = {
         end
       end
 
-      parallel.waitForAny(handleInput, playAudio)
+      parallel.waitForAny(inputThread, audioThread)
 
       file.close()
       restore()
 
-      GDI.clear(colors.black)
+      print("Playback finished.")
     end
   },
   { name = "cmd", run = function() cmd() end }
