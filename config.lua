@@ -700,8 +700,7 @@ titlecolor = colors.lightGray
 
 menuentry "CloverOS" {
   description "Boot CloverOS normally.",
-  kernel(cloverKernel),
-  args "",
+  kernel(cloverKernel)
 }
 
 menuentry "CraftOS" {
