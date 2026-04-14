@@ -700,9 +700,7 @@ titlecolor = colors.lightGray
 
 menuentry "CloverOS" {
   description "Boot CloverOS normally.",
-  kernel(function()
-    return dofile(cloverKernel)
-  end),
+  kernel(cloverKernel),
   args "",
 }
 
