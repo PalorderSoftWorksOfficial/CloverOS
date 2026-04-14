@@ -1,5 +1,9 @@
-if not ccemux or not periphemu then
-break
+local ok1, ccemux = pcall(function() return ccemux end)
+local ok2, periphemu = pcall(function() return periphemu end)
+
+if not ok1 or not ccemux or not ok2 or not periphemu then
+    print("Required CCEmuX APIs not available")
+    return
 end
 local args={...}
 local cmd=args[1]
