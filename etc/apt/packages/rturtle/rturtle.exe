@@ -1,4 +1,7 @@
-if not turtle then print("Must be ran on an turtle!") return end
+if not turtle then
+  print("Must be ran on an turtle!")
+  return
+end
 local modem = peripheral.find("modem", function(_, m) return m.isWireless() end)
 if not modem then return end
 rednet.open(peripheral.getName(modem))

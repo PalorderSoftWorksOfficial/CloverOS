@@ -679,70 +679,71 @@ local termX, termY = term.getSize()
 local bufferWindow = window.create(ogTerm, 1, 1, termX, termY)
 
 function menuOptions(title, tChoices, tActions)
-    local check = true
-    local nSelection = 1
-    repeat
-        bufferWindow.setVisible(false)
-        term.redirect(bufferWindow)
-        term.clear()
-        local width, height = term.getSize()
-        paintutils.drawLine(1, 1, width, 1, colors.gray)
-        term.setCursorPos(1, 1)
-        term.setBackgroundColor(colors.gray)
-        print(title)
-        term.setBackgroundColor(colors.black)
-        print("")
-        for nLine = 1, #tChoices do 
-            if nSelection == nLine then
-                term.setTextColor(colors.lightGray)
-                print("> " .. tChoices[nLine])
-                term.setTextColor(colors.white)
-            else
-                print("  " .. tChoices[nLine])
-            end
-        end
-        bufferWindow.setVisible(true)
-        local sEvent, nKey = os.pullEvent("key")
-        if nKey == keys.up or nKey == keys.w then
-            if tChoices[nSelection - 1] then nSelection = nSelection - 1 end
-        elseif nKey == keys.down or nKey == keys.s then
-            if tChoices[nSelection + 1] then nSelection = nSelection + 1 end
-        elseif nKey == keys.enter then
-            if tActions[nSelection] then
-                tActions[nSelection]()
-                check = false
-            end
-        end
-    until check == false
+  local check = true
+  local nSelection = 1
+  repeat
+    bufferWindow.setVisible(false)
+    term.redirect(bufferWindow)
+    term.clear()
+    local width, height = term.getSize()
+    paintutils.drawLine(1, 1, width, 1, colors.gray)
+    term.setCursorPos(1, 1)
+    term.setBackgroundColor(colors.gray)
+    print(title)
+    term.setBackgroundColor(colors.black)
+    print("")
+    for nLine = 1, #tChoices do
+      if nSelection == nLine then
+        term.setTextColor(colors.lightGray)
+        print("> " .. tChoices[nLine])
+        term.setTextColor(colors.white)
+      else
+        print("  " .. tChoices[nLine])
+      end
+    end
+    bufferWindow.setVisible(true)
+    local sEvent, nKey = os.pullEvent("key")
+    if nKey == keys.up or nKey == keys.w then
+      if tChoices[nSelection - 1] then nSelection = nSelection - 1 end
+    elseif nKey == keys.down or nKey == keys.s then
+      if tChoices[nSelection + 1] then nSelection = nSelection + 1 end
+    elseif nKey == keys.enter then
+      if tActions[nSelection] then
+        tActions[nSelection]()
+        check = false
+      end
+    end
+  until check == false
 end
 
 local dumpWindow = window.create(term.current(), 1, 1, 1, 1, false)
 function disableoutput()
-    ogTerm = term.current()
-    term.redirect(dumpWindow)
-    return ogTerm
+  ogTerm = term.current()
+  term.redirect(dumpWindow)
+  return ogTerm
 end
+
 function enableoutput(ogTerm)
-    term.redirect(ogTerm)
+  term.redirect(ogTerm)
 end
 
 local envType = nil
-menuOptions("Select your OS environment", {"CC:Tweaked", "CraftOS"}, {
-    function() envType = "cct" end,
-    function() envType = "craftos" end
+menuOptions("Select your OS environment", { "CC:Tweaked", "CraftOS" }, {
+  function() envType = "cct" end,
+  function() envType = "craftos" end
 })
 
 if envType == "craftos" then
-    print("Setting up CraftOS environment...")
-    pcall(function()
-        shell.run("attach left drive")
-        shell.run("attach right speaker")
-        if disk and disk.insertDisk then
-            disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
-        end
-    end)
-    print("Environment setup complete.")
-    sleep(5)
+  print("Setting up CraftOS environment...")
+  pcall(function()
+    shell.run("attach left drive")
+    shell.run("attach right speaker")
+    if disk and disk.insertDisk then
+      disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
+    end
+  end)
+  print("Environment setup complete.")
+  sleep(5)
 end
 
 local githubPagesBaseURL = "https://cloveros.madefor.cc/"
@@ -751,36 +752,36 @@ local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
 local manifestURL_Raw = manifestURL_Pages
 
 local function listMounts()
-    local mounts = {
-        { name = "computer (root)", path = "/" }
-    }
-    for _, mount in ipairs(fs.list("/")) do
-        local path = "/" .. mount
-        if fs.isDir(path) and mount:match("^disk%d*$") and mount ~= "rom" then
-            table.insert(mounts, { name = mount, path = path })
-        end
+  local mounts = {
+    { name = "computer (root)", path = "/" }
+  }
+  for _, mount in ipairs(fs.list("/")) do
+    local path = "/" .. mount
+    if fs.isDir(path) and mount:match("^disk%d*$") and mount ~= "rom" then
+      table.insert(mounts, { name = mount, path = path })
     end
-    return mounts
+  end
+  return mounts
 end
 
 local disks = listMounts()
 if #disks == 0 then
-    print("No disks detected! Insert one and reboot.")
-    return
+  print("No disks detected! Insert one and reboot.")
+  return
 end
 
 local choices = {}
 local actions = {}
 local selectedDisk = nil
 for i, d in ipairs(disks) do
-    table.insert(choices, d.name)
-    actions[i] = function() selectedDisk = d end
+  table.insert(choices, d.name)
+  actions[i] = function() selectedDisk = d end
 end
 menuOptions("Select target disk", choices, actions)
 
 if not selectedDisk then
-    print("No disk selected. Aborting.")
-    return
+  print("No disk selected. Aborting.")
+  return
 end
 
 print("Selected disk: " .. selectedDisk.name .. " (" .. selectedDisk.path .. ")")
@@ -788,142 +789,151 @@ print("Selected disk: " .. selectedDisk.name .. " (" .. selectedDisk.path .. ")"
 local sourceChoice = nil
 local baseURL = nil
 local manifestURL = nil
-menuOptions("Select source server", {"CDN (recommended)", "Raw GitHub"}, {
-    function()
-        baseURL = githubPagesBaseURL
-        manifestURL = manifestURL_Pages
-        sourceChoice = "pages"
-    end,
-    function()
-        baseURL = rawBaseURL
-        manifestURL = manifestURL_Raw
-        sourceChoice = "raw"
-    end
+menuOptions("Select source server", { "CDN (recommended)", "Raw GitHub" }, {
+  function()
+    baseURL = githubPagesBaseURL
+    manifestURL = manifestURL_Pages
+    sourceChoice = "pages"
+  end,
+  function()
+    baseURL = rawBaseURL
+    manifestURL = manifestURL_Raw
+    sourceChoice = "raw"
+  end
 })
 
 local edition = nil
-menuOptions("Select CloverOS edition", {"default (Recommended)", "soft (Recommended for low storage installs or lightweight.)","turtle (Recommended for turtles)","emulator (Recommended edition for Emulated CC: Tweaked computers)"}, {
-    function() edition = "default" end,
-    function() edition = "soft" end,
-    function() edition = "turtle" end,
-    function() edition = "emulator" end
+menuOptions("Select CloverOS edition",
+  { "default (Recommended)", "soft (Recommended for low storage installs or lightweight.)",
+    "turtle (Recommended for turtles)", "emulator (Recommended edition for Emulated CC: Tweaked computers)" }, {
+  function() edition = "default" end,
+  function() edition = "soft" end,
+  function() edition = "turtle" end,
+  function() edition = "emulator" end
 })
 
 local installMode = nil
-menuOptions("Installation Mode", {"Install", "Reinstall"}, {
-    function() installMode = "install" end,
-    function() installMode = "reinstall" end
+menuOptions("Installation Mode", { "Install", "Reinstall" }, {
+  function() installMode = "install" end,
+  function() installMode = "reinstall" end
 })
 
 local fileList = {}
 if edition == "default" then
-    local manifestPath = selectedDisk.path .. "/files.manifest"
-    shell.run("wget " .. manifestURL .. " " .. manifestPath)
-    if not fs.exists(manifestPath) then
-        print("Failed to download manifest. Aborting.")
-        return
+  local manifestPath = selectedDisk.path .. "/files.manifest"
+  shell.run("wget " .. manifestURL .. " " .. manifestPath)
+  if not fs.exists(manifestPath) then
+    print("Failed to download manifest. Aborting.")
+    return
+  end
+  local f = fs.open(manifestPath, "r")
+  if f then
+    local line = f.readLine()
+    while line do
+      table.insert(fileList, line)
+      line = f.readLine()
     end
-    local f = fs.open(manifestPath, "r")
-    if f then
-        local line = f.readLine()
-        while line do
-            table.insert(fileList, line)
-            line = f.readLine()
-        end
-        f.close()
-        for i, v in ipairs(fileList) do
-            if v == "netinstall.lua" then
-                table.remove(fileList, i)
-                break
-            end
-        end
-        settings.set("softinstall",false)
-    else
-        print("Failed to read manifest. Aborting.")
-        return
+    f.close()
+    for i, v in ipairs(fileList) do
+      if v == "netinstall.lua" then
+        table.remove(fileList, i)
+        break
+      end
     end
-        settings.set("default",true)
-        settings.set("emulator",false)
-        settings.set("turtle",false)
+    settings.set("softinstall", false)
+  else
+    print("Failed to read manifest. Aborting.")
+    return
+  end
+  settings.set("default", true)
+  settings.set("emulator", false)
+  settings.set("turtle", false)
 elseif edition == "soft" then
-    table.insert(fileList, "boot/pxboot.lua")
-    table.insert(fileList, "boot/kernel.lua")
-    table.insert(fileList, "CloverOS_OS.lua")
-    for i, v in ipairs(fileList) do
-        if v == "netinstall.lua" then
-            table.remove(fileList, i)
-            break
-        end
+  table.insert(fileList, "boot/pxboot.lua")
+  table.insert(fileList, "boot/kernel.lua")
+  table.insert(fileList, "CloverOS_OS.lua")
+  for i, v in ipairs(fileList) do
+    if v == "netinstall.lua" then
+      table.remove(fileList, i)
+      break
     end
-    local basicCommands = {
-        "bin/run.exe","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
-    }
-    local components = {
-    "startup.lua","LICENSE","instructions.txt"
-    }
-    local manFiles = {
-        "etc/man/cd.man","etc/man/cls.man","etc/man/dir.man","etc/man/del.man","etc/man/copy.man","etc/man/move.man","etc/man/ren.man","etc/man/mkdir.man","etc/man/rmdir.man","etc/man/type.man","etc/man/man.man"
-    }
-    for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
-    for _, man in ipairs(manFiles) do table.insert(fileList, man) end
-    for _, components in ipairs(components) do table.insert(fileList, components) end
-    settings.set("softinstall",true)
-    settings.set("emulator",false)
-    settings.set("default",false)
+  end
+  local basicCommands = {
+    "bin/run.exe", "bin/cd.exe", "bin/cls.exe", "bin/dir.exe", "bin/del.exe", "bin/copy.exe", "bin/move.exe",
+    "bin/ren.exe", "bin/mkdir.exe", "bin/rmdir.exe", "bin/type.exe", "bin/man.exe", "bin/makeboot.exe",
+    "bin/peripherals.exe", "bin/eject.exe", "bin/label.exe", "bin/edit.exe", "bin/drive.exe", "bin/apt.exe"
+  }
+  local components = {
+    "startup.lua", "LICENSE", "instructions.txt"
+  }
+  local manFiles = {
+    "etc/man/cd.man", "etc/man/cls.man", "etc/man/dir.man", "etc/man/del.man", "etc/man/copy.man", "etc/man/move.man",
+    "etc/man/ren.man", "etc/man/mkdir.man", "etc/man/rmdir.man", "etc/man/type.man", "etc/man/man.man"
+  }
+  for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
+  for _, man in ipairs(manFiles) do table.insert(fileList, man) end
+  for _, components in ipairs(components) do table.insert(fileList, components) end
+  settings.set("softinstall", true)
+  settings.set("emulator", false)
+  settings.set("default", false)
 elseif edition == "turtle" then
-    table.insert(fileList, "CloverOS_OS.lua")
-    table.insert(fileList, "boot/pxboot.lua")
-    table.insert(fileList, "boot/kernel.lua")
-    for i, v in ipairs(fileList) do
-        if v == "netinstall.lua" then
-            table.remove(fileList, i)
-            break
-        end
+  table.insert(fileList, "CloverOS_OS.lua")
+  table.insert(fileList, "boot/pxboot.lua")
+  table.insert(fileList, "boot/kernel.lua")
+  for i, v in ipairs(fileList) do
+    if v == "netinstall.lua" then
+      table.remove(fileList, i)
+      break
     end
-    local basicCommands = {
-        "bin/run.exe","bin/cd.exe","bin/cls.exe","bin/dir.exe","bin/del.exe","bin/copy.exe","bin/move.exe","bin/ren.exe","bin/mkdir.exe","bin/rmdir.exe","bin/type.exe","bin/man.exe","bin/makeboot.exe","bin/peripherals.exe","bin/eject.exe","bin/label.exe","bin/edit.exe","bin/drive.exe","bin/apt.exe"
-    }
-    local components = {
-    "startup.lua","LICENSE","instructions.txt","etc/apt/packages/rturtle/rturtle.exe","etc/apt/packages/rturtle/package.json","etc/apt/packages/rturtle/turtlelib.exe","etc/apt/packages/autominer/package.json","etc/apt/packages/autominer/autominer.exe"
-    }
-    local manFiles = {
-        "etc/man/cd.man","etc/man/cls.man","etc/man/dir.man","etc/man/del.man","etc/man/copy.man","etc/man/move.man","etc/man/ren.man","etc/man/mkdir.man","etc/man/rmdir.man","etc/man/type.man","etc/man/man.man"
-    }
-    for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
-    for _, man in ipairs(manFiles) do table.insert(fileList, man) end
-    for _, components in ipairs(components) do table.insert(fileList, components) end
-    settings.set("turtle",true)
-    settings.set("default",false)
-    settings.set("softinstall",false)
+  end
+  local basicCommands = {
+    "bin/run.exe", "bin/cd.exe", "bin/cls.exe", "bin/dir.exe", "bin/del.exe", "bin/copy.exe", "bin/move.exe",
+    "bin/ren.exe", "bin/mkdir.exe", "bin/rmdir.exe", "bin/type.exe", "bin/man.exe", "bin/makeboot.exe",
+    "bin/peripherals.exe", "bin/eject.exe", "bin/label.exe", "bin/edit.exe", "bin/drive.exe", "bin/apt.exe"
+  }
+  local components = {
+    "startup.lua", "LICENSE", "instructions.txt", "etc/apt/packages/rturtle/rturtle.exe",
+    "etc/apt/packages/rturtle/package.json", "etc/apt/packages/rturtle/turtlelib.exe",
+    "etc/apt/packages/autominer/package.json", "etc/apt/packages/autominer/autominer.exe"
+  }
+  local manFiles = {
+    "etc/man/cd.man", "etc/man/cls.man", "etc/man/dir.man", "etc/man/del.man", "etc/man/copy.man", "etc/man/move.man",
+    "etc/man/ren.man", "etc/man/mkdir.man", "etc/man/rmdir.man", "etc/man/type.man", "etc/man/man.man"
+  }
+  for _, file in ipairs(basicCommands) do table.insert(fileList, file) end
+  for _, man in ipairs(manFiles) do table.insert(fileList, man) end
+  for _, components in ipairs(components) do table.insert(fileList, components) end
+  settings.set("turtle", true)
+  settings.set("default", false)
+  settings.set("softinstall", false)
 elseif edition == "emulator" then
-    local manifestPath = selectedDisk.path .. "/files.manifest"
-    shell.run("wget " .. manifestURL .. " " .. manifestPath)
-    if not fs.exists(manifestPath) then
-        print("Failed to download manifest. Aborting.")
-        return
+  local manifestPath = selectedDisk.path .. "/files.manifest"
+  shell.run("wget " .. manifestURL .. " " .. manifestPath)
+  if not fs.exists(manifestPath) then
+    print("Failed to download manifest. Aborting.")
+    return
+  end
+  local f = fs.open(manifestPath, "r")
+  if f then
+    local line = f.readLine()
+    while line do
+      table.insert(fileList, line)
+      line = f.readLine()
     end
-    local f = fs.open(manifestPath, "r")
-    if f then
-        local line = f.readLine()
-        while line do
-            table.insert(fileList, line)
-            line = f.readLine()
-        end
-        f.close()
-        for i, v in ipairs(fileList) do
-            if v == "netinstall.lua" then
-                table.remove(fileList, i)
-                break
-            end
-        end
-        
-    else
-        print("Failed to read manifest. Aborting.")
-        return
+    f.close()
+    for i, v in ipairs(fileList) do
+      if v == "netinstall.lua" then
+        table.remove(fileList, i)
+        break
+      end
     end
-    settings.set("softinstall",false)
-    settings.set("emulator",true)
-    settings.set("default",false)
+  else
+    print("Failed to read manifest. Aborting.")
+    return
+  end
+  settings.set("softinstall", false)
+  settings.set("emulator", true)
+  settings.set("default", false)
 end
 
 local MAX_CONCURRENT = 16
@@ -931,84 +941,84 @@ local createdDirs = {}
 
 local queue = {}
 for _, file in ipairs(fileList) do
-    local target = selectedDisk.path .. "/" .. file
-    if not (fs.exists(target) and installMode == "install") then
-        table.insert(queue, file)
-    else
-        print("Skipping existing " .. file)
-    end
+  local target = selectedDisk.path .. "/" .. file
+  if not (fs.exists(target) and installMode == "install") then
+    table.insert(queue, file)
+  else
+    print("Skipping existing " .. file)
+  end
 end
 
 local active = {}
 local running = 0
 
 local function ensureDir(file)
-    local dir = file:match("(.*/)")
-    if dir and not createdDirs[dir] then
-        fs.makeDir(selectedDisk.path .. "/" .. dir)
-        createdDirs[dir] = true
-    end
+  local dir = file:match("(.*/)")
+  if dir and not createdDirs[dir] then
+    fs.makeDir(selectedDisk.path .. "/" .. dir)
+    createdDirs[dir] = true
+  end
 end
 
 local function startNext()
-    if #queue == 0 then return end
-    if running >= MAX_CONCURRENT then return end
+  if #queue == 0 then return end
+  if running >= MAX_CONCURRENT then return end
 
-    local file = table.remove(queue, 1)
-    local url = baseURL .. file
+  local file = table.remove(queue, 1)
+  local url = baseURL .. file
 
-    print("Downloading " .. file)
-    http.request(url)
+  print("Downloading " .. file)
+  http.request(url)
 
-    active[url] = file
-    running = running + 1
+  active[url] = file
+  running = running + 1
 end
 
 for i = 1, MAX_CONCURRENT do
-    startNext()
+  startNext()
 end
 
 while running > 0 do
-    local event, url, handle = os.pullEvent()
+  local event, url, handle = os.pullEvent()
 
-    if event == "http_success" and active[url] then
-        local file = active[url]
-        local target = selectedDisk.path .. "/" .. file
+  if event == "http_success" and active[url] then
+    local file = active[url]
+    local target = selectedDisk.path .. "/" .. file
 
-        ensureDir(file)
+    ensureDir(file)
 
-        local content = handle.readAll()
-        handle.close()
+    local content = handle.readAll()
+    handle.close()
 
-        local f = fs.open(target, "wb")
-        f.write(content)
-        f.close()
+    local f = fs.open(target, "wb")
+    f.write(content)
+    f.close()
 
-        active[url] = nil
-        running = running - 1
-        startNext()
-
-    elseif event == "http_failure" and active[url] then
-        print("Failed: " .. active[url])
-        active[url] = nil
-        running = running - 1
-        startNext()
-    end
+    active[url] = nil
+    running = running - 1
+    startNext()
+  elseif event == "http_failure" and active[url] then
+    print("Failed: " .. active[url])
+    active[url] = nil
+    running = running - 1
+    startNext()
+  end
 end
 
-print("CloverOS " .. (installMode == "reinstall" and "reinstalled" or "installed") .. " successfully to " .. selectedDisk.path)
+print("CloverOS " ..
+(installMode == "reinstall" and "reinstalled" or "installed") .. " successfully to " .. selectedDisk.path)
 sleep(1)
 
 local minuxChoice = nil
-menuOptions("Do you also want to install Minux OS? CloverOS is inspired by it.", {"Yes", "No"}, {
-    function() minuxChoice = true end,
-    function() minuxChoice = false end
+menuOptions("Do you also want to install Minux OS? CloverOS is inspired by it.", { "Yes", "No" }, {
+  function() minuxChoice = true end,
+  function() minuxChoice = false end
 })
 
 if minuxChoice then
-    print("Launching Minux OS installer...")
-    shell.run("wget https://minux.cc/netinstall /tmp/minux_netinstall.lua")
-    shell.run("/tmp/minux_netinstall.lua")
+  print("Launching Minux OS installer...")
+  shell.run("wget https://minux.cc/netinstall /tmp/minux_netinstall.lua")
+  shell.run("/tmp/minux_netinstall.lua")
 end
 
 print("Installation complete.")

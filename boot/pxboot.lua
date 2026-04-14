@@ -1,8 +1,11 @@
 if not (fs or term or os.pullEvent) then error("This program must be run from CraftOS.") end
 
 local expect = require "cc.expect"
-if not getmetatable(expect) then setmetatable(expect, {__call = function(self, ...) return self.expect(...) end})
-elseif not getmetatable(expect).__call then getmetatable(expect).__call = function(self, ...) return self.expect(...) end end
+if not getmetatable(expect) then
+    setmetatable(expect, { __call = function(self, ...) return self.expect(...) end })
+elseif not getmetatable(expect).__call then
+    getmetatable(expect).__call = function(self, ...) return self.expect(...) end
+end
 
 local entries = {}
 local entry_names = {}
@@ -96,6 +99,7 @@ local function unbios(path, ...)
             return fn(table.unpack(kernelArgs, 1, kernelArgs.n))
         end
     end
+
     coroutine.yield()
 end
 
@@ -118,7 +122,7 @@ end
 
 function cmds.chainloader(t)
     bootcfg.fn = shell and shell.run or function(path, ...) os.run({}, path, ...) end
-    bootcfg.args = {t.path}
+    bootcfg.args = { t.path }
 end
 
 function cmds.craftos(t)
@@ -129,8 +133,11 @@ function cmds.craftos(t)
             print(os.version())
             term.setTextColor(colors.white)
             if settings.get("motd.enable") then
-                if shell then shell.run("motd")
-                else os.run({}, "/rom/programs/motd.lua") end
+                if shell then
+                    shell.run("motd")
+                else
+                    os.run({}, "/rom/programs/motd.lua")
+                end
             end
         end)
         if not ok then
@@ -144,7 +151,7 @@ end
 
 function cmds.args(t)
     if not bootcfg.args then error("config.lua:" .. t.line .. ": args command must come after boot type", 0) end
-    for i = 1, #t.args do bootcfg.args[#bootcfg.args+1] = t.args[i] end
+    for i = 1, #t.args do bootcfg.args[#bootcfg.args + 1] = t.args[i] end
 end
 
 function cmds.global(t)
@@ -153,18 +160,29 @@ function cmds.global(t)
 end
 
 function cmds.monitor(t)
-    if peripheral.hasType then assert(peripheral.hasType(t.name, "monitor"), "peripheral '" .. t.name .. "' does not exist or is not a monitor")
-    else assert(peripheral.getType(t.name) == "monitor", "peripheral '" .. t.name .. "' does not exist or is not a monitor") end
+    if peripheral.hasType then
+        assert(peripheral.hasType(t.name, "monitor"), "peripheral '" .. t.name .. "' does not exist or is not a monitor")
+    else
+        assert(peripheral.getType(t.name) == "monitor",
+            "peripheral '" .. t.name .. "' does not exist or is not a monitor")
+    end
     monitor = peripheral.wrap(t.name)
     term.redirect(monitor)
 end
 
 function cmds.insmod(t)
     local path
-    if t.name:match "^/" then path = t.name
-    elseif t.name:find "[/%.]" then path = fs.combine(shell and fs.getDir(shell.getRunningProgram()) or "pxboot", t.name)
-    else path = fs.combine(shell and fs.getDir(shell.getRunningProgram()) or "pxboot", "modules/" .. t.name .. ".lua") end
-    assert(loadfile(path, nil, setmetatable({entries = entries, bootcfg = bootcfg, cmds = cmds, userGlobals = userGlobals, unbios = unbios, config = config}, {__index = _ENV})))(t.args, path)
+    if t.name:match "^/" then
+        path = t.name
+    elseif t.name:find "[/%.]" then
+        path = fs.combine(shell and fs.getDir(shell.getRunningProgram()) or "pxboot", t.name)
+    else
+        path = fs.combine(shell and fs.getDir(shell.getRunningProgram()) or "pxboot", "modules/" .. t.name .. ".lua")
+    end
+    assert(loadfile(path, nil,
+        setmetatable(
+        { entries = entries, bootcfg = bootcfg, cmds = cmds, userGlobals = userGlobals, unbios = unbios, config = config },
+            { __index = _ENV })))(t.args, path)
 end
 
 local function boot(entry)
@@ -174,7 +192,7 @@ local function boot(entry)
     term.setCursorPos(1, 1)
 
     for i = 0, 15 do
-        term.setPaletteColor(2^i, term.nativePaletteColor(2^i))
+        term.setPaletteColor(2 ^ i, term.nativePaletteColor(2 ^ i))
     end
 
     -- If entry has command list, use normal PXBOOT command system
@@ -261,167 +279,193 @@ config = setmetatable({
             expect(2, entry, "table")
             local n = 1
             for i, v in pairs(entry) do if type(i) == "number" then n = math.max(i, n) end end
-            local retval = {name = name, commands = {}}
+            local retval = { name = name, commands = {} }
             for i = 1, n do
                 local c = entry[i]
-                if (type(c) ~= "table" and type(c) ~= "function") or not c.cmd then error("bad command entry #" .. i .. (c == nil and " (unknown command)" or " (missing arguments)"), 2) end
-                if type(c) == "function" then retval.commands[#retval.commands+1] = c
-                elseif c.cmd == "description" then retval.description = c.text
-                elseif cmds[c.cmd] then retval.commands[#retval.commands+1] = c
-                else error("bad command entry #" .. i .. " (unknown command " .. c.cmd .. ")", 2) end
+                if (type(c) ~= "table" and type(c) ~= "function") or not c.cmd then error(
+                    "bad command entry #" .. i .. (c == nil and " (unknown command)" or " (missing arguments)"), 2) end
+                if type(c) == "function" then
+                    retval.commands[#retval.commands + 1] = c
+                elseif c.cmd == "description" then
+                    retval.description = c.text
+                elseif cmds[c.cmd] then
+                    retval.commands[#retval.commands + 1] = c
+                else
+                    error("bad command entry #" .. i .. " (unknown command " .. c.cmd .. ")", 2)
+                end
             end
-            entries[#entries+1] = retval
+            entries[#entries + 1] = retval
             entry_names[name] = retval
         end
     end,
     include = function(path)
-    expect(1, path, "string")
+        expect(1, path, "string")
 
-    if type(path) ~= "string" then return end
-    if string.sub(path, 1, 1) ~= "/" then
-        path = fs.combine(runningDir or "", path)
-    end
-
-    local function safeFind(p)
-        if type(p) ~= "string" then
-            return {}
+        if type(path) ~= "string" then return end
+        if string.sub(path, 1, 1) ~= "/" then
+            path = fs.combine(runningDir or "", path)
         end
 
-        if not string.find(p, "[*?]") then
-            if fs.exists(p) then
-                return { p }
-            else
+        local function safeFind(p)
+            if type(p) ~= "string" then
                 return {}
             end
-        end
 
-        local dir = fs.getDir(p)
-        if dir == "" then dir = "/" end
+            if not string.find(p, "[*?]") then
+                if fs.exists(p) then
+                    return { p }
+                else
+                    return {}
+                end
+            end
 
-        if not fs.exists(dir) then
-            return {}
-        end
+            local dir = fs.getDir(p)
+            if dir == "" then dir = "/" end
 
-        local name = fs.getName(p)
+            if not fs.exists(dir) then
+                return {}
+            end
 
-        local pattern = "^" ..
-            string.gsub(
+            local name = fs.getName(p)
+
+            local pattern = "^" ..
                 string.gsub(
                     string.gsub(
-                        string.gsub(name, "%%", "%%%%"),
-                        "%.", "%%."
+                        string.gsub(
+                            string.gsub(name, "%%", "%%%%"),
+                            "%.", "%%."
+                        ),
+                        "%*", ".*"
                     ),
-                    "%*", ".*"
-                ),
-                "%?", "."
-            )
-            .. "$"
+                    "%?", "."
+                )
+                .. "$"
 
-        local results = {}
+            local results = {}
 
-        for _, file in ipairs(fs.list(dir)) do
-            if string.match(file, pattern) then
-                results[#results + 1] = fs.combine(dir, file)
+            for _, file in ipairs(fs.list(dir)) do
+                if string.match(file, pattern) then
+                    results[#results + 1] = fs.combine(dir, file)
+                end
+            end
+
+            return results
+        end
+
+        for _, v in ipairs(safeFind(path)) do
+            local fn, err = loadfile(v, "t", getfenv(2))
+            if not fn then
+                printError("Could not load config file: " .. err)
+                print("Press any key to continue...")
+                os.pullEvent("key")
+                break
+            end
+
+            local old = runningDir
+            runningDir = fs.getDir(v)
+
+            local ok, execErr = pcall(fn)
+            runningDir = old
+
+            if not ok then
+                printError("Failed to execute config file: " .. execErr)
+                print("Press any key to continue...")
+                os.pullEvent("key")
+                break
             end
         end
-
-        return results
-    end
-
-    for _, v in ipairs(safeFind(path)) do
-        local fn, err = loadfile(v, "t", getfenv(2))
-        if not fn then
-            printError("Could not load config file: " .. err)
-            print("Press any key to continue...")
-            os.pullEvent("key")
-            break
-        end
-
-        local old = runningDir
-        runningDir = fs.getDir(v)
-
-        local ok, execErr = pcall(fn)
-        runningDir = old
-
-        if not ok then
-            printError("Failed to execute config file: " .. execErr)
-            print("Press any key to continue...")
-            os.pullEvent("key")
-            break
-        end
-    end
-end,
+    end,
     loadmod = function(path, args)
         expect(1, path, "string")
         expect(2, args, "table", "nil")
-        cmds.insmod {name = path, args = args, line = debug.getinfo(2, "l").currentline}
+        cmds.insmod { name = path, args = args, line = debug.getinfo(2, "l").currentline }
     end,
 
     description = function(text)
         expect(1, text, "string")
-        return {cmd = "description", text = text, line = debug.getinfo(2, "l").currentline}
+        return { cmd = "description", text = text, line = debug.getinfo(2, "l").currentline }
     end,
     kernel = function(path)
         expect(1, path, "string")
-        return {cmd = "kernel", path = path, line = debug.getinfo(2, "l").currentline}
+        return { cmd = "kernel", path = path, line = debug.getinfo(2, "l").currentline }
     end,
     chainloader = function(path)
         expect(1, path, "string")
-        return {cmd = "chainloader", path = path, line = debug.getinfo(2, "l").currentline}
+        return { cmd = "chainloader", path = path, line = debug.getinfo(2, "l").currentline }
     end,
     args = function(args)
         expect(1, args, "string", "table")
         if type(args) == "table" then
-            return {cmd = "args", args = args, line = debug.getinfo(2, "l").currentline}
+            return { cmd = "args", args = args, line = debug.getinfo(2, "l").currentline }
         else
-            local t = {""}
+            local t = { "" }
             local q
             for c in args:gmatch "." do
                 if q then
-                    if c == q then q = nil
-                    else t[#t] = t[#t] .. c end
-                elseif c == '"' or c == "'" then q = c
-                elseif c == ' ' then t[#t+1] = ""
-                else t[#t] = t[#t] .. c end
+                    if c == q then
+                        q = nil
+                    else
+                        t[#t] = t[#t] .. c
+                    end
+                elseif c == '"' or c == "'" then
+                    q = c
+                elseif c == ' ' then
+                    t[#t + 1] = ""
+                else
+                    t[#t] = t[#t] .. c
+                end
             end
             local n = 2
-            return setmetatable({cmd = "args", args = t, line = debug.getinfo(2, "l").currentline}, {__call = function(self, arg)
-                expect(n, arg, "string")
-                n=n+1
-                local t = self.args
-                local q
-                t[#t+1] = ""
-                for c in arg:gmatch "." do
-                    if q then
-                        if c == q then q = nil
-                        else t[#t] = t[#t] .. c end
-                    elseif c == '"' or c == "'" then q = c
-                    elseif c == ' ' then t[#t+1] = ""
-                    else t[#t] = t[#t] .. c end
-                end
-                return self
-            end})
+            return setmetatable({ cmd = "args", args = t, line = debug.getinfo(2, "l").currentline },
+                {
+                    __call = function(self, arg)
+                        expect(n, arg, "string")
+                        n = n + 1
+                        local t = self.args
+                        local q
+                        t[#t + 1] = ""
+                        for c in arg:gmatch "." do
+                            if q then
+                                if c == q then
+                                    q = nil
+                                else
+                                    t[#t] = t[#t] .. c
+                                end
+                            elseif c == '"' or c == "'" then
+                                q = c
+                            elseif c == ' ' then
+                                t[#t + 1] = ""
+                            else
+                                t[#t] = t[#t] .. c
+                            end
+                        end
+                        return self
+                    end
+                })
         end
     end,
-    craftos = {cmd = "craftos"},
+    craftos = { cmd = "craftos" },
     global = function(key)
         return function(value)
-            return {cmd = "global", key = key, value = value}
+            return { cmd = "global", key = key, value = value }
         end
     end,
     monitor = function(name)
-        return {cmd = "monitor", name = name}
+        return { cmd = "monitor", name = name }
     end,
     insmod = function(name)
         expect(1, name, "string")
-        return setmetatable({cmd = "insmod", name = name, line = debug.getinfo(2, "l").currentline}, {__call = function(self, args)
-            expect(2, args, "table")
-            self.args = args
-            setmetatable(self, nil)
-            return self
-        end})
+        return setmetatable({ cmd = "insmod", name = name, line = debug.getinfo(2, "l").currentline },
+            {
+                __call = function(self, args)
+                    expect(2, args, "table")
+                    self.args = args
+                    setmetatable(self, nil)
+                    return self
+                end
+            })
     end
-}, {__index = _ENV})
+}, { __index = _ENV })
 
 term.clear()
 term.setCursorPos(1, 1)
@@ -498,7 +542,10 @@ entrywin.clear()
 
 local selection, scroll = 1, 1
 if config.defaultentry then
-    for i = 1, #entries do if entries[i].name == config.defaultentry then selection = i break end end
+    for i = 1, #entries do if entries[i].name == config.defaultentry then
+            selection = i
+            break
+        end end
     if config.timeout == 0 and boot(entries[selection]) then return end
 end
 local function drawEntries()
@@ -517,7 +564,7 @@ local function drawEntries()
             entrywin.setTextColor(config.textcolor)
         end
         entrywin.clearLine()
-        entrywin.write(#e.name > w-6 and e.name:sub(1, w-9) .. "..." or e.name)
+        entrywin.write(#e.name > w - 6 and e.name:sub(1, w - 9) .. "..." or e.name)
         if i == selection and config.timeout then
             local s = tostring(config.timeout)
             entrywin.setCursorPos(w - 4 - #s, i - scroll + 1)
@@ -533,7 +580,8 @@ local function drawEntries()
 end
 
 local function drawScreen()
-    local bbg, bfg = hex(select(2, math.frexp(config.boxbackground or config.backgroundcolor))), hex(select(2, math.frexp(config.boxcolor or config.textcolor)))
+    local bbg, bfg = hex(select(2, math.frexp(config.boxbackground or config.backgroundcolor))),
+        hex(select(2, math.frexp(config.boxcolor or config.textcolor)))
     boxwin.setTextColor(config.boxcolor or config.textcolor)
     boxwin.setCursorPos(1, 1)
     boxwin.write("\x9C" .. ("\x8C"):rep(w - 4))
@@ -565,7 +613,7 @@ drawScreen()
 
 local tm = config.defaultentry and config.timeout and os.startTimer(1)
 while true do
-    local ev = {coroutine.yield()}
+    local ev = { coroutine.yield() }
     if ev[1] == "timer" and ev[2] == tm then
         config.timeout = config.timeout - 1
         if config.timeout == 0 then if boot(entry_names[config.defaultentry]) then return end end
@@ -593,6 +641,7 @@ while true do
             runShell()
             drawScreen()
         end
-    elseif ev[1] == "terminate" then break
+    elseif ev[1] == "terminate" then
+        break
     end
 end

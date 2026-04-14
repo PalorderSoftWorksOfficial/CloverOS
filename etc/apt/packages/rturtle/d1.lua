@@ -1,0 +1,12 @@
+turtlelib = _G.turtlelib
+
+turtlelib.up(5)
+turtlelib.tryForward(5)
+turtle.turnRight()
+turtlelib.tryForward(5)
+turtle.turnRight()
+turtlelib.tryForward(5)
+turtle.turnRight()
+turtlelib.tryForward(4)
+turtle.turnRight()
+turtlelib.down(5)

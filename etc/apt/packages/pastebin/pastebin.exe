@@ -1,4 +1,3 @@
-
 local function printUsage()
     local programName = arg[0] or fs.getName(shell.getRunningProgram())
     print("Usages:")
@@ -57,7 +56,9 @@ local function get(url)
         local headers = response.getResponseHeaders()
         if not headers["Content-Type"] or not headers["Content-Type"]:find("^text/plain") then
             io.stderr:write("Failed.\n")
-            print("Pastebin blocked the download due to spam protection. Please complete the captcha in a web browser: https://pastebin.com/" .. textutils.urlEncode(paste))
+            print(
+            "Pastebin blocked the download due to spam protection. Please complete the captcha in a web browser: https://pastebin.com/" ..
+            textutils.urlEncode(paste))
             return
         end
 
@@ -110,11 +111,9 @@ if sCommand == "put" then
         local sCode = string.match(sResponse, "[^/]+$")
         print("Uploaded as " .. sResponse)
         print("Run \"pastebin get " .. sCode .. "\" to download anywhere")
-
     else
         print("Failed.")
     end
-
 elseif sCommand == "get" then
     -- Download a file from pastebin.com
     if #tArgs < 3 then

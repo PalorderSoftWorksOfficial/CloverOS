@@ -64,8 +64,8 @@ while running do
         if term.isColour() then
             term.setTextColour(colours.yellow)
         end
-       print("To access local variables in later inputs, remove the local keyword.")
-       term.setTextColour(colours.white)
+        print("To access local variables in later inputs, remove the local keyword.")
+        term.setTextColour(colours.white)
     end
 
     local name, offset = "=lua[" .. chunk_idx .. "]", 0
@@ -106,5 +106,4 @@ while running do
         local parser = require "cc.internal.syntax"
         if parser.parse_repl(input) then printError(err) end
     end
-
 end

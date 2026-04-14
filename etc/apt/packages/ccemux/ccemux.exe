@@ -5,8 +5,8 @@ if not ok1 or not ccemux or not ok2 or not periphemu then
     print("Required CCEmuX APIs not available")
     return
 end
-local args={...}
-local cmd=args[1]
+local args = { ... }
+local cmd = args[1]
 if not cmd then
     print("Usage:")
     print("  ccemux attach <side> <peripheral> [options-json]")
@@ -23,79 +23,101 @@ if not cmd then
     return
 end
 
-local ok,ccemux=pcall(function()return ccemux end)
+local ok, ccemux = pcall(function() return ccemux end)
 if not ok or not ccemux then
-    print("ccemux API not available, are you running inside of an ComputerCraft Emulator with CCEmuX? This toolkit is only for ComputerCraft Emulators with CCEmuX (Not regular CC: Tweaked).")
+    print(
+        "ccemux API not available, are you running inside of an ComputerCraft Emulator with CCEmuX? This toolkit is only for ComputerCraft Emulators with CCEmuX (Not regular CC: Tweaked).")
     return
 end
 
 local function parseOptions(s)
-    if not s or s=="" then return nil end
-    local ok,t=pcall(textutils.unserializeJSON,s)
-    if ok and type(t)=="table" then return t end
+    if not s or s == "" then return nil end
+    local ok, t = pcall(textutils.unserializeJSON, s)
+    if ok and type(t) == "table" then return t end
     return nil
 end
 
-if cmd=="attach" then
-    local side=tostring(args[2])
-    local target=args[3]
-    local opts=parseOptions(args[4])
-    if not side or not target then print("Usage: ccemux attach <side|number> <peripheral> [options-json]") return end
-    if tonumber(side) then side=tonumber(side) end
-    local ok,err=pcall(function()
-        if opts then periphemu.attach(side,target,opts) else periphemu.attach(side,target) end
+if cmd == "attach" then
+    local side = tostring(args[2])
+    local target = args[3]
+    local opts = parseOptions(args[4])
+    if not side or not target then
+        print("Usage: ccemux attach <side|number> <peripheral> [options-json]")
+        return
+    end
+    if tonumber(side) then side = tonumber(side) end
+    local ok, err = pcall(function()
+        if opts then periphemu.attach(side, target, opts) else periphemu.attach(side, target) end
     end)
-    if ok then print("Attached "..target.." to "..tostring(side)) else print("Error: "..tostring(err)) end
+    if ok then print("Attached " .. target .. " to " .. tostring(side)) else print("Error: " .. tostring(err)) end
     return
 end
-if cmd=="detach" then
-    local side=tostring(args[2])
-    if not side then print("Usage: ccemux detach <side|number>") return end
-    if tonumber(side) then side=tonumber(side) end
-    local ok,err=pcall(function()ccemux.detach(side)end)
-    if ok then print("Detached from "..tostring(side)) else print("Error: "..tostring(err)) end
+if cmd == "detach" then
+    local side = tostring(args[2])
+    if not side then
+        print("Usage: ccemux detach <side|number>")
+        return
+    end
+    if tonumber(side) then side = tonumber(side) end
+    local ok, err = pcall(function() ccemux.detach(side) end)
+    if ok then print("Detached from " .. tostring(side)) else print("Error: " .. tostring(err)) end
     return
 end
 
-if cmd=="setclipboard" then
-    local text=table.concat(args," ",2)
-    if not text or text=="" then print("Usage: ccemux setclipboard <text>") return end
+if cmd == "setclipboard" then
+    local text = table.concat(args, " ", 2)
+    if not text or text == "" then
+        print("Usage: ccemux setclipboard <text>")
+        return
+    end
     ccemux.setClipboard(text)
     print("Clipboard set")
     return
 end
 
-if cmd=="getclipboard" then
-    local clip=ccemux.getClipboard()
+if cmd == "getclipboard" then
+    local clip = ccemux.getClipboard()
     print(clip or "(empty)")
     return
 end
 
-if cmd=="setlabel" then
-    local label=table.concat(args," ",2)
-    if not label or label=="" then print("Usage: ccemux setlabel <label>") return end
+if cmd == "setlabel" then
+    local label = table.concat(args, " ", 2)
+    if not label or label == "" then
+        print("Usage: ccemux setlabel <label>")
+        return
+    end
     ccemux.setLabel(label)
-    print("Label set to "..label)
+    print("Label set to " .. label)
     return
 end
 
-if cmd=="getlabel" then
+if cmd == "getlabel" then
     print(ccemux.getLabel() or "(no label)")
     return
 end
 
-if cmd=="screenshot" then
-    local path=args[2] or "screenshot.png"
-    local ok,err=pcall(function()ccemux.takeScreenshot(path)end)
-    if ok then print("Saved screenshot to "..path) else print("Error: "..tostring(err)) end
+if cmd == "screenshot" then
+    local path = args[2] or "screenshot.png"
+    local ok, err = pcall(function() ccemux.takeScreenshot(path) end)
+    if ok then print("Saved screenshot to " .. path) else print("Error: " .. tostring(err)) end
     return
 end
 
-if cmd=="reboot" then ccemux.reboot() return end
-if cmd=="shutdown" then ccemux.shutdown() return end
-if cmd=="version" then print("ccemux "..tostring(ccemux.getVersion())) return end
+if cmd == "reboot" then
+    ccemux.reboot()
+    return
+end
+if cmd == "shutdown" then
+    ccemux.shutdown()
+    return
+end
+if cmd == "version" then
+    print("ccemux " .. tostring(ccemux.getVersion()))
+    return
+end
 
-if cmd=="info" then
+if cmd == "info" then
     print("Available commands:")
     print("  attach/detach: manage peripherals")
     print("  setclipboard/getclipboard: clipboard access")

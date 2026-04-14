@@ -22,7 +22,7 @@ local turtle      = settings.get("turtle") == "true"
 local softinstall = settings.get("softinstall") == "true"
 local defaultMode = settings.get("default") == "true"
 
-local aptPath = DISK_ROOT .. "/bin/apt"
+local aptPath     = DISK_ROOT .. "/bin/apt"
 if (emulator or turtle or softinstall or defaultMode) then
     if emulator then
         print("Emulator detected.")

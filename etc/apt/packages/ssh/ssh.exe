@@ -31,7 +31,8 @@ function receiveModem(filter, timeout)
         while true do
             local levent, lside, lchannel, lreplyChannel, lmessage, ldistance = os.pullEvent("modem_message")
             if filter(levent, lside, lchannel, lreplyChannel, lmessage, ldistance) then
-                event, side, channel, replyChannel, message, distance = levent, lside, lchannel, lreplyChannel, lmessage, ldistance
+                event, side, channel, replyChannel, message, distance = levent, lside, lchannel, lreplyChannel, lmessage,
+                    ldistance
                 break
             end
         end
@@ -48,8 +49,8 @@ function receiveModem(filter, timeout)
 end
 
 function randomNumSeed(seed)
-    local m = 2147483647  -- 2^31 - 1 (a large prime number)
-    local a = 16807       -- Multiplier
+    local m = 2147483647 -- 2^31 - 1 (a large prime number)
+    local a = 16807      -- Multiplier
     local q = math.floor(m / a)
     local r = m % a
 
@@ -70,7 +71,7 @@ end
 function createPassword(sharedSecret, len)
     local ran = randomNumSeed(sharedSecret)
     local out = ""
-    for i=1,len do
+    for i = 1, len do
         out = out .. string.char(math.floor(ran() * 255))
     end
     return out
@@ -79,7 +80,7 @@ end
 function xorED(key, message)
     local out = ""
     local ci = 1
-    for i=1,#message do
+    for i = 1, #message do
         out = out .. string.char(bit.bxor(message:byte(i), key:byte(ci)))
         ci = ci + 1
         if ci > #key then
@@ -114,7 +115,7 @@ local function outputSocket(ch, rch, socketId, sharedSecret, password)
         if out.events[event] == nil then
             out.events[event] = {}
         end
-        for k,v in ipairs(out.events[event]) do
+        for k, v in ipairs(out.events[event]) do
             v(...)
         end
         return true
@@ -126,7 +127,7 @@ local function outputSocket(ch, rch, socketId, sharedSecret, password)
         modem.transmit(rch, ch, {
             mode = "data",
             data = xorED(password, textutils.serialise({
-                event = {...},
+                event = { ... },
                 messageId = out.nextMsgId
             })),
             socketId = socketId
@@ -161,7 +162,7 @@ function st.createServer(callback)
                 })
                 return
             end
-            local privateKey = math.random(10000,99999)
+            local privateKey = math.random(10000, 99999)
             local publicKey = modexp(message.sharedBase, privateKey, message.sharedMod)
             local sharedSecret = modexp(message.publicKey, privateKey, message.sharedMod)
             modem.transmit(replyChannel, channel, {
@@ -169,7 +170,7 @@ function st.createServer(callback)
                 socketId = out.nextId,
                 publicKey = publicKey
             })
-            local pass = createPassword(sharedSecret,32)
+            local pass = createPassword(sharedSecret, 32)
             local oss = outputSocket(channel, replyChannel, out.nextId, sharedSecret, pass)
             out.sockets[out.nextId] = oss
             out.nextId = out.nextId + 1
@@ -201,7 +202,8 @@ function st.createServer(callback)
                     socketId = message.socketId
                 })
                 out.sockets[message.socketId].closed = true
-                out.sockets[message.socketId].call("closed", "The local system closed the connection", "Invalid messageId")
+                out.sockets[message.socketId].call("closed", "The local system closed the connection",
+                    "Invalid messageId")
                 return
             end
             out.sockets[message.socketId].nextMsgId = out.sockets[message.socketId].nextMsgId + 1
@@ -240,14 +242,16 @@ function st.createServer(callback)
         end
         local function keepalives()
             while true do
-                for k,v in ipairs(out.sockets) do
+                for k, v in ipairs(out.sockets) do
                     if not v.closed then
                         modem.transmit(port, port, {
                             mode = "keepalive",
                             socketId = v.id
                         })
-                        local event, side, channel, replyChannel, message = receiveModem(function(event, side, channel, replyChannel, message)
-                            return (channel == port) and (type(message) == "table") and (message.mode == "keepaliver") and (message.socketId == v.id)
+                        local event, side, channel, replyChannel, message = receiveModem(
+                        function(event, side, channel, replyChannel, message)
+                            return (channel == port) and (type(message) == "table") and (message.mode == "keepaliver") and
+                            (message.socketId == v.id)
                         end, 3)
                         if event == nil then
                             v.closed = true
@@ -267,9 +271,9 @@ function st.createClient(port)
     local out = {}
     out.connect = function()
         modem.open(port)
-        local sharedBase = math.random(10000,99999)
-        local sharedMod = math.random(10000,99999)
-        local privateKey = math.random(10000,99999)
+        local sharedBase = math.random(10000, 99999)
+        local sharedMod = math.random(10000, 99999)
+        local privateKey = math.random(10000, 99999)
         local publicKey = modexp(sharedBase, privateKey, sharedMod)
         modem.transmit(port, port, {
             mode = "connect",
@@ -277,13 +281,14 @@ function st.createClient(port)
             sharedMod = sharedMod,
             publicKey = publicKey
         })
-        local event, side, channel, replyChannel, message = receiveModem(function(event, side, channel, replyChannel, message)
+        local event, side, channel, replyChannel, message = receiveModem(
+        function(event, side, channel, replyChannel, message)
             return (channel == port) and (type(message) == "table")
         end, 3)
         if event ~= nil then
             if message.mode == "accepted" then
                 local sharedSecret = modexp(message.publicKey, privateKey, sharedMod)
-                local pass = createPassword(sharedSecret,32)
+                local pass = createPassword(sharedSecret, 32)
                 out.socket = outputSocket(port, port, message.socketId, sharedSecret, pass)
                 return true
             elseif message.mode == "disconnect" then
@@ -335,7 +340,7 @@ function st.createClient(port)
     return out
 end
 
-local args = {...}
+local args = { ... }
 
 local options = {
     host = nil,
@@ -466,7 +471,7 @@ parallel.waitForAny(
                 client.socket.close()
                 break
             end
-            client.socket.transmit({event="command", input=input})
+            client.socket.transmit({ event = "command", input = input })
             logmsg("Sent: " .. input)
         end
     end

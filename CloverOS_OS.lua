@@ -682,745 +682,815 @@ if monitor then monitor.setTextScale(0.5) end
 
 -- Mirrored terminal + monitor functions
 local function mirroredPrint(text)
-    print(text)
-    if monitor then
-        local x, y = monitor.getCursorPos()
-        monitor.write(text)
-        monitor.setCursorPos(1, y + 1)
-    end
+  print(text)
+  if monitor then
+    local x, y = monitor.getCursorPos()
+    monitor.write(text)
+    monitor.setCursorPos(1, y + 1)
+  end
 end
 
 local function mirroredWrite(text)
-    write(text)
-    if monitor then
-        local x, y = monitor.getCursorPos()
-        monitor.write(text)
-        monitor.setCursorPos(x + #text, y)
-    end
+  write(text)
+  if monitor then
+    local x, y = monitor.getCursorPos()
+    monitor.write(text)
+    monitor.setCursorPos(x + #text, y)
+  end
 end
 
 local function mirroredClear()
-    term.clear()
-    term.setCursorPos(1, 1)
-    if monitor then
-        monitor.clear()
-        monitor.setCursorPos(1, 1)
-    end
+  term.clear()
+  term.setCursorPos(1, 1)
+  if monitor then
+    monitor.clear()
+    monitor.setCursorPos(1, 1)
+  end
 end
 
 local function mirroredSetCursor(x, y)
-    term.setCursorPos(x, y)
-    if monitor then monitor.setCursorPos(x, y) end
+  term.setCursorPos(x, y)
+  if monitor then monitor.setCursorPos(x, y) end
 end
 
 local function mirroredRead(hidden)
-    if hidden then return read("*") else return read() end
+  if hidden then return read("*") else return read() end
 end
 
 -- GDI-like drawing API
 local GDI = {}
 
 function GDI.setColor(color)
-    term.setTextColor(color)
-    if monitor then monitor.setTextColor(color) end
+  term.setTextColor(color)
+  if monitor then monitor.setTextColor(color) end
 end
 
 function GDI.setBGColor(color)
-    term.setBackgroundColor(color)
-    if monitor then monitor.setBackgroundColor(color) end
+  term.setBackgroundColor(color)
+  if monitor then monitor.setBackgroundColor(color) end
 end
 
 function GDI.setCursor(x, y)
-    term.setCursorPos(x, y)
-    if monitor then monitor.setCursorPos(x, y) end
+  term.setCursorPos(x, y)
+  if monitor then monitor.setCursorPos(x, y) end
 end
 
 function GDI.clear(bg)
-    if bg then GDI.setBGColor(bg) end
-    term.clear()
-    term.setCursorPos(1, 1)
-    if monitor then
-        monitor.clear()
-        monitor.setCursorPos(1, 1)
-    end
+  if bg then GDI.setBGColor(bg) end
+  term.clear()
+  term.setCursorPos(1, 1)
+  if monitor then
+    monitor.clear()
+    monitor.setCursorPos(1, 1)
+  end
 end
 
 function GDI.text(x, y, str, fg, bg)
-    if fg then GDI.setColor(fg) end
-    if bg then GDI.setBGColor(bg) end
-    GDI.setCursor(x, y)
-    mirroredWrite(str)
+  if fg then GDI.setColor(fg) end
+  if bg then GDI.setBGColor(bg) end
+  GDI.setCursor(x, y)
+  mirroredWrite(str)
 end
 
 function GDI.rect(x, y, w, h, fg, bg)
-    for i = 0, h - 1 do
-        GDI.text(x, y + i, string.rep(" ", w), fg, bg)
-    end
+  for i = 0, h - 1 do
+    GDI.text(x, y + i, string.rep(" ", w), fg, bg)
+  end
 end
 
 function GDI.box(x, y, w, h, title, fg, bg)
-    GDI.rect(x, y, w, h, fg, bg)
-    GDI.text(x, y, "+" .. string.rep("-", w - 2) .. "+", fg, bg)
-    for i = 1, h - 2 do
-        GDI.text(x, y + i, "|" .. string.rep(" ", w - 2) .. "|", fg, bg)
-    end
-    GDI.text(x, y + h - 1, "+" .. string.rep("-", w - 2) .. "+", fg, bg)
-    if title then GDI.text(x + 2, y, title, colors.cyan, bg) end
+  GDI.rect(x, y, w, h, fg, bg)
+  GDI.text(x, y, "+" .. string.rep("-", w - 2) .. "+", fg, bg)
+  for i = 1, h - 2 do
+    GDI.text(x, y + i, "|" .. string.rep(" ", w - 2) .. "|", fg, bg)
+  end
+  GDI.text(x, y + h - 1, "+" .. string.rep("-", w - 2) .. "+", fg, bg)
+  if title then GDI.text(x + 2, y, title, colors.cyan, bg) end
 end
+
 -- Register OSAPI's if it doesnt exist
 if not osAPI or not osAPI.GDI then
-osAPIFunc = {
-   version = function ()
-    return "CloverOS v1.0.0"
-   end,
-    author = function ()
-     return "CloverOS Team"
+  osAPIFunc = {
+    version = function()
+      return "CloverOS v1.0.0"
     end,
-    runInstaller = function ()
-    shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
+    author = function()
+      return "CloverOS Team"
+    end,
+    runInstaller = function()
+      shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
     end,
     GDI = GDI,
-}
-osAPI = osAPIFunc
-GDI = osAPI.GDI
+  }
+  osAPI = osAPIFunc
+  GDI = osAPI.GDI
 end
 -- Stream display (send monitor contents to modem)
 local function streamDisplay()
-    if not monitor or not modem then return end
-    while true do
-        local x, y = monitor.getCursorPos()
-        local screenData = monitor.getTextColor() .. monitor.getCursorPos() .. monitor.getTextScale()
-        modem.transmit(123, 123, screenData)
-        os.sleep(0.1)
-    end
+  if not monitor or not modem then return end
+  while true do
+    local x, y = monitor.getCursorPos()
+    local screenData = monitor.getTextColor() .. monitor.getCursorPos() .. monitor.getTextScale()
+    modem.transmit(123, 123, screenData)
+    os.sleep(0.1)
+  end
 end
 
 -- Login screen
 local function login()
-    local running = shell and shell.getRunningProgram and shell.getRunningProgram() or ""
-    local dir = (running ~= "" and fs.getDir(running)) or ""
-    local authPath = (dir == "" or dir == ".") and "auth" or (dir:sub(-1) == "/" and dir.."auth" or dir.."/auth")
+  local running = shell and shell.getRunningProgram and shell.getRunningProgram() or ""
+  local dir = (running ~= "" and fs.getDir(running)) or ""
+  local authPath = (dir == "" or dir == ".") and "auth" or (dir:sub(-1) == "/" and dir .. "auth" or dir .. "/auth")
 
-    local function loadAuth()
-        if not fs.exists(authPath) then return nil end
-        local f = fs.open(authPath, "r")
-        if not f then return nil end
-        local ok, t = pcall(textutils.unserialize, f.readAll())
-        f.close()
-        if ok and type(t) == "table" and t.user and t.pass then return t end
-        return nil
+  local function loadAuth()
+    if not fs.exists(authPath) then return nil end
+    local f = fs.open(authPath, "r")
+    if not f then return nil end
+    local ok, t = pcall(textutils.unserialize, f.readAll())
+    f.close()
+    if ok and type(t) == "table" and t.user and t.pass then return t end
+    return nil
+  end
+
+  local function saveAuth(user, pass)
+    local f = fs.open(authPath, "w")
+    f.write(textutils.serialize({ user = tostring(user), pass = tostring(pass) }))
+    f.close()
+  end
+
+  local auth = loadAuth()
+  if not auth then
+    GDI.clear(colors.black)
+    local w, h = term.getSize()
+    local bw, bh = 40, 10
+    local bx, by = math.floor((w - bw) / 2) + 1, math.floor((h - bh) / 2) + 1
+    GDI.box(bx, by, bw, bh, " Setup ", colors.white, colors.blue)
+    GDI.text(bx + 2, by + 2, "New Username: ", colors.white, colors.blue)
+    GDI.setCursor(bx + 17, by + 2)
+    local newUser = mirroredRead(true) or ""
+    GDI.text(bx + 2, by + 4, "New Password: ", colors.white, colors.blue)
+    GDI.setCursor(bx + 17, by + 4)
+    local newPass = mirroredRead(true) or ""
+    saveAuth(newUser, newPass)
+    GDI.text(bx + 2, by + 6, "Account created!", colors.white, colors.blue)
+    os.sleep(1.5)
+    auth = { user = newUser, pass = newPass }
+  end
+
+  while true do
+    GDI.clear(colors.black)
+    local termWidth, termHeight = term.getSize()
+    local boxWidth, boxHeight = 40, 10
+    local boxX = math.floor((termWidth - boxWidth) / 2) + 1
+    local boxY = math.floor((termHeight - boxHeight) / 2) + 1
+
+    GDI.box(boxX, boxY, boxWidth, boxHeight, " Login ", colors.white, colors.blue)
+
+    GDI.text(boxX + 2, boxY + 2, "Username: ", colors.white, colors.blue)
+    GDI.setCursor(boxX + 12, boxY + 2)
+    local username = mirroredRead(true) or ""
+
+    GDI.text(boxX + 2, boxY + 4, "Password: ", colors.white, colors.blue)
+    GDI.setCursor(boxX + 12, boxY + 4)
+    local password = mirroredRead(true) or ""
+
+    if username == auth.user and password == auth.pass then
+      GDI.text(boxX + 2, boxY + 6, "Login successful!", colors.white, colors.blue)
+      GDI.setColor(colors.white)
+      GDI.setBGColor(colors.black)
+      os.sleep(2)
+      return true
+    else
+      GDI.text(boxX + 2, boxY + 6, "Invalid credentials. Try again.", colors.red, colors.blue)
+      os.sleep(2)
     end
-
-    local function saveAuth(user, pass)
-        local f = fs.open(authPath, "w")
-        f.write(textutils.serialize({ user = tostring(user), pass = tostring(pass) }))
-        f.close()
-    end
-
-    local auth = loadAuth()
-    if not auth then
-        GDI.clear(colors.black)
-        local w,h = term.getSize()
-        local bw,bh = 40,10
-        local bx,by = math.floor((w-bw)/2)+1, math.floor((h-bh)/2)+1
-        GDI.box(bx,by,bw,bh," Setup ",colors.white,colors.blue)
-        GDI.text(bx+2,by+2,"New Username: ",colors.white,colors.blue)
-        GDI.setCursor(bx+17,by+2)
-        local newUser = mirroredRead(true) or ""
-        GDI.text(bx+2,by+4,"New Password: ",colors.white,colors.blue)
-        GDI.setCursor(bx+17,by+4)
-        local newPass = mirroredRead(true) or ""
-        saveAuth(newUser, newPass)
-        GDI.text(bx+2,by+6,"Account created!",colors.white,colors.blue)
-        os.sleep(1.5)
-        auth = { user = newUser, pass = newPass }
-    end
-
-    while true do
-        GDI.clear(colors.black)
-        local termWidth, termHeight = term.getSize()
-        local boxWidth, boxHeight = 40, 10
-        local boxX = math.floor((termWidth - boxWidth) / 2) + 1
-        local boxY = math.floor((termHeight - boxHeight) / 2) + 1
-
-        GDI.box(boxX, boxY, boxWidth, boxHeight, " Login ", colors.white, colors.blue)
-
-        GDI.text(boxX + 2, boxY + 2, "Username: ", colors.white, colors.blue)
-        GDI.setCursor(boxX + 12, boxY + 2)
-        local username = mirroredRead(true) or ""
-
-        GDI.text(boxX + 2, boxY + 4, "Password: ", colors.white, colors.blue)
-        GDI.setCursor(boxX + 12, boxY + 4)
-        local password = mirroredRead(true) or ""
-
-        if username == auth.user and password == auth.pass then
-            GDI.text(boxX + 2, boxY + 6, "Login successful!", colors.white, colors.blue)
-            GDI.setColor(colors.white)
-            GDI.setBGColor(colors.black)
-            os.sleep(2)
-            return true
-        else
-            GDI.text(boxX + 2, boxY + 6, "Invalid credentials. Try again.", colors.red, colors.blue)
-            os.sleep(2)
-        end
-    end
+  end
 end
 
 -- Loading screen
 local function simulateLoading()
-    local w,h = term.getSize()
-    GDI.clear(colors.black)
+  local w, h = term.getSize()
+  GDI.clear(colors.black)
 
-    local function centerPrint(y, text, fg)
-        local x = math.floor((w - #text) / 2) + 1
-        GDI.text(x, y, text, fg or colors.white, colors.black)
+  local function centerPrint(y, text, fg)
+    local x = math.floor((w - #text) / 2) + 1
+    GDI.text(x, y, text, fg or colors.white, colors.black)
+  end
+
+  local logo = {
+
+  }
+
+  for i, line in ipairs(logo) do
+    centerPrint(2 + i, line, colors.green)
+    os.sleep(0.05)
+  end
+
+  os.sleep(0.6)
+  centerPrint(10, "CloverOS Krnl v1.0.0", colors.white)
+  os.sleep(0.4)
+
+  local bootMessages = {
+    "[BOOT] Detecting CPU and kernel features...",
+    "[BOOT] Initializing hardware interfaces...",
+    "[BOOT] Loading kernel modules...",
+    "[KERNEL] Mounting root filesystem...",
+    "[KERNEL] Checking disk integrity...",
+    "[KERNEL] Starting process manager...",
+    "[INIT] Launching device services...",
+    "[INIT] Initializing network stack...",
+    "[SERVICES] Starting system daemons...",
+    "[SEC] Initializing security policies...",
+    "[OK] System services running.",
+    "[OK] All critical kernel modules loaded."
+  }
+
+  local ybase = 12
+  for i, msg in ipairs(bootMessages) do
+    local color = colors.white
+    if msg:find("%[FAIL%]") then
+      color = colors.red
+    elseif msg:find("%[WARN%]") then
+      color = colors.orange
+    elseif msg:find("%[OK%]") then
+      color = colors.lime
+    elseif msg:find("%[BOOT%]") then
+      color = colors.lightBlue
+    elseif msg:find("%[INIT%]") then
+      color = colors.green
+    elseif msg:find("%[KERNEL%]") then
+      color = colors.cyan
+    elseif msg:find("%[INIT%]") then
+      color = colors.yellow
+    elseif msg:find("%[SERVICES%]") then
+      color = colors.orange
+    elseif msg:find("%[SEC%]") then
+      color = colors.purple
     end
+    centerPrint(ybase + i, msg, color)
+    os.sleep(0.45 + math.random() * 0.15)
+  end
 
-    local logo = {
-
-    }
-
-    for i, line in ipairs(logo) do
-        centerPrint(2 + i, line, colors.green)
-        os.sleep(0.05)
-    end
-
-    os.sleep(0.6)
-    centerPrint(10, "CloverOS Krnl v1.0.0", colors.white)
-    os.sleep(0.4)
-
-    local bootMessages = {
-        "[BOOT] Detecting CPU and kernel features...",
-        "[BOOT] Initializing hardware interfaces...",
-        "[BOOT] Loading kernel modules...",
-        "[KERNEL] Mounting root filesystem...",
-        "[KERNEL] Checking disk integrity...",
-        "[KERNEL] Starting process manager...",
-        "[INIT] Launching device services...",
-        "[INIT] Initializing network stack...",
-        "[SERVICES] Starting system daemons...",
-        "[SEC] Initializing security policies...",
-        "[OK] System services running.",
-        "[OK] All critical kernel modules loaded."
-    }
-
-    local ybase = 12
-    for i, msg in ipairs(bootMessages) do
-        local color = colors.white
-        if msg:find("%[FAIL%]") then color = colors.red
-        elseif msg:find("%[WARN%]") then color = colors.orange
-        elseif msg:find("%[OK%]") then color = colors.lime
-        elseif msg:find("%[BOOT%]") then color = colors.lightBlue
-        elseif msg:find("%[INIT%]") then color = colors.green
-        elseif msg:find("%[KERNEL%]") then color = colors.cyan
-        elseif msg:find("%[INIT%]") then color = colors.yellow
-        elseif msg:find("%[SERVICES%]") then color = colors.orange
-        elseif msg:find("%[SEC%]") then color = colors.purple
-        end
-        centerPrint(ybase + i, msg, color)
-        os.sleep(0.45 + math.random() * 0.15)
-    end
-
-    local barW = math.min(50, w - 10)
-    local bx = math.floor((w - barW) / 2) + 1
-    local by = ybase + #bootMessages + 2
-    centerPrint(by - 2, "Loading kernel components:", colors.lightGray)
-    for i = 1, barW do
-        GDI.text(bx + i - 1, by, " ", colors.green, colors.black)
-        os.sleep(0.02 + math.random() * 0.02)
-    end
-    centerPrint(by + 2, "CloverOS Krnl started successfully.", colors.lime)
-    os.sleep(0.9)
+  local barW = math.min(50, w - 10)
+  local bx = math.floor((w - barW) / 2) + 1
+  local by = ybase + #bootMessages + 2
+  centerPrint(by - 2, "Loading kernel components:", colors.lightGray)
+  for i = 1, barW do
+    GDI.text(bx + i - 1, by, " ", colors.green, colors.black)
+    os.sleep(0.02 + math.random() * 0.02)
+  end
+  centerPrint(by + 2, "CloverOS Krnl started successfully.", colors.lime)
+  os.sleep(0.9)
 end
 
 -- File Manager
 local function fileManager()
-    while true do
-        local w,h = term.getSize()
-        local bw,bh = 50, 16
-        local bx,by = math.floor((w-bw)/2)+1, math.floor((h-bh)/2)+1
+  while true do
+    local w, h = term.getSize()
+    local bw, bh = 50, 16
+    local bx, by = math.floor((w - bw) / 2) + 1, math.floor((h - bh) / 2) + 1
 
-        GDI.clear(colors.black)
-        GDI.box(bx, by, bw, bh, " File Manager ", colors.white, colors.blue)
+    GDI.clear(colors.black)
+    GDI.box(bx, by, bw, bh, " File Manager ", colors.white, colors.blue)
 
-        local files = fs.list("/")
-        for i, file in ipairs(files) do
-            local label = fs.isDir(file) and (file.."/") or file
-            GDI.text(bx+2, by+1+i, i..". "..label, colors.white, colors.blue)
-        end
-
-        GDI.text(bx+2, by+bh-3, "Enter number / 'exit': ", colors.white, colors.blue)
-        GDI.setCursor(bx+26, by+bh-3)
-        local choice = mirroredRead(true)
-        if choice == "exit" then return end
-        local index = tonumber(choice)
-
-        if index and files[index] then
-            local fileName = files[index]
-            local fullPath = "/"..fileName
-            if fs.isDir(fullPath) then
-                GDI.clear(colors.black)
-                local dw,dh = 46,14
-                local dx,dy = math.floor((w-dw)/2)+1, math.floor((h-dh)/2)+1
-                GDI.box(dx, dy, dw, dh, " Directory: "..fileName.." ", colors.white, colors.blue)
-                local dirFiles = fs.list(fullPath)
-                for i,f in ipairs(dirFiles) do
-                    local label = fs.isDir(fs.combine(fullPath, f)) and (f.."/") or f
-                    GDI.text(dx+2, dy+1+i, label, colors.white, colors.blue)
-                end
-                GDI.text(dx+2, dy+dh-2, "Press Enter to return.", colors.white, colors.blue)
-                mirroredRead(true)
-
-            else
-                GDI.clear(colors.black)
-                local fw,fh = 50,14
-                local fx,fy = math.floor((w-fw)/2)+1, math.floor((h-fh)/2)+1
-                GDI.box(fx, fy, fw, fh, " File: "..fileName.." ", colors.white, colors.blue)
-                GDI.text(fx+2, fy+2, "1. View", colors.white, colors.blue)
-                GDI.text(fx+2, fy+3, "2. Edit", colors.white, colors.blue)
-                GDI.text(fx+2, fy+4, "3. Delete", colors.white, colors.blue)
-                GDI.text(fx+2, fy+fh-2, "Select option: ", colors.white, colors.blue)
-                GDI.setCursor(fx+17, fy+fh-2)
-                local action = mirroredRead(true)
-
-                if action == "1" then
-                    GDI.clear(colors.black)
-                    local f = fs.open(fullPath, "r")
-                    local content = f.readAll()
-                    f.close()
-                    local vw,vh = 50,16
-                    local vx,vy = math.floor((w-vw)/2)+1, math.floor((h-vh)/2)+1
-                    GDI.box(vx, vy, vw, vh, " Viewing: "..fileName.." ", colors.white, colors.blue)
-                    local lines = {}
-                    for line in content:gmatch("[^\r\n]+") do table.insert(lines, line) end
-                    for i=1,math.min(#lines,vh-4) do
-                        GDI.text(vx+2, vy+1+i, lines[i], colors.white, colors.blue)
-                    end
-                    GDI.text(vx+2, vy+vh-2, "Press Enter to return.", colors.white, colors.blue)
-                    mirroredRead(true)
-
-                elseif action == "2" then
-                    GDI.clear(colors.black)
-                    local ew,eh = 50,14
-                    local ex,ey = math.floor((w-ew)/2)+1, math.floor((h-eh)/2)+1
-                    GDI.box(ex, ey, ew, eh, " Editing: "..fileName.." ", colors.white, colors.blue)
-                    GDI.text(ex+2, ey+2, "Type new content (end with 'exit'):", colors.white, colors.blue)
-                    local newText = ""
-                    local yOffset = 3
-                    while true do
-                        GDI.setCursor(ex+2, ey+yOffset)
-                        local line = read()
-                        if line == "exit" then break end
-                        newText = newText .. line .. "\n"
-                        yOffset = yOffset + 1
-                    end
-                    local f = fs.open(fullPath, "w")
-                    f.write(newText)
-                    f.close()
-                    GDI.text(ex+2, ey+eh-2, "File updated!", colors.white, colors.blue)
-                    os.sleep(1)
-
-                elseif action == "3" then
-                    fs.delete(fullPath)
-                    GDI.text(fx+2, fy+6, "File deleted.", colors.white, colors.blue)
-                    os.sleep(1)
-                end
-            end
-        end
+    local files = fs.list("/")
+    for i, file in ipairs(files) do
+      local label = fs.isDir(file) and (file .. "/") or file
+      GDI.text(bx + 2, by + 1 + i, i .. ". " .. label, colors.white, colors.blue)
     end
+
+    GDI.text(bx + 2, by + bh - 3, "Enter number / 'exit': ", colors.white, colors.blue)
+    GDI.setCursor(bx + 26, by + bh - 3)
+    local choice = mirroredRead(true)
+    if choice == "exit" then return end
+    local index = tonumber(choice)
+
+    if index and files[index] then
+      local fileName = files[index]
+      local fullPath = "/" .. fileName
+      if fs.isDir(fullPath) then
+        GDI.clear(colors.black)
+        local dw, dh = 46, 14
+        local dx, dy = math.floor((w - dw) / 2) + 1, math.floor((h - dh) / 2) + 1
+        GDI.box(dx, dy, dw, dh, " Directory: " .. fileName .. " ", colors.white, colors.blue)
+        local dirFiles = fs.list(fullPath)
+        for i, f in ipairs(dirFiles) do
+          local label = fs.isDir(fs.combine(fullPath, f)) and (f .. "/") or f
+          GDI.text(dx + 2, dy + 1 + i, label, colors.white, colors.blue)
+        end
+        GDI.text(dx + 2, dy + dh - 2, "Press Enter to return.", colors.white, colors.blue)
+        mirroredRead(true)
+      else
+        GDI.clear(colors.black)
+        local fw, fh = 50, 14
+        local fx, fy = math.floor((w - fw) / 2) + 1, math.floor((h - fh) / 2) + 1
+        GDI.box(fx, fy, fw, fh, " File: " .. fileName .. " ", colors.white, colors.blue)
+        GDI.text(fx + 2, fy + 2, "1. View", colors.white, colors.blue)
+        GDI.text(fx + 2, fy + 3, "2. Edit", colors.white, colors.blue)
+        GDI.text(fx + 2, fy + 4, "3. Delete", colors.white, colors.blue)
+        GDI.text(fx + 2, fy + fh - 2, "Select option: ", colors.white, colors.blue)
+        GDI.setCursor(fx + 17, fy + fh - 2)
+        local action = mirroredRead(true)
+
+        if action == "1" then
+          GDI.clear(colors.black)
+          local f = fs.open(fullPath, "r")
+          local content = f.readAll()
+          f.close()
+          local vw, vh = 50, 16
+          local vx, vy = math.floor((w - vw) / 2) + 1, math.floor((h - vh) / 2) + 1
+          GDI.box(vx, vy, vw, vh, " Viewing: " .. fileName .. " ", colors.white, colors.blue)
+          local lines = {}
+          for line in content:gmatch("[^\r\n]+") do table.insert(lines, line) end
+          for i = 1, math.min(#lines, vh - 4) do
+            GDI.text(vx + 2, vy + 1 + i, lines[i], colors.white, colors.blue)
+          end
+          GDI.text(vx + 2, vy + vh - 2, "Press Enter to return.", colors.white, colors.blue)
+          mirroredRead(true)
+        elseif action == "2" then
+          GDI.clear(colors.black)
+          local ew, eh = 50, 14
+          local ex, ey = math.floor((w - ew) / 2) + 1, math.floor((h - eh) / 2) + 1
+          GDI.box(ex, ey, ew, eh, " Editing: " .. fileName .. " ", colors.white, colors.blue)
+          GDI.text(ex + 2, ey + 2, "Type new content (end with 'exit'):", colors.white, colors.blue)
+          local newText = ""
+          local yOffset = 3
+          while true do
+            GDI.setCursor(ex + 2, ey + yOffset)
+            local line = read()
+            if line == "exit" then break end
+            newText = newText .. line .. "\n"
+            yOffset = yOffset + 1
+          end
+          local f = fs.open(fullPath, "w")
+          f.write(newText)
+          f.close()
+          GDI.text(ex + 2, ey + eh - 2, "File updated!", colors.white, colors.blue)
+          os.sleep(1)
+        elseif action == "3" then
+          fs.delete(fullPath)
+          GDI.text(fx + 2, fy + 6, "File deleted.", colors.white, colors.blue)
+          os.sleep(1)
+        end
+      end
+    end
+  end
 end
 -- CMD terminal
 local function cmd()
-    local w, h = term.getSize()
+  local w, h = term.getSize()
 
-    local function drawWindow()
-        mirroredClear()
-        mirroredSetCursor(1, 1)
-        term.setBackgroundColor(colors.black)
-        term.setTextColor(colors.white)
-        for i = 1, h do
-            mirroredWrite(string.rep(" ", w) .. "\n")
-        end
-        mirroredSetCursor(1, 1)
-    end
-
-    local function listCommands()
-        local commands = {}
-        local paths = { "disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "/bin" }
-        for _, path in ipairs(paths) do
-            if fs.exists(path) then
-                for _, file in ipairs(fs.list(path)) do
-                    if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
-                        commands[file:gsub("%..+$", "")] = path .. "/" .. file
-                    end
-                end
-            end
-        end
-        return commands
-    end
-
-    local builtin = {
-        help = function()
-            mirroredPrint("Available commands:")
-            for k in pairs(listCommands()) do mirroredPrint(" - " .. k) end
-            mirroredPrint(" - exit\n - shutdown\n - installer\n - run")
-        end,
-        exit = function() return true end,
-        shutdown = function() os.shutdown() end,
-        installer = function() shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua") end,
-        run = function() mirroredPrint("Not implemented yet.") end
-    }
-
-    drawWindow()
+  local function drawWindow()
+    mirroredClear()
     mirroredSetCursor(1, 1)
-    mirroredPrint("Welcome to Clover OS Linux-like Shell")
-    mirroredPrint("Type 'help' for commands\n")
-
-    local running = true
-    while running do
-        local prompt = "root@CloverOS:~$ "
-        mirroredWrite(prompt)
-
-        local input = {}
-        local cursor = 0
-        local lineStartX, lineStartY = term.getCursorPos()
-
-        while true do
-            local event, p1 = os.pullEvent()
-
-            if event == "char" then
-                table.insert(input, cursor + 1, p1)
-                cursor = cursor + 1
-                mirroredSetCursor(lineStartX, lineStartY)
-                mirroredWrite(table.concat(input) .. " ")
-                mirroredSetCursor(lineStartX + cursor, lineStartY)
-
-            elseif event == "key" then
-                local key = p1
-
-                if key == keys.enter then
-                    mirroredWrite("\n")
-                    break
-
-                elseif key == keys.backspace then
-                    if cursor > 0 then
-                        table.remove(input, cursor)
-                        cursor = cursor - 1
-                        mirroredSetCursor(lineStartX, lineStartY)
-                        mirroredWrite(table.concat(input) .. " ")
-                        mirroredSetCursor(lineStartX + cursor, lineStartY)
-                    end
-
-                elseif key == keys.delete then
-                    if cursor < #input then
-                        table.remove(input, cursor + 1)
-                        mirroredSetCursor(lineStartX, lineStartY)
-                        mirroredWrite(table.concat(input) .. " ")
-                        mirroredSetCursor(lineStartX + cursor, lineStartY)
-                    end
-
-                elseif key == keys.left and cursor > 0 then
-                    cursor = cursor - 1
-                    mirroredSetCursor(lineStartX + cursor, lineStartY)
-
-                elseif key == keys.right and cursor < #input then
-                    cursor = cursor + 1
-                    mirroredSetCursor(lineStartX + cursor, lineStartY)
-
-                elseif key == keys.home then
-                    cursor = 0
-                    mirroredSetCursor(lineStartX, lineStartY)
-
-                elseif key == keys["end"] then
-                    cursor = #input
-                    mirroredSetCursor(lineStartX + cursor, lineStartY)
-
-                elseif key == keys.tab then
-                    local allCommands = {}
-                    for k in pairs(builtin) do table.insert(allCommands, k) end
-                    for k in pairs(listCommands()) do table.insert(allCommands, k) end
-
-                    local current = table.concat(input)
-                    local matches = textutils.complete(current, allCommands)
-
-                    if #matches == 1 then
-                        input = {}
-                        for c in matches[1]:gmatch(".") do
-                            table.insert(input, c)
-                        end
-                        cursor = #input
-                        mirroredSetCursor(lineStartX, lineStartY)
-                        mirroredWrite(table.concat(input))
-                    elseif #matches > 1 then
-                        mirroredPrint("\nSuggestions: " .. table.concat(matches, ", "))
-                        mirroredSetCursor(lineStartX, lineStartY)
-                        mirroredWrite(table.concat(input))
-                    end
-                end
-            end
-        end
-
-        local finalInput = table.concat(input)
-        if finalInput ~= "" then
-            local parts = {}
-            for word in finalInput:gmatch("%S+") do table.insert(parts, word) end
-
-            local command = table.remove(parts, 1)
-            local commands = listCommands()
-
-            if builtin[command] then
-                local exitSignal = builtin[command](table.unpack(parts))
-                if exitSignal then running = false end
-            elseif commands[command] then
-                local ok, err = pcall(function()
-                    shell.run(commands[command], table.unpack(parts))
-                end)
-                if not ok then mirroredPrint("Error: " .. tostring(err)) end
-            else
-                mirroredPrint("Command not found: " .. tostring(command))
-            end
-        end
+    term.setBackgroundColor(colors.black)
+    term.setTextColor(colors.white)
+    for i = 1, h do
+      mirroredWrite(string.rep(" ", w) .. "\n")
     end
+    mirroredSetCursor(1, 1)
+  end
+
+  local function listCommands()
+    local commands = {}
+    local paths = { "disk/bin", "disk2/bin", "disk3/bin", "disk4/bin", "disk5/bin", "/bin" }
+    for _, path in ipairs(paths) do
+      if fs.exists(path) then
+        for _, file in ipairs(fs.list(path)) do
+          if file:match("%.lua$") or file:match("%.exe$") or file:match("%.dll$") then
+            commands[file:gsub("%..+$", "")] = path .. "/" .. file
+          end
+        end
+      end
+    end
+    return commands
+  end
+
+  local builtin = {
+    help = function()
+      mirroredPrint("Available commands:")
+      for k in pairs(listCommands()) do mirroredPrint(" - " .. k) end
+      mirroredPrint(" - exit\n - shutdown\n - installer\n - run")
+    end,
+    exit = function() return true end,
+    shutdown = function() os.shutdown() end,
+    installer = function() shell.run("wget run https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua") end,
+    run = function() mirroredPrint("Not implemented yet.") end
+  }
+
+  drawWindow()
+  mirroredSetCursor(1, 1)
+  mirroredPrint("Welcome to Clover OS Shell, Use cash package for full bash support")
+  mirroredPrint("Type 'help' for commands\n")
+
+  local running = true
+  while running do
+    local prompt = "root@CloverOS:~$ "
+    mirroredWrite(prompt)
+
+    local input = {}
+    local cursor = 0
+    local lineStartX, lineStartY = term.getCursorPos()
+
+    while true do
+      local event, p1 = os.pullEvent()
+
+      if event == "char" then
+        table.insert(input, cursor + 1, p1)
+        cursor = cursor + 1
+        mirroredSetCursor(lineStartX, lineStartY)
+        mirroredWrite(table.concat(input) .. " ")
+        mirroredSetCursor(lineStartX + cursor, lineStartY)
+      elseif event == "key" then
+        local key = p1
+
+        if key == keys.enter then
+          mirroredWrite("\n")
+          break
+        elseif key == keys.backspace then
+          if cursor > 0 then
+            table.remove(input, cursor)
+            cursor = cursor - 1
+            mirroredSetCursor(lineStartX, lineStartY)
+            mirroredWrite(table.concat(input) .. " ")
+            mirroredSetCursor(lineStartX + cursor, lineStartY)
+          end
+        elseif key == keys.delete then
+          if cursor < #input then
+            table.remove(input, cursor + 1)
+            mirroredSetCursor(lineStartX, lineStartY)
+            mirroredWrite(table.concat(input) .. " ")
+            mirroredSetCursor(lineStartX + cursor, lineStartY)
+          end
+        elseif key == keys.left and cursor > 0 then
+          cursor = cursor - 1
+          mirroredSetCursor(lineStartX + cursor, lineStartY)
+        elseif key == keys.right and cursor < #input then
+          cursor = cursor + 1
+          mirroredSetCursor(lineStartX + cursor, lineStartY)
+        elseif key == keys.home then
+          cursor = 0
+          mirroredSetCursor(lineStartX, lineStartY)
+        elseif key == keys["end"] then
+          cursor = #input
+          mirroredSetCursor(lineStartX + cursor, lineStartY)
+        elseif key == keys.tab then
+          local allCommands = {}
+          for k in pairs(builtin) do table.insert(allCommands, k) end
+          for k in pairs(listCommands()) do table.insert(allCommands, k) end
+
+          local current = table.concat(input)
+          local matches = textutils.complete(current, allCommands)
+
+          if #matches == 1 then
+            input = {}
+            for c in matches[1]:gmatch(".") do
+              table.insert(input, c)
+            end
+            cursor = #input
+            mirroredSetCursor(lineStartX, lineStartY)
+            mirroredWrite(table.concat(input))
+          elseif #matches > 1 then
+            mirroredPrint("\nSuggestions: " .. table.concat(matches, ", "))
+            mirroredSetCursor(lineStartX, lineStartY)
+            mirroredWrite(table.concat(input))
+          end
+        end
+      end
+    end
+
+    local finalInput = table.concat(input)
+    if finalInput ~= "" then
+      local parts = {}
+      for word in finalInput:gmatch("%S+") do table.insert(parts, word) end
+
+      local command = table.remove(parts, 1)
+      local commands = listCommands()
+
+      if builtin[command] then
+        local exitSignal = builtin[command](table.unpack(parts))
+        if exitSignal then running = false end
+      elseif commands[command] then
+        local ok, err = pcall(function()
+          shell.run(commands[command], table.unpack(parts))
+        end)
+        if not ok then mirroredPrint("Error: " .. tostring(err)) end
+      else
+        mirroredPrint("Command not found: " .. tostring(command))
+      end
+    end
+  end
 end
 -- Simple games and apps
 local function playTetris()
+  mirroredClear()
+  mirroredPrint("Tetris: Use A/D to move, Q to quit.")
+  local width, height = 10, 10
+  local board = {}
+  for y = 1, height do
+    board[y] = {}
+    for x = 1, width do board[y][x] = " " end
+  end
+  local px, py = math.floor(width / 2), 1
+  local running = true
+  while running do
     mirroredClear()
-    mirroredPrint("Tetris: Use A/D to move, Q to quit.")
-    local width, height = 10, 10
-    local board = {}
     for y = 1, height do
-        board[y] = {}
-        for x = 1, width do board[y][x] = " " end
+      local line = ""
+      for x = 1, width do
+        line = line .. ((x == px and y == py) and "O" or board[y][x])
+      end
+      mirroredPrint(line)
     end
-    local px, py = math.floor(width / 2), 1
-    local running = true
-    while running do
-        mirroredClear()
-        for y = 1, height do
-            local line = ""
-            for x = 1, width do
-                line = line .. ((x == px and y == py) and "O" or board[y][x])
-            end
-            mirroredPrint(line)
-        end
-        mirroredPrint("Controls: [A] Left  [D] Right  [S] Down  [Q] Quit")
-        local event, key = os.pullEvent("char")
-        if key == "a" and px > 1 then px = px - 1
-        elseif key == "d" and px < width then px = px + 1
-        elseif key == "s" and py < height then py = py + 1
-        elseif key == "q" then running = false end
-        if py == height then
-            board[py][px] = "O"
-            px, py = math.floor(width / 2), 1
-        else py = py + 1 end
+    mirroredPrint("Controls: [A] Left  [D] Right  [S] Down  [Q] Quit")
+    local event, key = os.pullEvent("char")
+    if key == "a" and px > 1 then
+      px = px - 1
+    elseif key == "d" and px < width then
+      px = px + 1
+    elseif key == "s" and py < height then
+      py = py + 1
+    elseif key == "q" then
+      running = false
     end
-    mirroredPrint("Game Over! Press Enter to return.")
-    mirroredRead()
+    if py == height then
+      board[py][px] = "O"
+      px, py = math.floor(width / 2), 1
+    else
+      py = py + 1
+    end
+  end
+  mirroredPrint("Game Over! Press Enter to return.")
+  mirroredRead()
 end
 
 local function playPong()
-    local width, height = 20, 8
-    local paddleY = math.floor(height / 2)
-    local ballX, ballY = math.floor(width / 2), math.floor(height / 2)
-    local ballDX, ballDY = 1, 1
-    local running = true
+  local width, height = 20, 8
+  local paddleY = math.floor(height / 2)
+  local ballX, ballY = math.floor(width / 2), math.floor(height / 2)
+  local ballDX, ballDY = 1, 1
+  local running = true
 
-    local function draw()
+  local function draw()
+    GDI.clear(colors.black)
+    GDI.text(2, paddleY, "|", colors.white, colors.black)
+    GDI.text(ballX, ballY, "O", colors.red, colors.black)
+    for x = 1, width do
+      GDI.text(x, 1, "-", colors.gray, colors.black)
+      GDI.text(x, height, "-", colors.gray, colors.black)
+    end
+    GDI.text(1, height + 1, "Controls: [W] Up  [S] Down  [Q] Quit", colors.white, colors.black)
+  end
+
+  draw()
+  while running do
+    local event, key = os.pullEvent("char")
+    if key == "w" and paddleY > 2 then
+      paddleY = paddleY - 1
+    elseif key == "s" and paddleY < height - 1 then
+      paddleY = paddleY + 1
+    elseif key == "q" then
+      running = false
+    end
+
+    ballX = ballX + ballDX
+    ballY = ballY + ballDY
+
+    if ballY <= 2 or ballY >= height - 1 then ballDY = -ballDY end
+    if ballX <= 2 then
+      if ballY == paddleY then
+        ballDX = -ballDX
+      else
         GDI.clear(colors.black)
-        GDI.text(2, paddleY, "|", colors.white, colors.black)
-        GDI.text(ballX, ballY, "O", colors.red, colors.black)
-        for x = 1, width do
-            GDI.text(x, 1, "-", colors.gray, colors.black)
-            GDI.text(x, height, "-", colors.gray, colors.black)
-        end
-        GDI.text(1, height + 1, "Controls: [W] Up  [S] Down  [Q] Quit", colors.white, colors.black)
+        GDI.text(1, 1, "Missed! Game Over. Press Enter to return.", colors.red, colors.black)
+        read()
+        running = false
+      end
     end
-
+    if ballX >= width then ballDX = -ballDX end
     draw()
-    while running do
-        local event, key = os.pullEvent("char")
-        if key == "w" and paddleY > 2 then paddleY = paddleY - 1
-        elseif key == "s" and paddleY < height - 1 then paddleY = paddleY + 1
-        elseif key == "q" then running = false end
-
-        ballX = ballX + ballDX
-        ballY = ballY + ballDY
-
-        if ballY <= 2 or ballY >= height - 1 then ballDY = -ballDY end
-        if ballX <= 2 then
-            if ballY == paddleY then ballDX = -ballDX
-            else GDI.clear(colors.black) GDI.text(1,1,"Missed! Game Over. Press Enter to return.",colors.red,colors.black) read() running=false end
-        end
-        if ballX >= width then ballDX = -ballDX end
-        draw()
-    end
+  end
 end
 
 -- Desktop & Apps
 local icons = {
-    {name="Clock", run=function() while true do mirroredClear() mirroredPrint("Clock: "..textutils.formatTime(os.time(),true)) os.sleep(1) end end},
-    {name="CC-Tweaked Terminal", run=function()
+  {
+    name = "Clock",
+    run = function()
+      while true do
         mirroredClear()
-        mirroredPrint("CC-Tweaked Terminal")
-        while true do
-            mirroredWrite("> ")
-            local cmd = mirroredRead()
-            if cmd == "exit" then break end
-            shell.run(cmd)
+        mirroredPrint("Clock: " .. textutils.formatTime(os.time(), true))
+        os.sleep(1)
+      end
+    end
+  },
+  {
+    name = "CC-Tweaked Terminal",
+    run = function()
+      mirroredClear()
+      mirroredPrint("CC-Tweaked Terminal")
+      while true do
+        mirroredWrite("> ")
+        local cmd = mirroredRead()
+        if cmd == "exit" then break end
+        shell.run(cmd)
+      end
+    end
+  },
+  { name = "Game: Tetris", run = playTetris },
+  { name = "Game: Pong",   run = playPong },
+  { name = "File Manager", run = fileManager },
+  {
+    name = "Shutdown",
+    run = function()
+      mirroredPrint("Shutting down...")
+      os.sleep(1)
+      os.shutdown()
+    end
+  },
+  {
+    name = "Music Player",
+    run = function()
+      local w, h = term.getSize()
+      GDI.clear(colors.black)
+      local bw, bh = 60, 20
+      local bx, by = math.floor((w - bw) / 2) + 1, math.floor((h - bh) / 2) + 1
+      GDI.box(bx, by, bw, bh, " Music Player ", colors.white, colors.blue)
+
+      local speakers = {}
+      for _, name in pairs(peripheral.getNames()) do
+        if peripheral.getType(name) == "speaker" then table.insert(speakers, peripheral.wrap(name)) end
+      end
+      if #speakers == 0 then
+        GDI.text(bx + 2, by + 2, "Error: No speakers attached!", colors.red, colors.blue)
+        GDI.text(bx + 2, by + 4, "Press Enter to return.", colors.white, colors.blue)
+        mirroredRead()
+        return
+      end
+
+      local tracks = {
+        { name = "Hunt in the dark - Sapheria_xplicit",                file = "m1.dfpwm" },
+        { name = "BFDI OST - Lickie",                                  file = "BFDI_OST_Lickie.dfpwm" },
+        { name = "Joke",                                               file = "joke.dfpwm" },
+        { name = "Panic Track",                                        file = "Panic_Track.dfpwm" },
+        { name = "zero-project - Gothic (2020 version)",               file = "gothic.dfpwm" },
+        { name = "145 (Poodles) by Jake Chudnow [HD]",                 file = "m2.dfpwm" },
+        { name = "Let There Be Chaos - (Chaos Insurgency Raid Theme)", file = "m3.dfpwm" },
+        { name = "RUINOUS INTNT (corru.observer)",                     file = "m4.dfpwm" },
+        { name = "PuzzlePark WOTFI 2024 by SMG4",                      file = "m5.dfpwm" },
+      }
+
+      for i, track in ipairs(tracks) do
+        GDI.text(bx + 2, by + 1 + i, i .. ". " .. track.name, colors.white, colors.blue)
+      end
+      GDI.text(bx + 2, by + bh - 3, "Type number to play, or 'exit' to return.", colors.white, colors.blue)
+      GDI.setCursor(bx + 2, by + bh - 2)
+      local choice = mirroredRead()
+      if choice == "exit" then return end
+      local index = tonumber(choice)
+      if index and tracks[index] then
+        local basePath = (fs.exists("/etc/music") and "/etc/music") or
+            (function()
+              for i = 0, 99 do
+                local d = (i == 0 and "disk" or "disk" .. i) .. "/etc/music"
+                if fs.exists(d) then return d end
+              end
+            end)()
+        local filePath = fs.combine(basePath, tracks[index].file)
+        if not fs.exists(filePath) then
+          GDI.text(bx + 2, by + 2, "File not found: " .. filePath, colors.red, colors.blue)
+          os.sleep(1.5)
+          return
         end
-    end},
-    {name="Game: Tetris", run=playTetris},
-    {name="Game: Pong", run=playPong},
-    {name="File Manager", run=fileManager},
-    {name="Shutdown", run=function() mirroredPrint("Shutting down...") os.sleep(1) os.shutdown() end},
-    {name = "Music Player", run = function()
-	local w,h = term.getSize()
-	GDI.clear(colors.black)
-	local bw,bh = 60,20
-	local bx,by = math.floor((w-bw)/2)+1, math.floor((h-bh)/2)+1
-	GDI.box(bx,by,bw,bh," Music Player ", colors.white, colors.blue)
-
-	local speakers = {}
-	for _,name in pairs(peripheral.getNames()) do
-		if peripheral.getType(name)=="speaker" then table.insert(speakers, peripheral.wrap(name)) end
-	end
-	if #speakers==0 then
-		GDI.text(bx+2,by+2,"Error: No speakers attached!", colors.red, colors.blue)
-		GDI.text(bx+2,by+4,"Press Enter to return.", colors.white, colors.blue)
-		mirroredRead()
-		return
-	end
-
-	local tracks={
-		{name="Hunt in the dark - Sapheria_xplicit",file="m1.dfpwm"},
-		{name="BFDI OST - Lickie",file="BFDI_OST_Lickie.dfpwm"},
-		{name="Joke",file="joke.dfpwm"},
-		{name="Panic Track",file="Panic_Track.dfpwm"},
-		{name="zero-project - Gothic (2020 version)",file="gothic.dfpwm"},
-		{name="145 (Poodles) by Jake Chudnow [HD]",file="m2.dfpwm"},
-		{name="Let There Be Chaos - (Chaos Insurgency Raid Theme)",file="m3.dfpwm"},
-		{name="RUINOUS INTNT (corru.observer)",file="m4.dfpwm"},
-		{name="PuzzlePark WOTFI 2024 by SMG4",file="m5.dfpwm"},
-	}
-
-	for i,track in ipairs(tracks) do
-		GDI.text(bx+2,by+1+i,i..". "..track.name, colors.white, colors.blue)
-	end
-	GDI.text(bx+2,by+bh-3,"Type number to play, or 'exit' to return.", colors.white, colors.blue)
-	GDI.setCursor(bx+2,by+bh-2)
-	local choice = mirroredRead()
-	if choice=="exit" then return end
-	local index=tonumber(choice)
-	if index and tracks[index] then
-		local basePath=(fs.exists("/etc/music") and "/etc/music") or (function() for i=0,99 do local d=(i==0 and "disk" or "disk"..i).."/etc/music" if fs.exists(d) then return d end end end)()
-		local filePath=fs.combine(basePath,tracks[index].file)
-		if not fs.exists(filePath) then
-			GDI.text(bx+2,by+2,"File not found: "..filePath, colors.red, colors.blue)
-			os.sleep(1.5)
-			return
-		end
-		GDI.text(bx+2,by+2,"Now playing: "..tracks[index].name, colors.green, colors.blue)
-		local decoder=require("cc.audio.dfpwm").make_decoder()
-		local file=fs.open(filePath,"rb")
-		while true do
-			local chunk=file.read(16*1024)
-			if not chunk then break end
-			local decoded=decoder(chunk)
-			local allDone
-			repeat
-				allDone=true
-				for _,speaker in ipairs(speakers) do
-					if not speaker.playAudio(decoded) then allDone=false end
-				end
-				if not allDone then os.sleep(0) end
-			until allDone
-		end
-		file.close()
-		GDI.text(bx+2,by+4,"Playback finished. Press Enter to return.", colors.white, colors.blue)
-		mirroredRead()
-	else
-		GDI.text(bx+2,by+2,"Invalid choice.", colors.red, colors.blue)
-		os.sleep(1.5)
-	end
-end},
-    {name="cmd", run=function() cmd() end}
+        GDI.text(bx + 2, by + 2, "Now playing: " .. tracks[index].name, colors.green, colors.blue)
+        local decoder = require("cc.audio.dfpwm").make_decoder()
+        local file = fs.open(filePath, "rb")
+        while true do
+          local chunk = file.read(16 * 1024)
+          if not chunk then break end
+          local decoded = decoder(chunk)
+          local allDone
+          repeat
+            allDone = true
+            for _, speaker in ipairs(speakers) do
+              if not speaker.playAudio(decoded) then allDone = false end
+            end
+            if not allDone then os.sleep(0) end
+          until allDone
+        end
+        file.close()
+        GDI.text(bx + 2, by + 4, "Playback finished. Press Enter to return.", colors.white, colors.blue)
+        mirroredRead()
+      else
+        GDI.text(bx + 2, by + 2, "Invalid choice.", colors.red, colors.blue)
+        os.sleep(1.5)
+      end
+    end
+  },
+  { name = "cmd", run = function() cmd() end }
 }
 local function getCustomApps()
-    local appList = {}
-    local appDirs = {"apps","disk/apps","disk2/apps","disk3/apps","disk4/apps","disk5/apps","disk6/apps"}
-    for _, dir in ipairs(appDirs) do
-        if fs.exists(dir) then
-            for _, file in ipairs(fs.list(dir)) do
-                if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") or file:match("%.[dD][lL][lL]$") then
-                    local filePath = fs.combine(dir, file)
-                    local appName = file:gsub("%..+$","")
-                    table.insert(appList, {
-                        name = appName,
-                        path = filePath,
-                        run = function()
-                            mirroredClear()
-                            local ok, err = pcall(function() shell.run(filePath) end)
-                            if not ok then
-                                mirroredPrint("Error running " .. appName .. ": " .. tostring(err))
-                                os.sleep(1.5)
-                            end
-                            mirroredClear()
-                        end
-                    })
-                end
+  local appList = {}
+  local appDirs = { "apps", "disk/apps", "disk2/apps", "disk3/apps", "disk4/apps", "disk5/apps", "disk6/apps" }
+  for _, dir in ipairs(appDirs) do
+    if fs.exists(dir) then
+      for _, file in ipairs(fs.list(dir)) do
+        if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") or file:match("%.[dD][lL][lL]$") then
+          local filePath = fs.combine(dir, file)
+          local appName = file:gsub("%..+$", "")
+          table.insert(appList, {
+            name = appName,
+            path = filePath,
+            run = function()
+              mirroredClear()
+
+              local ok, err = pcall(function()
+                shell.run(filePath, table.unpack({}))
+              end)
+
+              if not ok then
+                mirroredPrint("App crash: " .. tostring(err))
+                os.sleep(1.5)
+              end
+
+              mirroredClear()
             end
+          })
         end
+      end
     end
-    return appList
+  end
+  return appList
 end
 
 
 local function desktop()
+  local function buildIcons()
     local allIcons = {}
-    for _, icon in ipairs(icons) do table.insert(allIcons, icon) end
+    for _, icon in ipairs(icons) do
+      table.insert(allIcons, icon)
+    end
     for _, app in ipairs(getCustomApps()) do
-        app.name = app.name:gsub("^%s*(.-)%s*$", "%1")
-        table.insert(allIcons, app)
+      app.name = (app.name or ""):gsub("^%s*(.-)%s*$", "%1")
+      table.insert(allIcons, app)
+    end
+    return allIcons
+  end
+
+  local allIcons = buildIcons()
+
+  while true do
+    mirroredClear()
+    mirroredPrint("== Desktop ==")
+
+    for i, icon in ipairs(allIcons) do
+      mirroredPrint(i .. ". " .. icon.name)
     end
 
-    while true do
-        mirroredClear()
-        mirroredPrint("== Desktop ==")
+    mirroredPrint("Select number / name / click:")
+
+    local event, a, b, c = os.pullEvent()
+    if event == "mouse_click" then
+      local _, x, y = a, b, c
+      local index = y - 1
+
+      if index >= 1 and index <= #allIcons then
+        local ok, err = pcall(allIcons[index].run)
+        if not ok then
+          mirroredPrint("Execution error: " .. tostring(err))
+          os.sleep(1.5)
+        end
+      end
+    elseif event == "key" then
+      mirroredSetCursor(1, #allIcons + 4)
+
+      local input = mirroredRead()
+      if input and input ~= "" then
+        input = input:lower():gsub("^%s*(.-)%s*$", "%1")
+
+        local found = false
+
         for i, icon in ipairs(allIcons) do
-            mirroredPrint(i .. ". " .. icon.name)
+          local name = (icon.name or ""):lower():gsub("^%s*(.-)%s*$", "%1")
+
+          if input == tostring(i) or input == name then
+            local ok, err = pcall(icon.run)
+            if not ok then
+              mirroredPrint("Execution error: " .. tostring(err))
+              os.sleep(1.5)
+            end
+            found = true
+            break
+          end
         end
-        mirroredPrint("Type number or app name, or click an icon:")
 
-        local event, p1, p2, p3 = os.pullEvent()
-        if event == "mouse_click" then
-            local _, x, y = p1, p2, p3
-            local line = y - 1
-            if line >= 1 and line <= #allIcons then
-                allIcons[line].run()
-            end
-        elseif event == "char" or event == "key" then
-            mirroredSetCursor(1, #allIcons + 4)
-            local input = mirroredRead()
-            if not input or input == "" then goto continue end
-            input = input:lower():gsub("^%s*(.-)%s*$", "%1")
-
-            local matched = false
-            for i, icon in ipairs(allIcons) do
-                local name = icon.name:lower():gsub("^%s*(.-)%s*$", "%1")
-                if input == tostring(i) or input == name then
-                    icon.run()
-                    matched = true
-                    break
-                end
-            end
-
-            if not matched then
-                mirroredPrint("No app found with that number or name.")
-                os.sleep(1.5)
-            end
+        if not found then
+          mirroredPrint("No match.")
+          os.sleep(1.2)
         end
-        ::continue::
+      end
     end
+  end
 end
 -- Bootup
 simulateLoading()
