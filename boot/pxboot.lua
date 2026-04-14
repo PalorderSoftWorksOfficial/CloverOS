@@ -93,10 +93,13 @@ local function unbios(path, ...)
             end
         end
         setfenv(fn, _G)
-        local oldshutdown = os.shutdown
+        local function runKernel()
+            return fn(table.unpack(kernelArgs, 1, kernelArgs.n))
+        end
+
         os.shutdown = function()
             os.shutdown = oldshutdown
-            return fn(table.unpack(kernelArgs, 1, kernelArgs.n))
+            runKernel()
         end
     end
 
@@ -181,7 +184,15 @@ function cmds.insmod(t)
     end
     assert(loadfile(path, nil,
         setmetatable(
-        { entries = entries, bootcfg = bootcfg, cmds = cmds, userGlobals = userGlobals, unbios = unbios, config = config },
+            {
+                entries = entries,
+                bootcfg = bootcfg,
+                cmds = cmds,
+                userGlobals = userGlobals,
+                unbios = unbios,
+                config =
+                    config
+            },
             { __index = _ENV })))(t.args, path)
 end
 
@@ -282,8 +293,10 @@ config = setmetatable({
             local retval = { name = name, commands = {} }
             for i = 1, n do
                 local c = entry[i]
-                if (type(c) ~= "table" and type(c) ~= "function") or not c.cmd then error(
-                    "bad command entry #" .. i .. (c == nil and " (unknown command)" or " (missing arguments)"), 2) end
+                if (type(c) ~= "table" and type(c) ~= "function") or not c.cmd then
+                    error(
+                        "bad command entry #" .. i .. (c == nil and " (unknown command)" or " (missing arguments)"), 2)
+                end
                 if type(c) == "function" then
                     retval.commands[#retval.commands + 1] = c
                 elseif c.cmd == "description" then
@@ -542,10 +555,12 @@ entrywin.clear()
 
 local selection, scroll = 1, 1
 if config.defaultentry then
-    for i = 1, #entries do if entries[i].name == config.defaultentry then
+    for i = 1, #entries do
+        if entries[i].name == config.defaultentry then
             selection = i
             break
-        end end
+        end
+    end
     if config.timeout == 0 and boot(entries[selection]) then return end
 end
 local function drawEntries()

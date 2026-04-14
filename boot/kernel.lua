@@ -734,8 +734,6 @@ if fsPath then
   end
 end
 
-_G.CloverOS = API
-
 local function safeFindOS(fileName)
   local ok, result = pcall(function()
     for i = 0, 99 do
@@ -754,6 +752,10 @@ local function safeFindOS(fileName)
     return "/CloverOS_OS.lua"
   end
 end
-
+_G.CloverOS = setmetatable(API, {
+  __newindex = function()
+    error("CloverOS API is read-only")
+  end
+})
 local cloverOS = safeFindOS("CloverOS_OS.lua")
 shell.run(cloverOS)
