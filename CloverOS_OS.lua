@@ -1311,80 +1311,145 @@ local icons = {
   {
     name = "Music Player",
     run = function()
+      local old = {
+        bg = term.getBackgroundColor(),
+        fg = term.getTextColor(),
+        x,
+        y = term.getCursorPos()
+      }
+
+      local function restore()
+        term.setBackgroundColor(old.bg)
+        term.setTextColor(old.fg)
+        term.setCursorPos(old.x, old.y)
+        term.clear()
+      end
+
       local w, h = term.getSize()
+
       GDI.clear(colors.black)
+
       local bw, bh = 60, 20
       local bx, by = math.floor((w - bw) / 2) + 1, math.floor((h - bh) / 2) + 1
       GDI.box(bx, by, bw, bh, " Music Player ", colors.white, colors.blue)
 
       local speakers = {}
       for _, name in pairs(peripheral.getNames()) do
-        if peripheral.getType(name) == "speaker" then table.insert(speakers, peripheral.wrap(name)) end
+        if peripheral.getType(name) == "speaker" then
+          table.insert(speakers, peripheral.wrap(name))
+        end
       end
+
       if #speakers == 0 then
         GDI.text(bx + 2, by + 2, "Error: No speakers attached!", colors.red, colors.blue)
-        GDI.text(bx + 2, by + 4, "Press Enter to return.", colors.white, colors.blue)
-        mirroredRead()
+        os.pullEvent("key")
+        restore()
         return
       end
 
       local tracks = {
-        { name = "Hunt in the dark - Sapheria_xplicit",                file = "m1.dfpwm" },
-        { name = "BFDI OST - Lickie",                                  file = "BFDI_OST_Lickie.dfpwm" },
-        { name = "Joke",                                               file = "joke.dfpwm" },
-        { name = "Panic Track",                                        file = "Panic_Track.dfpwm" },
-        { name = "zero-project - Gothic (2020 version)",               file = "gothic.dfpwm" },
-        { name = "145 (Poodles) by Jake Chudnow [HD]",                 file = "m2.dfpwm" },
-        { name = "Let There Be Chaos - (Chaos Insurgency Raid Theme)", file = "m3.dfpwm" },
-        { name = "RUINOUS INTNT (corru.observer)",                     file = "m4.dfpwm" },
-        { name = "PuzzlePark WOTFI 2024 by SMG4",                      file = "m5.dfpwm" },
+        { name = "Hunt in the dark - Sapheria_xplicit", file = "m1.dfpwm" },
+        { name = "BFDI OST - Lickie",                   file = "BFDI_OST_Lickie.dfpwm" },
+        { name = "Joke",                                file = "joke.dfpwm" },
+        { name = "Panic Track",                         file = "Panic_Track.dfpwm" },
+        { name = "zero-project - Gothic (2020)",        file = "gothic.dfpwm" },
+        { name = "145 (Poodles)",                       file = "m2.dfpwm" },
+        { name = "Chaos Theme",                         file = "m3.dfpwm" },
+        { name = "RUINOUS INTNT",                       file = "m4.dfpwm" },
+        { name = "WOTFI 2024",                          file = "m5.dfpwm" },
       }
 
-      for i, track in ipairs(tracks) do
-        GDI.text(bx + 2, by + 1 + i, i .. ". " .. track.name, colors.white, colors.blue)
+      for i, t in ipairs(tracks) do
+        GDI.text(bx + 2, by + 1 + i, i .. ". " .. t.name, colors.white, colors.blue)
       end
-      GDI.text(bx + 2, by + bh - 3, "Type number to play, or 'exit' to return.", colors.white, colors.blue)
+
+      GDI.text(bx + 2, by + bh - 3, "Enter number | P=pause | Q=stop", colors.white, colors.blue)
+
       GDI.setCursor(bx + 2, by + bh - 2)
-      local choice = mirroredRead()
-      if choice == "exit" then return end
-      local index = tonumber(choice)
-      if index and tracks[index] then
-        local basePath = (fs.exists("/etc/music") and "/etc/music") or
-            (function()
-              for i = 0, 99 do
-                local d = (i == 0 and "disk" or "disk" .. i) .. "/etc/music"
-                if fs.exists(d) then return d end
-              end
-            end)()
-        local filePath = fs.combine(basePath, tracks[index].file)
-        if not fs.exists(filePath) then
-          GDI.text(bx + 2, by + 2, "File not found: " .. filePath, colors.red, colors.blue)
-          os.sleep(1.5)
-          return
-        end
-        GDI.text(bx + 2, by + 2, "Now playing: " .. tracks[index].name, colors.green, colors.blue)
-        local decoder = require("cc.audio.dfpwm").make_decoder()
-        local file = fs.open(filePath, "rb")
-        while true do
-          local chunk = file.read(16 * 1024)
-          if not chunk then break end
-          local decoded = decoder(chunk)
-          local allDone
-          repeat
-            allDone = true
-            for _, speaker in ipairs(speakers) do
-              if not speaker.playAudio(decoded) then allDone = false end
-            end
-            if not allDone then os.sleep(0) end
-          until allDone
-        end
-        file.close()
-        GDI.text(bx + 2, by + 4, "Playback finished. Press Enter to return.", colors.white, colors.blue)
-        mirroredRead()
-      else
-        GDI.text(bx + 2, by + 2, "Invalid choice.", colors.red, colors.blue)
-        os.sleep(1.5)
+      local choice = read()
+
+      if choice == "q" or choice == "exit" then
+        restore()
+        return
       end
+
+      local index = tonumber(choice)
+      if not index or not tracks[index] then
+        GDI.text(bx + 2, by + 2, "Invalid choice.", colors.red, colors.blue)
+        os.sleep(1)
+        restore()
+        return
+      end
+
+      local basePath = "/etc/music"
+      if not fs.exists(basePath) then
+        for i = 0, 99 do
+          local d = (i == 0 and "/disk" or "/disk" .. i) .. "/etc/music"
+          if fs.exists(d) then
+            basePath = d
+            break
+          end
+        end
+      end
+
+      local filePath = fs.combine(basePath, tracks[index].file)
+
+      if not fs.exists(filePath) then
+        GDI.text(bx + 2, by + 2, "Missing file: " .. filePath, colors.red, colors.blue)
+        os.sleep(1.5)
+        restore()
+        return
+      end
+
+      local decoder = require("cc.audio.dfpwm").make_decoder()
+      local file = fs.open(filePath, "rb")
+
+      local paused = false
+      local stop = false
+
+      local function handleInput()
+        while not stop do
+          local e, k = os.pullEvent("key")
+
+          if k == keys.q then
+            stop = true
+          elseif k == keys.p then
+            paused = not paused
+          end
+        end
+      end
+
+      local function playAudio()
+        while not stop do
+          if paused then
+            os.sleep(0.1)
+          else
+            local chunk = file.read(16 * 1024)
+            if not chunk then break end
+
+            local decoded = decoder(chunk)
+
+            local done = false
+            while not done and not stop do
+              done = true
+              for _, s in ipairs(speakers) do
+                if not s.playAudio(decoded) then
+                  done = false
+                end
+              end
+              if not done then os.sleep(0) end
+            end
+          end
+          os.sleep(0)
+        end
+      end
+
+      parallel.waitForAny(handleInput, playAudio)
+
+      file.close()
+      restore()
+
+      GDI.clear(colors.black)
     end
   },
   { name = "cmd", run = function() cmd() end }
