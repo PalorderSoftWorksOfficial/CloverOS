@@ -675,24 +675,21 @@ Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
 --]]
 local function safeFindKernel(fileName)
-  local ok, path = pcall(function()
-    for i = 0, 99 do
-      local d = "/disk" .. (i == 0 and "" or i)
-      local p = d .. "/" .. fileName
-      if fs.exists(p) then return p end
+  for i = 0, 99 do
+    local d = "/disk" .. (i == 0 and "" or i)
+    local p = d .. "/" .. fileName
+    if fs.exists(p) then
+      return p
     end
-    if fs.exists("/" .. fileName) then return "/" .. fileName end
-    return nil
-  end)
-  if ok then
-    return path or "/boot/kernel.lua"
-  else
-    printError("Error finding kernel: " .. tostring(path))
-    return "/boot/kernel.lua"
   end
+
+  if fs.exists("/" .. fileName) then
+    return "/" .. fileName
+  end
+
+  error("Kernel not found: " .. fileName)
 end
 
--- Precompute kernel path
 local cloverKernel = safeFindKernel("boot/kernel.lua")
 
 defaultentry = "CloverOS"
@@ -703,7 +700,9 @@ titlecolor = colors.lightGray
 
 menuentry "CloverOS" {
   description "Boot CloverOS normally.",
-  kernel(cloverKernel),
+  kernel(function()
+    return dofile(cloverKernel)
+  end),
   args "",
 }
 
@@ -711,5 +710,3 @@ menuentry "CraftOS" {
   description "Boot into CraftOS.",
   craftos,
 }
-
--- include "config.lua.d/*"
