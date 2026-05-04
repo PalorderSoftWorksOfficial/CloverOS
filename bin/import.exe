@@ -1,22 +1,98 @@
-require "cc.completion"
+local completion = require("cc.completion")
 
-print("Drop files to transfer them to this computer")
+local OVERWRITE = false
+local USE_INTERNAL_IMPORT = true
 
-local files
-while true do
-    local event, arg = os.pullEvent()
-    if event == "file_transfer" then
-        files = arg.getFiles()
-        break
-    elseif event == "key" and arg == keys.q then
-        return
+local function log(msg)
+    print(("[INFO] %s"):format(msg))
+end
+
+local function err(msg)
+    printError(("[ERROR] %s"):format(msg))
+end
+
+local function saveFile(file, TARGET_DIR)
+    local name = file.getName()
+    local path = fs.combine(TARGET_DIR, name)
+
+    if fs.exists(path) and not OVERWRITE then
+        err(("Skipping %s (exists)"):format(name))
+        return false
+    end
+
+    local handle = fs.open(path, "wb")
+    if not handle then
+        err(("Failed to open %s"):format(path))
+        return false
+    end
+
+    handle.write(file.readAll())
+    handle.close()
+    file.close()
+
+    log(("Saved %s"):format(path))
+    return true
+end
+
+local function fallbackImport(files, TARGET_DIR)
+    log("Using manual import fallback")
+    local success, fail = 0, 0
+
+    for _, file in ipairs(files) do
+        local ok = pcall(saveFile, file, TARGET_DIR)
+        if ok then success = success + 1 else fail = fail + 1 end
+    end
+
+    log(("Import complete: %d success, %d failed"):format(success, fail))
+end
+
+local function internalImport(files, TARGET_DIR)
+    local ok = pcall(function()
+        return require("cc.internal.import")(files, TARGET_DIR)
+    end)
+
+    if not ok then
+        fallbackImport(files, TARGET_DIR)
     end
 end
 
-if #files == 0 then
-  printError("No files to transfer")
-  return
+write("Enter target directory: ")
+local TARGET_DIR = read(nil, nil, function(text)
+    return fs.complete(text, "", true, false)
+end)
+
+if TARGET_DIR == "" then
+    printError("No target directory specified")
+    return
 end
 
-local ok, err = require("cc.internal.import")(files)
-if not ok and err then printError(err) end
+if not fs.exists(TARGET_DIR) then
+    fs.makeDir(TARGET_DIR)
+end
+
+log("Awaiting file transfer... Press Q to exit.")
+
+while true do
+    local event, arg = os.pullEvent()
+
+    if event == "file_transfer" then
+        local files = arg.getFiles()
+
+        if #files == 0 then
+            err("No files received")
+        else
+            log(("Received %d file(s)"):format(#files))
+            if USE_INTERNAL_IMPORT then
+                internalImport(files, TARGET_DIR)
+            else
+                fallbackImport(files, TARGET_DIR)
+            end
+        end
+    elseif event == "key" and arg == keys.q then
+        log("Terminating listener.")
+        break
+    elseif event == "terminate" then
+        err("Force terminated.")
+        break
+    end
+end
