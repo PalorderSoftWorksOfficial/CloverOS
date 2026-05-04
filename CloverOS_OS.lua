@@ -185,6 +185,9 @@ local function simulateLoading()
   os.sleep(0.5)
 end
 
+local completionInfo = {}
+local aliases = {}
+
 local function listCommands()
   local commands = {}
   local paths = {
@@ -192,21 +195,156 @@ local function listCommands()
     "/bin",
     "/rom/programs"
   }
+
   for _, path in ipairs(paths) do
     if fs.exists(path) and fs.isDir(path) then
       for _, file in ipairs(fs.list(path)) do
         local full = fs.combine(path, file)
         if fs.exists(full) and not fs.isDir(full) then
-          local isExecutable = file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") or file:match("%.[dD][lL][lL]$") or not file:match("%.")
+          local isExecutable = file:match("%.[lL][uU][aA]$")
+              or file:match("%.[eE][xX][eE]$")
+              or file:match("%.[dD][lL][lL]$")
+              or not file:match("%.")
+
           if isExecutable then
             local name = file:gsub("%..+$", "")
-          commands[name] = full
+            commands[name] = full
           end
         end
       end
     end
   end
+
   return commands
+end
+
+local function tokenize(line)
+  local words = {}
+  local word = {}
+  local quoted = false
+  local escape = false
+
+  for i = 1, #line do
+    local c = line:sub(i, i)
+
+    if escape then
+      word[#word + 1] = c
+      escape = false
+    elseif c == "\\" then
+      escape = true
+    elseif c == '"' then
+      quoted = not quoted
+    elseif not quoted and c:match("%s") then
+      if #word > 0 then
+        words[#words + 1] = table.concat(word)
+        word = {}
+      end
+    else
+      word[#word + 1] = c
+    end
+  end
+
+  if #word > 0 then
+    words[#words + 1] = table.concat(word)
+  end
+
+  return words
+end
+
+local function startsWith(value, prefix)
+  return value:sub(1, #prefix) == prefix
+end
+
+local function resolveAlias(name)
+  return aliases[name] or name
+end
+
+local function registerCompletion(command, fn)
+  completionInfo[command] = fn
+end
+
+local function completePrograms(prefix)
+  local commands = listCommands()
+  local results = {}
+  local seen = {}
+
+  for aliasName in pairs(aliases) do
+    if startsWith(aliasName, prefix) then
+      local suffix = aliasName:sub(#prefix + 1)
+      if not seen[suffix] then
+        seen[suffix] = true
+        results[#results + 1] = suffix
+      end
+    end
+  end
+
+  for name in pairs(commands) do
+    if startsWith(name, prefix) then
+      local suffix = name:sub(#prefix + 1)
+      if not seen[suffix] then
+        seen[suffix] = true
+        results[#results + 1] = suffix
+      end
+    end
+  end
+
+  table.sort(results)
+  return results
+end
+
+local function completeLine(line)
+  if not line or line == "" then
+    return completePrograms("")
+  end
+
+  local words = tokenize(line)
+  local endsWithSpace = line:sub(-1) == " "
+  local index = #words
+
+  if endsWithSpace then
+    index = index + 1
+  end
+
+  if index <= 1 then
+    local part = words[1] or ""
+    local resolved = resolveAlias(part)
+
+    if completionInfo[resolved] then
+      return { " " }
+    end
+
+    local results = completePrograms(part)
+    for i = 1, #results do
+      local candidate = part .. results[i]
+      local candidateResolved = resolveAlias(candidate)
+      if completionInfo[candidateResolved] then
+        results[i] = results[i] .. " "
+      end
+    end
+    return results
+  end
+
+  local commandName = resolveAlias(words[1] or "")
+  local fn = completionInfo[commandName]
+  if fn then
+    local current = words[index] or ""
+    local previous = {}
+    for i = 1, index - 1 do
+      previous[i] = words[i]
+    end
+    return fn(index - 1, current, previous)
+  end
+
+  return nil
+end
+
+local function readLine(prompt, history)
+  if type(read) == "function" then
+    write(prompt)
+    return read(nil, history, completeLine)
+  end
+
+  return readInput(prompt)
 end
 
 local function shellBuiltinHelp()
@@ -216,8 +354,15 @@ local function shellBuiltinHelp()
   Terminal.print("  shutdown")
   Terminal.print("  installer")
   Terminal.print("  run <command>")
+
   local commands = listCommands()
+  local names = {}
   for name in pairs(commands) do
+    names[#names + 1] = name
+  end
+  table.sort(names)
+
+  for _, name in ipairs(names) do
     Terminal.print("  " .. name)
   end
 end
@@ -227,70 +372,255 @@ local function shellBuiltinSettings()
   Terminal.print("Author: CloverOS Team")
 end
 
+registerCompletion("help", function()
+  local items = { "exit", "shutdown", "installer", "run" }
+  local commands = listCommands()
+  for name in pairs(commands) do
+    items[#items + 1] = name
+  end
+  table.sort(items)
+  return items
+end)
+
+registerCompletion("run", function(index, current)
+  if index ~= 1 then
+    return nil
+  end
+
+  local commands = listCommands()
+  local items = {}
+  local seen = {}
+
+  for name in pairs(commands) do
+    if startsWith(name, current) and not seen[name] then
+      seen[name] = true
+      items[#items + 1] = name:sub(#current + 1)
+    end
+  end
+
+  for aliasName in pairs(aliases) do
+    if startsWith(aliasName, current) and not seen[aliasName] then
+      seen[aliasName] = true
+      items[#items + 1] = aliasName:sub(#current + 1)
+    end
+  end
+
+  table.sort(items)
+  return items
+end)
+
+local builtins = {
+  help = shellBuiltinHelp,
+  settings = shellBuiltinSettings,
+  exit = function()
+    return true
+  end,
+  shutdown = function()
+    os.shutdown()
+  end,
+  installer = function()
+    if _G.CloverOS and type(_G.CloverOS.runInstaller) == "function" then
+      _G.CloverOS.runInstaller()
+    else
+      shell.run("wget", "run", "https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
+    end
+  end,
+  run = function(...)
+    local args = { ... }
+    if #args == 0 then
+      Terminal.print("Usage: run <command>")
+      return
+    end
+
+    local target = table.remove(args, 1)
+    local commands = listCommands()
+    local targetPath = commands[target] or commands[aliases[target] or ""]
+    if not targetPath then
+      Terminal.print("Unknown program: " .. tostring(target))
+      return
+    end
+
+    shell.run(targetPath, table.unpack(args))
+  end
+}
+
 local function runShell()
+  autoRegisterCompletions()
   Terminal.clear()
   Terminal.print("Welcome to CloverOS Shell. Type help for available commands.")
 
+  local history = {}
+
   while true do
-    local line = readInput("root@CloverOS:~$ ")
+    local line = readLine("root@CloverOS:~$ ", history)
     local commandLine = line and line:match("^%s*(.-)%s*$") or ""
-    if commandLine == "" then
-      goto continue
-    end
 
-    local parts = {}
-    for word in commandLine:gmatch("%S+") do
-      table.insert(parts, word)
-    end
+    if commandLine ~= "" then
+      if history[#history] ~= commandLine then
+        history[#history + 1] = commandLine
+      end
 
-    local command = table.remove(parts, 1)
-    local commands = listCommands()
-    local builtins = {
-      help = shellBuiltinHelp,
-      exit = function() return true end,
-      shutdown = function() os.shutdown() end,
-      installer = function()
-        if _G.CloverOS and type(_G.CloverOS.runInstaller) == "function" then
-          _G.CloverOS.runInstaller()
-        else
-          shell.run("wget", "run", "https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
-        end
-      end,
-      run = function(...)
-        if #parts == 0 then
-          Terminal.print("Usage: run <command>")
+      local parts = tokenize(commandLine)
+      local command = table.remove(parts, 1)
+      local commands = listCommands()
+
+      if builtins[command] then
+        local ok, err = pcall(builtins[command], table.unpack(parts))
+        if not ok then
+          Terminal.print("Error: " .. tostring(err))
+        elseif command == "exit" then
           return
         end
-        local target = table.remove(parts, 1)
-        local targetPath = commands[target]
-        if not targetPath then
-          Terminal.print("Unknown program: " .. target)
-          return
+      elseif commands[resolveAlias(command)] then
+        local ok, err = pcall(shell.run, commands[resolveAlias(command)], table.unpack(parts))
+        if not ok then
+          Terminal.print("Error: " .. tostring(err))
         end
-        shell.run(targetPath, table.unpack(parts))
+      else
+        Terminal.print("Command not found: " .. tostring(command))
       end
-    }
+    end
+  end
+end
+local commandMeta = {}
 
-    if builtins[command] then
-      local ok, err = pcall(builtins[command], table.unpack(parts))
-      if not ok then
-        Terminal.print("Error: " .. tostring(err))
-      elseif builtins[command] == builtins.exit then
-        return
-      end
-    elseif commands[command] then
-      local ok, err = pcall(shell.run, commands[command], table.unpack(parts))
-      if not ok then
-        Terminal.print("Error: " .. tostring(err))
-      end
-    else
-      Terminal.print("Command not found: " .. tostring(command))
+local function trim(s)
+  return (s:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function startsWith(s, prefix)
+  return s:sub(1, #prefix) == prefix
+end
+
+local function readCommandHeader(path, maxLines)
+  local f = fs.open(path, "r")
+  if not f then
+    return nil
+  end
+
+  local lines = {}
+  for _ = 1, maxLines do
+    local line = f.readLine()
+    if not line then break end
+    lines[#lines + 1] = line
+    if not startsWith(trim(line), "--") then
+      break
+    end
+  end
+
+  f.close()
+  return lines
+end
+
+local function parseCommandMeta(path)
+  local header = readCommandHeader(path, 40)
+  if not header then
+    return nil
+  end
+
+  local meta = {
+    usage = nil,
+    completes = {},
+  }
+
+  for _, line in ipairs(header) do
+    local usage = line:match("^%-%-%s*@usage%s+(.+)$")
+    if usage then
+      meta.usage = trim(usage)
     end
 
-    ::continue::
+    local index, kind, extra = line:match("^%-%-%s*@complete%s+(%d+)%s+(%S+)%s*(.*)$")
+    if index and kind then
+      meta.completes[tonumber(index)] = {
+        kind = kind,
+        extra = trim(extra or ""),
+      }
+    end
+  end
+
+  return meta
+end
+
+local function scanCommandMetadata()
+  local commands = listCommands()
+  for name, path in pairs(commands) do
+    local meta = parseCommandMeta(path)
+    if meta then
+      commandMeta[name] = meta
+    end
   end
 end
 
+local function completeFiles(prefix)
+  local results = {}
+  local seen = {}
+  for _, path in ipairs({ DISK_ROOT .. "/bin", "/bin" }) do
+    if fs.exists(path) and fs.isDir(path) then
+      for _, file in ipairs(fs.list(path)) do
+        if startsWith(file, prefix) and not seen[file] then
+          seen[file] = true
+          results[#results + 1] = file:sub(#prefix + 1)
+        end
+      end
+    end
+  end
+  table.sort(results)
+  return results
+end
+
+local function completeFromMeta(commandName, index, current, previous)
+  local meta = commandMeta[commandName]
+  if not meta then
+    return nil
+  end
+
+  local rule = meta.completes[index]
+  if not rule then
+    return nil
+  end
+
+  if rule.kind == "file" then
+    return completeFiles(current)
+  end
+
+  if rule.kind == "command" then
+    local cmds = listCommands()
+    local out = {}
+    for name in pairs(cmds) do
+      if startsWith(name, current) then
+        out[#out + 1] = name:sub(#current + 1)
+      end
+    end
+    table.sort(out)
+    return out
+  end
+
+  if rule.kind == "list" and rule.extra ~= "" then
+    local out = {}
+    for item in rule.extra:gmatch("[^,%s]+") do
+      if startsWith(item, current) then
+        out[#out + 1] = item:sub(#current + 1)
+      end
+    end
+    table.sort(out)
+    return out
+  end
+
+  return nil
+end
+
+local function autoRegisterCompletions()
+  scanCommandMetadata()
+
+  local commands = listCommands()
+  for name in pairs(commands) do
+    if commandMeta[name] then
+      registerCompletion(name, function(index, current, previous)
+        return completeFromMeta(name, index, current, previous)
+      end)
+    end
+  end
+end
 local function getCustomApps()
   local appList = {}
   local appDirs = { ROOT .. "/apps", "/apps" }
@@ -388,21 +718,27 @@ end
 
 local function desktop()
   local options = {
-    { name = "Terminal", run = runShell },
+    { name = "Terminal",     run = runShell },
     { name = "File Manager", run = fileManager },
-    { name = "About", run = function()
+    {
+      name = "About",
+      run = function()
         Terminal.clear()
         Terminal.print("CloverOS v1.0.0")
         Terminal.print("Author: CloverOS Team")
         Terminal.print("")
         Terminal.print("Press Enter to return.")
         readInput("")
-      end },
-    { name = "Shutdown", run = function()
+      end
+    },
+    {
+      name = "Shutdown",
+      run = function()
         Terminal.print("Shutting down...")
         os.sleep(1)
         os.shutdown()
-      end }
+      end
+    }
   }
 
   while true do
@@ -466,5 +802,5 @@ end
 simulateLoading()
 login()
 desktop()
-term.setCursorBlink(true)
 
+term.setCursorBlink(true)
