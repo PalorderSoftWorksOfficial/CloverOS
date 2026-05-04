@@ -1,3 +1,6 @@
+-- @usage apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package|all>
+-- @complete 1 choice install remove list-installed list-available rebuild scan fetch
+-- @complete 2 package all
 local args = { ... }
 local cmd = args[1]
 local pkg = args[2]
