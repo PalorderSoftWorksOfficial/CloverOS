@@ -443,45 +443,6 @@ local builtins = {
     shell.run(targetPath, table.unpack(args))
   end
 }
-
-local function runShell()
-  autoRegisterCompletions()
-  Terminal.clear()
-  Terminal.print("Welcome to CloverOS Shell. Type help for available commands.")
-
-  local history = {}
-
-  while true do
-    local line = readLine("root@CloverOS:~$ ", history)
-    local commandLine = line and line:match("^%s*(.-)%s*$") or ""
-
-    if commandLine ~= "" then
-      if history[#history] ~= commandLine then
-        history[#history + 1] = commandLine
-      end
-
-      local parts = tokenize(commandLine)
-      local command = table.remove(parts, 1)
-      local commands = listCommands()
-
-      if builtins[command] then
-        local ok, err = pcall(builtins[command], table.unpack(parts))
-        if not ok then
-          Terminal.print("Error: " .. tostring(err))
-        elseif command == "exit" then
-          return
-        end
-      elseif commands[resolveAlias(command)] then
-        local ok, err = pcall(shell.run, commands[resolveAlias(command)], table.unpack(parts))
-        if not ok then
-          Terminal.print("Error: " .. tostring(err))
-        end
-      else
-        Terminal.print("Command not found: " .. tostring(command))
-      end
-    end
-  end
-end
 local commandMeta = {}
 
 local function trim(s)
@@ -618,6 +579,44 @@ local function autoRegisterCompletions()
       registerCompletion(name, function(index, current, previous)
         return completeFromMeta(name, index, current, previous)
       end)
+    end
+  end
+end
+local function runShell()
+  autoRegisterCompletions()
+  Terminal.clear()
+  Terminal.print("Welcome to CloverOS Shell. Type help for available commands.")
+
+  local history = {}
+
+  while true do
+    local line = readLine("root@CloverOS:~$ ", history)
+    local commandLine = line and line:match("^%s*(.-)%s*$") or ""
+
+    if commandLine ~= "" then
+      if history[#history] ~= commandLine then
+        history[#history + 1] = commandLine
+      end
+
+      local parts = tokenize(commandLine)
+      local command = table.remove(parts, 1)
+      local commands = listCommands()
+
+      if builtins[command] then
+        local ok, err = pcall(builtins[command], table.unpack(parts))
+        if not ok then
+          Terminal.print("Error: " .. tostring(err))
+        elseif command == "exit" then
+          return
+        end
+      elseif commands[resolveAlias(command)] then
+        local ok, err = pcall(shell.run, commands[resolveAlias(command)], table.unpack(parts))
+        if not ok then
+          Terminal.print("Error: " .. tostring(err))
+        end
+      else
+        Terminal.print("Command not found: " .. tostring(command))
+      end
     end
   end
 end
