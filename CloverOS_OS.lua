@@ -192,8 +192,7 @@ local function listCommands()
   local commands = {}
   local paths = {
     ROOT .. "/bin",
-    "/bin",
-    "/rom/programs"
+    "/bin"
   }
 
   for _, path in ipairs(paths) do
