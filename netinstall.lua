@@ -60,13 +60,20 @@ menuOptions("Select your OS environment", { "CC:Tweaked", "CraftOS" }, {
 
 if envType == "craftos" then
   print("Setting up CraftOS environment...")
+
   pcall(function()
     shell.run("attach left drive")
     shell.run("attach right speaker")
+    shell.run("attach back monitor")
+    if mounter and mounter.mount then
+      mounter.mount("/CloverOS_Disks/0", "C:\\CloverOS_Disks\\0")
+    end
+
     if disk and disk.insertDisk then
       disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
     end
   end)
+
   print("Environment setup complete.")
   sleep(5)
 end
@@ -131,11 +138,11 @@ local edition = nil
 menuOptions("Select CloverOS edition",
   { "default (Recommended)", "soft (Recommended for low storage installs or lightweight.)",
     "turtle (Recommended for turtles)", "emulator (Recommended edition for Emulated CC: Tweaked computers)" }, {
-  function() edition = "default" end,
-  function() edition = "soft" end,
-  function() edition = "turtle" end,
-  function() edition = "emulator" end
-})
+    function() edition = "default" end,
+    function() edition = "soft" end,
+    function() edition = "turtle" end,
+    function() edition = "emulator" end
+  })
 
 local installMode = nil
 menuOptions("Installation Mode", { "Install", "Reinstall" }, {
@@ -174,7 +181,6 @@ if edition == "default" then
   settings.set("emulator", false)
   settings.set("turtle", false)
 elseif edition == "soft" then
-  table.insert(fileList, "boot/pxboot.lua")
   table.insert(fileList, "boot/kernel.lua")
   table.insert(fileList, "CloverOS_OS.lua")
   for i, v in ipairs(fileList) do
@@ -203,7 +209,6 @@ elseif edition == "soft" then
   settings.set("default", false)
 elseif edition == "turtle" then
   table.insert(fileList, "CloverOS_OS.lua")
-  table.insert(fileList, "boot/pxboot.lua")
   table.insert(fileList, "boot/kernel.lua")
   for i, v in ipairs(fileList) do
     if v == "netinstall.lua" then
@@ -331,7 +336,7 @@ while running > 0 do
 end
 
 print("CloverOS " ..
-(installMode == "reinstall" and "reinstalled" or "installed") .. " successfully to " .. selectedDisk.path)
+  (installMode == "reinstall" and "reinstalled" or "installed") .. " successfully to " .. selectedDisk.path)
 sleep(1)
 
 local minuxChoice = nil
@@ -349,4 +354,3 @@ end
 print("Installation complete.")
 sleep(2)
 os.reboot()
-
