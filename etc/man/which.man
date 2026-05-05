@@ -1,0 +1,10 @@
+WHICH.EXE - locate command
+Usage: which <command>
+
+Shows the path of a command.
+
+Examples:
+  which ls
+
+Notes:
+- Indicates if a command is builtin.

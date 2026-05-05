@@ -1,0 +1,8 @@
+MV.EXE - move or rename files
+Usage: mv <source> <destination>
+
+Moves or renames a file or directory.
+
+Examples:
+  mv a.txt b.txt
+  mv file.txt /folder/file.txt

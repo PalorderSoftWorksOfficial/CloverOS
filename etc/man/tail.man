@@ -1,0 +1,11 @@
+TAIL.EXE - show end of file
+Usage: tail <file> [lines]
+
+Displays the last lines of a file.
+
+Examples:
+  tail file.txt
+  tail file.txt 20
+
+Notes:
+- Default is 10 lines.

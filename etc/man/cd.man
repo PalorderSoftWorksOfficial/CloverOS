@@ -4,10 +4,10 @@ Usage: cd <path>
 Changes the current working directory.
 
 Examples:
-  cd /etc
+  cd /rom
   cd ..
   cd /
 
 Notes:
-- Without arguments, prints current directory.
-- Paths are relative to current location unless prefixed with '/'.
+- Without arguments, resets to system root.
+- Paths may be relative or absolute.

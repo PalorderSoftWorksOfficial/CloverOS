@@ -1,0 +1,4 @@
+HISTORY.EXE - show command history
+Usage: history
+
+Displays previously executed commands.

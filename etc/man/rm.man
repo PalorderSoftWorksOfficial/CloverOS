@@ -1,0 +1,11 @@
+RM.EXE - remove file or directory
+Usage: rm <path>
+
+Deletes a file or directory.
+
+Examples:
+  rm file.txt
+  rm folder
+
+Warning:
+- This action is irreversible.

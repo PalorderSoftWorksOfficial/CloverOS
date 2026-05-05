@@ -1,0 +1,7 @@
+ALIAS.EXE - create command alias
+Usage: alias <name> <command>
+
+Creates a shortcut for a command.
+
+Examples:
+  alias ll ls

@@ -1,0 +1,4 @@
+WHOAMI.EXE - show current user
+Usage: whoami
+
+Displays the current user name.

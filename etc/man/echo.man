@@ -1,0 +1,7 @@
+ECHO.EXE - print text
+Usage: echo <text>
+
+Prints the given text to the terminal.
+
+Examples:
+  echo Hello world

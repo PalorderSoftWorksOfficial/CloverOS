@@ -1,0 +1,4 @@
+HOSTNAME.EXE - show system name
+Usage: hostname
+
+Displays the system hostname.

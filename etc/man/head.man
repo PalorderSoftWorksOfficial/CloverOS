@@ -1,0 +1,11 @@
+HEAD.EXE - show beginning of file
+Usage: head <file> [lines]
+
+Displays the first lines of a file.
+
+Examples:
+  head file.txt
+  head file.txt 5
+
+Notes:
+- Default is 10 lines.

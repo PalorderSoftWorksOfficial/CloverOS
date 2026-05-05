@@ -1,0 +1,7 @@
+UNALIAS.EXE - remove alias
+Usage: unalias <name>
+
+Removes a previously defined alias.
+
+Examples:
+  unalias ll

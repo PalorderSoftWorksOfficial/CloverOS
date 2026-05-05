@@ -1,0 +1,8 @@
+RUN.EXE - execute program
+Usage: run <command> [args...]
+
+Runs a program from the CloverOS bin directory.
+
+Examples:
+  run ls
+  run myprogram arg1 arg2

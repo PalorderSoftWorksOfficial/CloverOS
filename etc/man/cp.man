@@ -1,0 +1,8 @@
+CP.EXE - copy files
+Usage: cp <source> <destination>
+
+Copies a file or directory.
+
+Examples:
+  cp a.txt b.txt
+  cp file.txt /backup/file.txt

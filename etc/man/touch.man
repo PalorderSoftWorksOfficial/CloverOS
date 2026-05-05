@@ -1,0 +1,7 @@
+TOUCH.EXE - create empty file
+Usage: touch <file>
+
+Creates an empty file if it does not exist.
+
+Examples:
+  touch new.txt

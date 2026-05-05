@@ -1,9 +1,10 @@
-RMDIR.EXE - remove directories
-Usage: rmdir <directory>
+RMDIR.EXE - remove directory
+Usage: rmdir <dir>
 
-Deletes an existing directory and its contents.
-Example: rmdir oldfiles
+Deletes a directory.
+
+Examples:
+  rmdir test
 
 Notes:
-- Removes all files and subfolders inside.
-- Use with caution.
+- Directory must be empty.

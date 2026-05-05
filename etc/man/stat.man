@@ -1,0 +1,13 @@
+STAT.EXE - show file information
+Usage: stat <path>
+
+Displays information about a file or directory.
+
+Examples:
+  stat file.txt
+  stat /rom
+
+Output includes:
+- Path
+- Type (file or directory)
+- Size (files only)

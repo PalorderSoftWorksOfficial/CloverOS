@@ -1,0 +1,7 @@
+PWD.EXE - print working directory
+Usage: pwd
+
+Displays the current working directory.
+
+Examples:
+  pwd

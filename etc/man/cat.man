@@ -1,0 +1,11 @@
+CAT.EXE - display file contents
+Usage: cat <file> [file...]
+
+Prints the contents of one or more files.
+
+Examples:
+  cat file.txt
+  cat a.txt b.txt
+
+Notes:
+- Cannot read directories.

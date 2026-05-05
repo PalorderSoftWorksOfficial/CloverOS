@@ -1,0 +1,4 @@
+TIME.EXE - show current time
+Usage: time
+
+Displays the current system time.

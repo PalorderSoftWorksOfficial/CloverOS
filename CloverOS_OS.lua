@@ -190,10 +190,12 @@ local aliases = {}
 
 local function listCommands()
   local commands = {}
-  local paths = {
-    ROOT .. "/bin",
-    "/bin"
-  }
+  local root = DISK_ROOT()
+  local paths = { "/bin" }
+
+  if root then
+    paths[#paths + 1] = root .. "/bin"
+  end
 
   for _, path in ipairs(paths) do
     if fs.exists(path) and fs.isDir(path) then
@@ -407,16 +409,131 @@ registerCompletion("run", function(index, current)
   table.sort(items)
   return items
 end)
+local commandHistory = {}
+local shellEnv = {}
+local function shellUsage(cmd, usage)
+  Terminal.print("Usage: " .. cmd .. (usage and (" " .. usage) or ""))
+end
+
+local function resolvePath(path)
+  if not path or path == "" then
+    return shell.dir()
+  end
+  return shell.resolve(path)
+end
+
+local function printFile(path)
+  local h = fs.open(path, "r")
+  if not h then
+    Terminal.print("Unable to open file: " .. tostring(path))
+    return
+  end
+
+  while true do
+    local line = h.readLine()
+    if line == nil then break end
+    Terminal.print(line)
+  end
+
+  h.close()
+end
+
+local function countLines(path)
+  local h = fs.open(path, "r")
+  if not h then
+    return nil
+  end
+
+  local n = 0
+  while h.readLine() do
+    n = n + 1
+  end
+  h.close()
+  return n
+end
+
+local function tailFile(path, n)
+  n = tonumber(n) or 10
+  local h = fs.open(path, "r")
+  if not h then
+    Terminal.print("Unable to open file: " .. tostring(path))
+    return
+  end
+
+  local lines = {}
+  while true do
+    local line = h.readLine()
+    if line == nil then break end
+    lines[#lines + 1] = line
+  end
+  h.close()
+
+  local start = math.max(1, #lines - n + 1)
+  for i = start, #lines do
+    Terminal.print(lines[i])
+  end
+end
 
 local builtins = {
-  help = shellBuiltinHelp,
-  settings = shellBuiltinSettings,
+  help = function()
+    Terminal.print("Available commands:")
+    Terminal.print("  help")
+    Terminal.print("  man <command>")
+    Terminal.print("  exit")
+    Terminal.print("  shutdown")
+    Terminal.print("  reboot")
+    Terminal.print("  installer")
+    Terminal.print("  run <command>")
+    Terminal.print("  cd <dir>")
+    Terminal.print("  pwd")
+    Terminal.print("  clear")
+    Terminal.print("  echo <text>")
+    Terminal.print("  sleep <seconds>")
+    Terminal.print("  history")
+    Terminal.print("  alias [name value]")
+    Terminal.print("  unalias <name>")
+    Terminal.print("  which <command>")
+    Terminal.print("  touch <file>")
+    Terminal.print("  cat <file>")
+    Terminal.print("  head <file> [n]")
+    Terminal.print("  tail <file> [n]")
+    Terminal.print("  mkdir <dir>")
+    Terminal.print("  rmdir <dir>")
+    Terminal.print("  rm <path>")
+    Terminal.print("  cp <src> <dst>")
+    Terminal.print("  mv <src> <dst>")
+    Terminal.print("  stat <path>")
+    Terminal.print("  date")
+    Terminal.print("  time")
+    Terminal.print("  whoami")
+    Terminal.print("  hostname")
+
+    local commands = listCommands()
+    local names = {}
+    for name in pairs(commands) do
+      names[#names + 1] = name
+    end
+    table.sort(names)
+
+    Terminal.print("")
+    Terminal.print("Programs:")
+    for _, name in ipairs(names) do
+      Terminal.print("  " .. name)
+    end
+  end,
+
   exit = function()
     return true
   end,
+
   shutdown = function()
     os.shutdown()
   end,
+
+  reboot = function()
+    os.reboot()
+  end,
+
   installer = function()
     if _G.CloverOS and type(_G.CloverOS.runInstaller) == "function" then
       _G.CloverOS.runInstaller()
@@ -424,6 +541,7 @@ local builtins = {
       shell.run("wget", "run", "https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
     end
   end,
+
   run = function(...)
     local args = { ... }
     if #args == 0 then
@@ -433,19 +551,294 @@ local builtins = {
 
     local target = table.remove(args, 1)
     local commands = listCommands()
-    local targetPath = commands[target] or commands[aliases[target] or ""]
+    local targetPath = commands[resolveAlias(target)]
     if not targetPath then
       Terminal.print("Unknown program: " .. tostring(target))
       return
     end
 
     shell.run(targetPath, table.unpack(args))
-  end
+  end,
+
+  cd = function(path)
+    if not path or path == "" then
+      shell.setDir(ROOT)
+      return
+    end
+
+    local target = resolvePath(path)
+    if fs.isDir(target) then
+      shell.setDir(target)
+    else
+      Terminal.print("Not a directory: " .. tostring(path))
+    end
+  end,
+
+  pwd = function()
+    Terminal.print(shell.dir())
+  end,
+
+  clear = function()
+    Terminal.clear()
+  end,
+
+  echo = function(...)
+    Terminal.print(table.concat({ ... }, " "))
+  end,
+
+  sleep = function(sec)
+    sec = tonumber(sec) or 0
+    if sec > 0 then
+      os.sleep(sec)
+    end
+  end,
+
+  history = function()
+    for i, line in ipairs(commandHistory) do
+      Terminal.print(string.format("%4d  %s", i, line))
+    end
+  end,
+
+  alias = function(name, ...)
+    if not name or name == "" then
+      local keys = {}
+      for k in pairs(aliases) do
+        keys[#keys + 1] = k
+      end
+      table.sort(keys)
+      for _, k in ipairs(keys) do
+        Terminal.print(k .. "=" .. aliases[k])
+      end
+      return
+    end
+
+    local value = table.concat({ ... }, " ")
+    if value == "" then
+      Terminal.print("Usage: alias <name> <command>")
+      return
+    end
+
+    aliases[name] = value
+  end,
+
+  unalias = function(name)
+    if not name or name == "" then
+      Terminal.print("Usage: unalias <name>")
+      return
+    end
+    aliases[name] = nil
+  end,
+
+  which = function(cmd)
+    if not cmd or cmd == "" then
+      Terminal.print("Usage: which <command>")
+      return
+    end
+
+    local resolved = resolveAlias(cmd)
+    local commands = listCommands()
+    local path = commands[resolved]
+
+    if builtins[resolved] then
+      Terminal.print(resolved .. " is a builtin")
+    elseif path then
+      Terminal.print(path)
+    else
+      Terminal.print("Not found")
+    end
+  end,
+
+  touch = function(path)
+    if not path or path == "" then
+      Terminal.print("Usage: touch <file>")
+      return
+    end
+
+    local target = resolvePath(path)
+    if fs.exists(target) then
+      return
+    end
+
+    local h = fs.open(target, "w")
+    if h then
+      h.close()
+    end
+  end,
+
+  cat = function(...)
+    local args = { ... }
+    if #args == 0 then
+      Terminal.print("Usage: cat <file> [file...]")
+      return
+    end
+
+    for _, p in ipairs(args) do
+      local target = resolvePath(p)
+      if not fs.exists(target) then
+        Terminal.print("File not found: " .. tostring(p))
+      elseif fs.isDir(target) then
+        Terminal.print("Is a directory: " .. tostring(p))
+      else
+        printFile(target)
+      end
+    end
+  end,
+
+  head = function(path, n)
+    if not path or path == "" then
+      Terminal.print("Usage: head <file> [n]")
+      return
+    end
+
+    local target = resolvePath(path)
+    local count = tonumber(n) or 10
+    local h = fs.open(target, "r")
+    if not h then
+      Terminal.print("Unable to open file: " .. tostring(path))
+      return
+    end
+
+    local i = 0
+    while i < count do
+      local line = h.readLine()
+      if not line then break end
+      Terminal.print(line)
+      i = i + 1
+    end
+    h.close()
+  end,
+
+  tail = function(path, n)
+    if not path or path == "" then
+      Terminal.print("Usage: tail <file> [n]")
+      return
+    end
+
+    local target = resolvePath(path)
+    tailFile(target, n)
+  end,
+
+  mkdir = function(path)
+    if not path or path == "" then
+      Terminal.print("Usage: mkdir <dir>")
+      return
+    end
+
+    local target = resolvePath(path)
+    if fs.exists(target) then
+      Terminal.print("Path already exists: " .. tostring(path))
+      return
+    end
+
+    fs.makeDir(target)
+  end,
+
+  rmdir = function(path)
+    if not path or path == "" then
+      Terminal.print("Usage: rmdir <dir>")
+      return
+    end
+
+    local target = resolvePath(path)
+    if not fs.exists(target) then
+      Terminal.print("Not found: " .. tostring(path))
+      return
+    end
+
+    if not fs.isDir(target) then
+      Terminal.print("Not a directory: " .. tostring(path))
+      return
+    end
+
+    fs.delete(target)
+  end,
+
+  rm = function(path)
+    if not path or path == "" then
+      Terminal.print("Usage: rm <path>")
+      return
+    end
+
+    local target = resolvePath(path)
+    if not fs.exists(target) then
+      Terminal.print("Not found: " .. tostring(path))
+      return
+    end
+
+    fs.delete(target)
+  end,
+
+  cp = function(src, dst)
+    if not src or not dst then
+      Terminal.print("Usage: cp <src> <dst>")
+      return
+    end
+
+    local a = resolvePath(src)
+    local b = resolvePath(dst)
+    if not fs.exists(a) then
+      Terminal.print("Source not found: " .. tostring(src))
+      return
+    end
+
+    fs.copy(a, b)
+  end,
+
+  mv = function(src, dst)
+    if not src or not dst then
+      Terminal.print("Usage: mv <src> <dst>")
+      return
+    end
+
+    local a = resolvePath(src)
+    local b = resolvePath(dst)
+    if not fs.exists(a) then
+      Terminal.print("Source not found: " .. tostring(src))
+      return
+    end
+
+    fs.move(a, b)
+  end,
+
+  stat = function(path)
+    if not path or path == "" then
+      Terminal.print("Usage: stat <path>")
+      return
+    end
+
+    local target = resolvePath(path)
+    if not fs.exists(target) then
+      Terminal.print("Not found: " .. tostring(path))
+      return
+    end
+
+    Terminal.print("Path: " .. target)
+    Terminal.print("Type: " .. (fs.isDir(target) and "directory" or "file"))
+    if not fs.isDir(target) then
+      Terminal.print("Size: " .. tostring(fs.getSize(target)))
+    end
+  end,
+
+  date = function()
+    Terminal.print(textutils.formatTime(os.time(), true))
+  end,
+
+  time = function()
+    Terminal.print(textutils.formatTime(os.time(), true))
+  end,
+
+  whoami = function()
+    Terminal.print("root")
+  end,
+
+  hostname = function()
+    Terminal.print("CloverOS")
+  end,
 }
 local function DISK_ROOT()
   local function isCloverRoot(root)
     return fs.exists(root .. "/CloverOS_API.lua")
-       and fs.exists(root .. "/boot/kernel.lua")
+        and fs.exists(root .. "/boot/kernel.lua")
   end
 
   if isCloverRoot("") or isCloverRoot("/") then
@@ -532,7 +925,14 @@ end
 local function completeFiles(prefix)
   local results = {}
   local seen = {}
-  for _, path in ipairs({ DISK_ROOT .. "/bin", "/bin" }) do
+
+  local paths = { "/bin" }
+  local root = DISK_ROOT()
+  if root then
+    paths[#paths + 1] = root .. "/bin"
+  end
+
+  for _, path in ipairs(paths) do
     if fs.exists(path) and fs.isDir(path) then
       for _, file in ipairs(fs.list(path)) do
         if startsWith(file, prefix) and not seen[file] then
@@ -542,6 +942,7 @@ local function completeFiles(prefix)
       end
     end
   end
+
   table.sort(results)
   return results
 end
@@ -599,6 +1000,31 @@ local function autoRegisterCompletions()
     end
   end
 end
+local function formatPrompt()
+  local dir = shell.dir()
+
+  if dir == "" or dir == "/" then
+    return "root@CloverOS:~$ "
+  end
+
+  local root = ROOT
+  if root == "/" then
+    return "root@CloverOS:~" .. dir .. "$ "
+  end
+
+  if dir:sub(1, #root) == root then
+    local rel = dir:sub(#root + 1)
+    if rel == "" then
+      rel = "/"
+    end
+    if rel:sub(1, 1) ~= "/" then
+      rel = "/" .. rel
+    end
+    return "root@CloverOS:~" .. rel .. "$ "
+  end
+
+  return "root@CloverOS:" .. dir .. "$ "
+end
 local function runShell()
   autoRegisterCompletions()
   Terminal.clear()
@@ -607,7 +1033,7 @@ local function runShell()
   local history = {}
 
   while true do
-    local line = readLine("root@CloverOS:~$ ", history)
+    local line = readLine(formatPrompt(), history)
     local commandLine = line and line:match("^%s*(.-)%s*$") or ""
 
     if commandLine ~= "" then

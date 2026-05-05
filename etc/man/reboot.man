@@ -1,0 +1,4 @@
+REBOOT.EXE - restart system
+Usage: reboot
+
+Reboots the computer.

@@ -1,0 +1,7 @@
+SLEEP.EXE - delay execution
+Usage: sleep <seconds>
+
+Pauses execution for a number of seconds.
+
+Examples:
+  sleep 2

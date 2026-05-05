@@ -1,0 +1,4 @@
+CLEAR.EXE - clear screen
+Usage: clear
+
+Clears the terminal display.
