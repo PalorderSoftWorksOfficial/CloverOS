@@ -204,6 +204,7 @@ local function DISK_ROOT()
 end
 local completionInfo = {}
 local aliases = {}
+local shellEnv = {}
 
 local function listCommands()
   local commands = {}
@@ -241,6 +242,7 @@ local function tokenize(line)
   local words = {}
   local word = {}
   local quoted = false
+  local singleQuoted = false
   local escape = false
 
   for i = 1, #line do
@@ -249,10 +251,12 @@ local function tokenize(line)
     if escape then
       word[#word + 1] = c
       escape = false
-    elseif c == "\\" then
+    elseif c == "\\" and not singleQuoted then
       escape = true
-    elseif c == '"' then
+    elseif c == '"' and not singleQuoted then
       quoted = not quoted
+    elseif c == "'" and not quoted then
+      singleQuoted = not singleQuoted
     elseif not quoted and c:match("%s") then
       if #word > 0 then
         words[#words + 1] = table.concat(word)
@@ -268,6 +272,34 @@ local function tokenize(line)
   end
 
   return words
+end
+
+-- Expand environment variables like $VAR and ~
+local function expandToken(tok)
+  if not tok or tok == "" then return tok end
+  -- Tilde expansion at start
+  if tok:sub(1, 1) == "~" then
+    local home = shellEnv.HOME or ROOT or "/"
+    if tok == "~" then
+      tok = home
+    elseif tok:sub(2, 2) == '/' then
+      tok = home .. tok:sub(2)
+    end
+  end
+
+  -- Variable expansion: ${VAR} or $VAR
+  local function repl(var)
+    local name = var:match("^%${(.-)}$") or var:match("^%$(.-)$")
+    if not name then return var end
+    return tostring(shellEnv[name] or "")
+  end
+
+  -- Replace ${VAR}
+  tok = tok:gsub("%${(.-)}", function(n) return tostring(shellEnv[n] or "") end)
+  -- Replace $VAR (simple)
+  tok = tok:gsub("%$(%w+)", function(n) return tostring(shellEnv[n] or "") end)
+
+  return tok
 end
 
 local function startsWith(value, prefix)
@@ -653,18 +685,67 @@ local builtins = {
       Terminal.print("Usage: which <command>")
       return
     end
-
     local resolved = resolveAlias(cmd)
-    local commands = listCommands()
-    local path = commands[resolved]
-
     if builtins[resolved] then
       Terminal.print(resolved .. " is a builtin")
-    elseif path then
-      Terminal.print(path)
-    else
-      Terminal.print("Not found")
+      return
     end
+
+    local commands = listCommands()
+    if commands[resolved] then
+      Terminal.print(commands[resolved])
+      return
+    end
+
+    -- search PATH
+    local pathEnv = shellEnv.PATH or shell.path and shell.path() or "/bin"
+    for p in pathEnv:gmatch("[^:]+") do
+      local candidate = fs.combine(p, resolved)
+      if fs.exists(candidate) and not fs.isDir(candidate) then
+        Terminal.print(candidate)
+        return
+      end
+    end
+
+    Terminal.print("Not found")
+  end,
+
+  export = function(name, value)
+    if not name or name == "" then
+      -- print all
+      for k, v in pairs(shellEnv) do
+        Terminal.print(k .. "=" .. tostring(v))
+      end
+      return
+    end
+    shellEnv[name] = tostring(value or "")
+  end,
+
+  man = function(cmd)
+    if not cmd or cmd == "" then
+      Terminal.print("Usage: man <command>")
+      return
+    end
+    -- check builtin help usage and command metadata
+    if builtins[cmd] and debug and type(builtins[cmd]) == "function" then
+      Terminal.print("No manual entry for builtin: " .. cmd)
+      return
+    end
+    local commands = listCommands()
+    local path = commands[cmd]
+    if not path then
+      Terminal.print("No manual entry for: " .. cmd)
+      return
+    end
+    -- try to read header comments as manual
+    local header = readCommandHeader(path, 200)
+    if header and #header > 0 then
+      for _, line in ipairs(header) do
+        Terminal.print(line)
+      end
+      return
+    end
+    Terminal.print("No manual entry for: " .. cmd)
   end,
 
   touch = function(path)
@@ -1033,6 +1114,12 @@ local function runShell()
 
   local history = {}
 
+  -- initialize basic shell environment
+  shellEnv.PATH = shell.path and shell.path() or "/bin"
+  shellEnv.HOME = "/"
+  shellEnv.PWD = shell.dir()
+  shellEnv["?"] = "0"
+
   while true do
     local line = readLine(formatPrompt(), history)
     local commandLine = line and line:match("^%s*(.-)%s*$") or ""
@@ -1044,12 +1131,18 @@ local function runShell()
 
       local parts = tokenize(commandLine)
       local command = table.remove(parts, 1)
+      -- expand tokens
+      for i = 1, #parts do
+        parts[i] = expandToken(parts[i])
+      end
       local commands = listCommands()
 
       local resolved = resolveAlias(command)
 
       if builtins[resolved] then
         local ok, err = pcall(builtins[resolved], table.unpack(parts))
+        -- update last exit
+        shellEnv["?"] = ok and "0" or "1"
         if not ok then
           Terminal.print("Error: " .. tostring(err))
         elseif resolved == "exit" then
@@ -1057,6 +1150,7 @@ local function runShell()
         end
       elseif commands[resolved] then
         local ok, err = pcall(shell.run, commands[resolved], table.unpack(parts))
+        shellEnv["?"] = ok and "0" or "1"
         if not ok then
           Terminal.print("Error: " .. tostring(err))
         end
@@ -1100,7 +1194,6 @@ local function fileManager()
   if currentDir == "/" then
     currentDir = "/"
   end
-
   while true do
     Terminal.clear()
     Terminal.print("File Manager")

@@ -53,8 +53,41 @@ local function loadFilesystemModule()
   if not fs.exists(fsPath) then
     return nil
   end
+  -- Load the filesystem module in a sandboxed environment that
+  -- exposes this CloverOS API as a global, while falling back to
+  -- the normal globals. This lets the filesystem code reference
+  -- CloverOS_API (or CloverOS) directly.
+  local env = {}
+  -- prefer _G when available, otherwise _ENV; ensure we fall back to existing globals
+  local globals = _G or _ENV
+  setmetatable(env, { __index = globals })
+  env.CloverOS_API = module
+  env.CloverOS = module
 
-  local ok, result = pcall(dofile, fsPath)
+  local fh = fs.open(fsPath, "r")
+  if not fh then
+    return nil
+  end
+  local content = fh.readAll()
+  fh.close()
+
+  local chunk, err
+  -- Lua 5.1 compatibility: use loadstring + setfenv if available
+  if setfenv then
+    chunk, err = loadstring(content, fsPath)
+    if not chunk then
+      return nil
+    end
+    setfenv(chunk, env)
+  else
+    -- Lua 5.2+: load accepts an environment parameter
+    chunk, err = load(content, fsPath, "t", env)
+    if not chunk then
+      return nil
+    end
+  end
+
+  local ok, result = pcall(chunk)
   if ok and type(result) == "table" then
     return result
   end
