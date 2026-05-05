@@ -207,12 +207,13 @@ local aliases = {}
 
 local function listCommands()
   local commands = {}
-  local root = DISK_ROOT()
-  local paths = { "/bin" }
+  local paths = {}
 
-  if root then
-    paths[#paths + 1] = root .. "/bin"
+  if ROOT and ROOT ~= "" then
+    paths[#paths + 1] = ROOT .. "/bin"
   end
+
+  paths[#paths + 1] = "/bin"
 
   for _, path in ipairs(paths) do
     if fs.exists(path) and fs.isDir(path) then
@@ -569,8 +570,9 @@ local builtins = {
     local target = table.remove(args, 1)
     local commands = listCommands()
     local targetPath = commands[resolveAlias(target)]
+
     if not targetPath then
-      Terminal.print("Unknown program: " .. tostring(target))
+      Terminal.print("No such program")
       return
     end
 
@@ -1044,15 +1046,17 @@ local function runShell()
       local command = table.remove(parts, 1)
       local commands = listCommands()
 
-      if builtins[command] then
-        local ok, err = pcall(builtins[command], table.unpack(parts))
+      local resolved = resolveAlias(command)
+
+      if builtins[resolved] then
+        local ok, err = pcall(builtins[resolved], table.unpack(parts))
         if not ok then
           Terminal.print("Error: " .. tostring(err))
-        elseif command == "exit" then
+        elseif resolved == "exit" then
           return
         end
-      elseif commands[resolveAlias(command)] then
-        local ok, err = pcall(shell.run, commands[resolveAlias(command)], table.unpack(parts))
+      elseif commands[resolved] then
+        local ok, err = pcall(shell.run, commands[resolved], table.unpack(parts))
         if not ok then
           Terminal.print("Error: " .. tostring(err))
         end
