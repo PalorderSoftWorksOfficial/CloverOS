@@ -184,7 +184,24 @@ local function simulateLoading()
   end
   os.sleep(0.5)
 end
+local function DISK_ROOT()
+  local function isCloverRoot(root)
+    return fs.exists(root .. "/CloverOS_API.lua")
+        and fs.exists(root .. "/boot/kernel.lua")
+  end
 
+  if isCloverRoot("") or isCloverRoot("/") then
+    return ""
+  end
+  for i = 1, 99 do
+    local root = "/disk" .. (i == 1 and "" or i)
+    if isCloverRoot(root) then
+      return root
+    end
+  end
+
+  return nil
+end
 local completionInfo = {}
 local aliases = {}
 
@@ -835,24 +852,6 @@ local builtins = {
     Terminal.print("CloverOS")
   end,
 }
-local function DISK_ROOT()
-  local function isCloverRoot(root)
-    return fs.exists(root .. "/CloverOS_API.lua")
-        and fs.exists(root .. "/boot/kernel.lua")
-  end
-
-  if isCloverRoot("") or isCloverRoot("/") then
-    return ""
-  end
-  for i = 1, 99 do
-    local root = "/disk" .. (i == 1 and "" or i)
-    if isCloverRoot(root) then
-      return root
-    end
-  end
-
-  return nil
-end
 local commandMeta = {}
 
 local function trim(s)
