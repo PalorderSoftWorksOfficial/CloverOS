@@ -620,6 +620,8 @@ local builtins = {
     local target = resolvePath(path)
     if fs.isDir(target) then
       shell.setDir(target)
+      -- keep shellEnv in sync so child processes see correct PWD
+      shellEnv.PWD = shell.dir()
     else
       Terminal.print("Not a directory: " .. tostring(path))
     end
@@ -1108,57 +1110,598 @@ local function formatPrompt()
   return "root@CloverOS:" .. dir .. "$ "
 end
 local function runShell()
+  -- Inlined CASH shell implementation (adapted/localised).
+  -- This transplants the cash logic directly into runShell so the builtin shell
+  -- behaves exactly like cash without executing the external cash.exe file.
+
   autoRegisterCompletions()
   Terminal.clear()
   Terminal.print("Welcome to CloverOS Shell. Type help for available commands.")
 
+  -- Localise outer shell so we can provide a CASH-like environment without
+  -- mutating globals for the rest of the OS.
+  local topshell = shell
+  local shell = {}
+  local multishell = {}
+  local pack = {}
+  local start_time = os.epoch()
+  local args = {}
+  local running = true
+  local shell_retval = 0
+  local execCommand
+  local shell_env = _ENV
+  local pausedJob
+  local CCKernel2 = kernel and users and kernel.getPID
+  local OpusOS = kernel and kernel.hook
+
+  local function trim(s) return string.match(s, '^()%s*$') and '' or string.match(s, '^%s*(.*%S)') end
+
+  local HOME = "/"
+  local SHELL = topshell and topshell.getRunningProgram and topshell.getRunningProgram() or "/usr/bin/cash"
+  local PATH = topshell and topshell.path and string.gsub(topshell.path(), "%.:", "") or "/bin"
+  local USER = CCKernel2 and users.getShortName(users.getuid()) or "root"
+  local EDITOR = "edit"
+  local OLDPWD = topshell and topshell.dir and topshell.dir() or "/"
+  local PWD = topshell and topshell.dir and topshell.dir() or "/"
+  local SHLVL = SHLVL and SHLVL + 1 or 1
+  local TERM = "craftos"
+
+  local vars = {
+    PS1 = "\\s-\\v\\$ ",
+    PS2 = "> ",
+    IFS = "\n",
+    CASH = SHELL,
+    CASH_VERSION = "0.3",
+    RANDOM = function() return math.random(0, 32767) end,
+    SECONDS = function() return math.floor((os.epoch() - start_time) / 1000) end,
+    HOSTNAME = os.getComputerLabel(),
+    TERMINATE_QUIT = "no",
+    ["*"] = table.concat(args, " "),
+    ["@"] = function() return table.concat(args, " ") end,
+    ["#"] = #args,
+    ["?"] = 0,
+    ["0"] = SHELL,
+    _ = SHELL,
+    ["$"] = CCKernel2 and kernel.getPID() or (OpusOS and kernel.getCurrent() or 0),
+  }
+
+  local aliases_local = aliases or {}
+  local completion = completionInfo or {}
+  local if_table, if_statement = {}, 0
+  local while_table, while_statement = {}, 0
+  local case_table, case_statement = {}, 0
+  local function_name = nil
+  local functions = {}
   local history = {}
+  local historyfile
+  local run_tokens
+  local function_running = false
+  local should_break = false
+  local dirstack = {}
+  local jobs = {}
+  local completed_jobs = {}
 
-  -- initialize basic shell environment
-  shellEnv.PATH = shell.path and shell.path() or "/bin"
-  shellEnv.HOME = "/"
-  shellEnv.PWD = shell.dir()
-  shellEnv["?"] = "0"
-
-  while true do
-    local line = readLine(formatPrompt(), history)
-    local commandLine = line and line:match("^%s*(.-)%s*$") or ""
-
-    if commandLine ~= "" then
-      if history[#history] ~= commandLine then
-        history[#history + 1] = commandLine
+  local builtins_local -- will populate next
+  builtins_local = {
+    [":"] = function() return 0 end,
+    ["."] = function(path)
+      path = fs.exists(path) and path or shell.resolve(path)
+      local file = io.open(path, "r")
+      if not file then return 1 end
+      vars.LINENUM = 1
+      for line in file:lines() do
+        shell.run(line)
+        vars.LINENUM = vars.LINENUM + 1
       end
-
-      local parts = tokenize(commandLine)
-      local command = table.remove(parts, 1)
-      -- expand tokens
-      for i = 1, #parts do
-        parts[i] = expandToken(parts[i])
+      vars.LINENUM = nil
+      file:close()
+    end,
+    echo = function(...)
+      print(...); return 0
+    end,
+    builtin = function(name, ...) return builtins_local[name](...) end,
+    cd = function(dir)
+      if not fs.isDir(shell.resolve(dir or "/")) then
+        printError("cash: cd: " .. dir .. ": No such file or directory")
+        return 1
       end
-      local commands = listCommands()
-
-      local resolved = resolveAlias(command)
-
-      if builtins[resolved] then
-        local ok, err = pcall(builtins[resolved], table.unpack(parts))
-        -- update last exit
-        shellEnv["?"] = ok and "0" or "1"
-        if not ok then
-          Terminal.print("Error: " .. tostring(err))
-        elseif resolved == "exit" then
-          return
+      OLDPWD = PWD
+      PWD = shell.resolve(dir or "/")
+    end,
+    command = function(...)
+      no_funcs = true; shell.run(...); no_funcs = false; return vars["?"]
+    end,
+    exec = function(...)
+      execCommand = table.concat({ ... }, ' '); running = false
+    end,
+    exit = function() running = false end,
+    export = function(...) -- simplified export
+      local e = { ... }
+      if #e == 0 or e[1] == "-p" then
+        for k, v in pairs(_ENV) do if type(v) == "string" or type(v) == "number" then print("export " .. k .. "=" .. v) end end
+      else
+        for k, v in ipairs(e) do
+          local kk, vv = string.match(v, "(.+)=(.+)")
+          if kk and vv then _ENV[kk] = vv end
         end
-      elseif commands[resolved] then
-        local ok, err = pcall(shell.run, commands[resolved], table.unpack(parts))
-        shellEnv["?"] = ok and "0" or "1"
-        if not ok then
-          Terminal.print("Error: " .. tostring(err))
+      end
+    end,
+    history = function(...) -- very small history
+      for k, v in ipairs(history) do print(" " .. k .. " " .. v) end
+    end,
+    jobs = function() for k, v in pairs(jobs) do print("[" .. k .. "] " .. (v.cmd or "")) end end,
+    pwd = function() print(PWD) end,
+    read = function(var) vars[var] = read() end,
+    set = function(...)
+      local l = { ... }
+      if #l == 0 then
+        for k, v in pairs(vars) do
+          print(k .. "=" .. v)
         end
       else
-        Terminal.print("Command not found: " .. tostring(command))
+        for _, vv in ipairs(l) do
+          local kk, vv2 = string.match(vv, "(.+)=(.+)")
+          if kk then vars[kk] = vv2 end
+        end
+      end
+    end,
+
+    alias = function(...)
+      local l = { ... }
+      if #l == 0 then
+        for k, v in pairs(aliases_local) do
+          print("alias " .. k .. "=" .. v)
+        end
+      else
+        for _, vv in ipairs(l) do
+          local kk, vv2 = string.match(vv, "(.+)=(.+)")
+          if kk then aliases_local[kk] = vv2 end
+        end
+      end
+    end,
+
+    sleep = function(t)
+      os.sleep(tonumber(t))
+    end,
+
+    unalias = function(...)
+      for _, v in ipairs({ ... }) do aliases_local[v] = nil end
+    end,
+
+    unset = function(...)
+      for _, v in ipairs({ ... }) do vars[v] = nil end
+    end,
+
+    wait = function(job)
+      if job then
+        while jobs[tonumber(job)] ~= nil do os.sleep(0.1) end
+      else
+        while next(jobs) ~= nil do os.sleep(0.1) end
+      end
+    end,
+
+    lua = function(...)
+      if #({ ... }) > 0 then
+        shell.run("/bin/lua", table.unpack({ ... }))
+      else
+        shell.run("/rom/programs/lua.lua")
+      end
+    end,
+
+    cat = function(...)
+      for _, v in ipairs({ ... }) do
+        local f = fs.open(v, "r")
+        if f then
+          print(f.readAll())
+          f.close()
+        end
+      end
+    end,
+
+    which = function(name)
+      local p, localf = shell.resolveProgram(name)
+      if not p and name then
+        print(name)
+      else
+        print(p)
+      end
+    end,
+  }
+
+  -- Utility functions transplanted from cash
+  local function splitSemicolons(cmdline)
+    local escape = false
+    local quoted = false
+    local j = 1
+    local retval = { "" }
+    local lastc
+    for c in string.gmatch(cmdline, ".") do
+      local setescape = false
+      if c == '"' or c == '\'' and not escape then
+        quoted = not quoted
+      elseif c == '\\' and not quoted and not escape then
+        setescape = true
+        escape = true
+      end
+      if c == ';' and not quoted and not escape then
+        j = j + 1; retval[j] = ""
+      elseif not (c == ' ' and retval[j] == "") then
+        retval[j] = retval[j] .. c
+      end
+      if not setescape then escape = false end
+      lastc = c
+    end
+    return retval
+  end
+
+  local function tokenize_cash(cmdline, noexpand)
+    -- simplified adaptation of cash tokenize and expand logic
+    local singleQuote = false
+    local escape = false
+    local expstr = ""
+    if noexpand then
+      expstr = cmdline
+    else
+      local i = 1
+      while i <= #cmdline do
+        local c = cmdline:sub(i, i)
+        if c == '$' and not escape and not singleQuote then
+          -- minimal var expand: use vars or _ENV
+          local name = cmdline:sub(i + 1):match("^%{(.-)%}")
+          if name then
+            expstr = expstr .. tostring(_ENV[name] or vars[name] or ""); i = i + #name + 2
+          else
+            local name2 = cmdline:sub(i + 1):match("^(%w+)")
+            if name2 then
+              expstr = expstr .. tostring(_ENV[name2] or vars[name2] or ""); i = i + #name2 + 1
+            else
+              expstr = expstr .. c; i = i + 1
+            end
+          end
+        else
+          if c == '\'' and not escape then singleQuote = not singleQuote end
+          escape = c == '\\' and not escape
+          expstr = expstr .. c
+          i = i + 1
+        end
+      end
+    end
+    -- now split into words respecting quotes
+    local retval = { { [0] = "" } }
+    local j = 1; local i = 0; local quoted = false; escape = false; local lastc
+    for c in string.gmatch(expstr, ".") do
+      if (c == '"' or c == "'") and not escape then
+        quoted = not quoted
+      elseif c == ' ' and not quoted and not escape then
+        if #retval[j][i] > 0 then
+          i = i + 1; retval[j][i] = ""
+        end
+      elseif c == ';' and not quoted and not escape then
+        j = j + 1; i = 0; retval[j] = { [0] = "" }
+      elseif not (c == '\\' and not quoted and not escape) then
+        retval[j][i] = (retval[j][i] or "") .. c
+      end
+      escape = c == '\\' and not quoted and not escape
+      lastc = c
+    end
+    for k, v in ipairs(retval) do
+      if v[0] and v[0] ~= "" then
+        local path, islocal
+        if shell.resolveProgram then
+          path, islocal = shell.resolveProgram(v[0])
+        end
+        path = path or v[0]
+        if path then v[0] = path end
+        v.vars = {}
+      end
+    end
+    return retval
+  end
+
+  local function run_file(_tEnv, _sPath, ...)
+    if type(_tEnv) ~= "table" then error("bad argument #1 (expected table, got " .. type(_tEnv) .. ")", 2) end
+    if type(_sPath) ~= "string" then error("bad argument #2 (expected string, got " .. type(_sPath) .. ")", 2) end
+    local tArgs = table.pack(...)
+    local fnFile, err = loadfile(_sPath,
+      setmetatable({ shell = shell, multishell = multishell, package = pack, require = require }, { __index = _ENV }))
+    if fnFile then
+      local ok, err = pcall(function()
+        vars["?"] = fnFile(table.unpack(tArgs, 1, tArgs.n)); if vars["?"] == nil or vars["?"] == true then vars["?"] = 0 elseif vars["?"] == false then vars["?"] = 1 end
+      end)
+      if not ok then
+        if err and err ~= "" then printError(err) end; vars["?"] = 1; return false
+      end
+      return true
+    end
+    if err and err ~= "" then printError(err) end
+    vars["?"] = 1
+    return false
+  end
+
+  local function execv(tokens)
+    local path = tokens[0]
+    if path == nil then return end
+    if #tokens == 0 and string.find(path, "=") ~= nil then
+      local k = string.sub(path, 1, string.find(path, "=") - 1)
+      vars[k] = string.sub(path, string.find(path, "=") + 1)
+      vars[k] = tonumber(vars[k]) or vars[k]
+      return
+    end
+    local oldenv = {}
+    for k, v in pairs(tokens.vars or {}) do
+      oldenv[k] = _ENV[k]; _ENV[k] = v
+    end
+    if if_statement > 0 and not if_table[if_statement].cond and path ~= "else" and path ~= "elif" and path ~= "fi" then return end
+    if builtins_local[path] ~= nil then
+      vars["?"] = builtins_local[path](table.unpack(tokens))
+      if vars["?"] == nil or vars["?"] == true then vars["?"] = 0 elseif vars["?"] == false then vars["?"] = 1 end
+    elseif functions[path] ~= nil and not no_funcs then
+      local oldargs = args
+      args = tokens
+      function_running = true
+      for k, v in ipairs(functions[path]) do
+        shell.run(v)
+        if not function_running then break end
+      end
+      args = oldargs
+    else
+      if not fs.exists(path) then
+        printError("cash: " .. path .. ": No such file or directory"); vars["?"] = -1; return
+      end
+      local _old = vars._
+      vars._ = path
+      run_file(
+      setmetatable({ shell = shell, multishell = multishell, package = pack, require = require, arg = tokens },
+        { __index = shell_env }), path, table.unpack(tokens))
+      vars._ = _old
+    end
+    for k, v in pairs(tokens.vars or {}) do _ENV[k] = oldenv[k] end
+  end
+
+  run_tokens = function(tokens, isAsync)
+    if tokens.async and not isAsync then
+      local coro, pid
+      if CCKernel2 then
+        pid = kernel.fork("cash", function() run_tokens(tokens, true) end)
+      else
+        coro = coroutine.create(function() run_tokens(tokens, true) end)
+      end
+      local id = #jobs + 1
+      jobs[id] = { cmd = tokens[1] and (tokens[1][0] .. " " .. table.concat(tokens[1], " ")) or "", coro = coro, pid =
+      pid, isfg = false, start = true }
+      print("[" .. (id) .. "] " .. (pid or ""))
+    else
+      for k, tok in ipairs(tokens) do
+        if tok[0] then
+          if trim(tok[0]) ~= "" and ((tok.last == 0 and vars["?"] == 0) or (tok.last == 1 and vars["?"] ~= 0) or tok.last == nil) then
+            execv(tok)
+          end
+        else
+          for kk, vv in pairs(tok.vars or {}) do vars[kk] = tonumber(vv) or vv end
+        end
+      end
+    end
+    return vars["?"] == 0
+  end
+
+  local run_tokens_async = function(tokens)
+    local coro, pid
+    if CCKernel2 then
+      pid = kernel.fork("cash", function() run_tokens(tokens, true) end)
+    else
+      coro = coroutine.create(function() run_tokens(tokens, true) end)
+    end
+    local id = #jobs + 1
+    jobs[id] = { cmd = tokens[1] and (tokens[1][0] .. " " .. table.concat(tokens[1], " ")) or "cash", coro = coro, pid =
+    pid, isfg = not tokens.async, start = true }
+    if tokens.async then print("[" .. (id) .. "] " .. (pid or "")) end
+  end
+
+  function shell.run(...)
+    local cmd = table.concat({ ... }, " ")
+    if cmd == "" or string.sub(cmd, 1, 1) == "#" then return end
+    if function_name ~= nil then
+      if string.find(cmd, "}") then function_name = nil else table.insert(functions[function_name], cmd) end; return true
+    elseif while_statement > 0 then
+      local tokens = splitSemicolons(cmd)
+      for k, line in ipairs(tokens) do
+        line = string.sub(line, #string.match(line, "^ *") + 1)
+        if line == "do" or line == "done" or string.find(line, "^do ") or string.find(line, "^done ") then run_tokens(
+          tokenize_cash(line)) end
+        if while_statement > 0 then table.insert(while_table[1].lines, line) end
+      end
+      return true
+    end
+    local lines = splitSemicolons(cmd)
+    for k, v in ipairs(lines) do run_tokens(tokenize_cash(v, string.sub(v, 1, 6) == "while ")) end
+    return vars["?"] == 0
+  end
+
+  function shell.runAsync(...)
+    local cmd = table.concat({ ... }, " ")
+    if cmd == "" or string.sub(cmd, 1, 1) == "#" then return end
+    if function_name ~= nil then
+      if string.find(cmd, "}") then function_name = nil else table.insert(functions[function_name], cmd) end; return true
+    elseif while_statement > 0 then
+      local tokens = splitSemicolons(cmd)
+      for k, line in ipairs(tokens) do
+        line = string.sub(line, #string.match(line, "^ *") + 1)
+        if line == "do" or line == "done" or string.find(line, "^do ") or string.find(line, "^done ") then run_tokens(
+          tokenize_cash(line)) end
+        if while_statement > 0 then table.insert(while_table[1].lines, line) end
+      end
+      return true
+    end
+    local lines = splitSemicolons(cmd)
+    for k, v in ipairs(lines) do run_tokens_async(tokenize_cash(v, string.sub(v, 1, 6) == "while ")) end
+    return vars["?"] == 0
+  end
+
+  -- minimal implementations of some shell helpers used by other parts
+  function shell.resolve(localPath)
+    if string.sub(localPath, 1, 1) == "/" then return fs.combine(localPath, "") else return fs.combine(PWD, localPath) end
+  end
+
+  function shell.resolveProgram(name)
+    if builtins_local[name] ~= nil then return name end
+    if aliases_local[name] ~= nil then name = aliases_local[name] end
+    for path in string.gmatch(PATH, "[^:]+") do
+      local candidate = fs.combine(shell.resolve(path), name)
+      if fs.exists(candidate) and not fs.isDir(candidate) then return candidate end
+      if fs.exists(candidate .. ".lua") and not fs.isDir(candidate .. ".lua") then return candidate .. ".lua" end
+    end
+    if fs.exists(shell.resolve(name)) and not fs.isDir(shell.resolve(name)) then return shell.resolve(name) end
+    if fs.exists(shell.resolve(name .. ".lua")) and not fs.isDir(shell.resolve(name .. ".lua")) then return shell
+      .resolve(name .. ".lua") end
+    return nil
+  end
+
+  function shell.getRunningProgram() return vars._ end
+
+  function shell.dir() return PWD end
+
+  function shell.setDir(p)
+    OLDPWD = PWD; PWD = p
+  end
+
+  function shell.path() return PATH end
+
+  function shell.setPath(p) PATH = p end
+
+  function shell.aliases() return aliases_local end
+
+  function shell.setAlias(a, b) aliases_local[a] = b end
+
+  function shell.clearAlias(a) aliases_local[a] = nil end
+
+  function shell.completeProgram(prefix)
+    if string.find(prefix, "/") then return fs.complete(prefix, PWD, true, false) else
+      local retval = {}
+      for path in string.gmatch(PATH, "[^:]+") do for _, v in ipairs(fs.complete(prefix, path, true, false)) do table
+              .insert(retval, v) end end
+      return retval
+    end
+  end
+
+  -- readCommand and ansiWrite adapted to use Terminal/term
+  local function ansiWrite(str)
+    local seq = nil
+    local bold = false
+    local function getnum(d)
+      if seq == "[" then
+        return d or 1
+      elseif seq and string.find(seq, ";") then
+        local i = string.find(seq, ";")
+        return tonumber(string.sub(seq, 2, i - 1)), tonumber(string.sub(seq, i + 1))
+      elseif seq then
+        return tonumber(string.sub(seq, 2))
+      end
+      return nil
+    end
+    for c in string.gmatch(str, ".") do
+      if seq == "\27" then
+        if c == "c" then
+          term.setBackgroundColor(colors.black); term.setTextColor(colors.white); term.setCursorBlink(true)
+        elseif c == "[" then
+          seq = "["
+        else
+          seq = nil
+        end
+      elseif seq ~= nil and string.sub(seq, 1, 1) == "[" then
+        if tonumber(c) ~= nil or c == ';' then
+          seq = seq .. c
+        else
+          if c == 'm' then
+            local n, m = getnum(0)
+            if n == 0 then
+              term.setBackgroundColor(colors.black); term.setTextColor(colors.white)
+            elseif n == 1 then bold = true elseif n >= 30 and n <= 37 then term.setTextColor(2 ^
+              (15 - (n - 30) - (bold and 8 or 0))) end
+            if m then end
+          end
+          seq = nil
+        end
+      elseif c == string.char(0x1b) then
+        seq = "\27"
+      else
+        write(c)
       end
     end
   end
+
+  local function readCommand()
+    if term.getGraphicsMode and term.getGraphicsMode() then term.setGraphicsMode(false) end
+    local prompt = (vars.PS1 or "\\$ ")
+    ansiWrite(prompt)
+    local str = readLine("", history) or ""
+    return str
+  end
+
+  local function jobManager()
+    while running do
+      local e = { os.pullEventRaw() }
+      local delete = {}
+      for k, v in pairs(jobs) do
+        if not v.paused and (v.filter == nil or v.filter == e[1]) and (v.isfg or v.start or not (
+              e[1] == "key" or e[1] == "char" or e[1] == "key_up" or e[1] == "paste" or e[1] == "mouse_click" or e[1] == "mouse_up" or e[1] == "mouse_drag" or e[1] == "mouse_scroll" or e[1] == "monitor_touch")) then
+          local oldterm = term.current()
+          if v.term then term.redirect(v.term) end
+          local ok, filter = coroutine.resume(v.coro, table.unpack(e))
+          v.term = term.redirect(oldterm)
+          if coroutine.status(v.coro) == "dead" then
+            table.insert(delete, k); completed_jobs[k] = { err = "Done", cmd = v.cmd, isfg = v.isfg }; os.queueEvent(
+            "job_complete", k)
+          elseif not ok then
+            table.insert(delete, k); completed_jobs[k] = { err = filter, cmd = v.cmd, isfg = v.isfg }; os.queueEvent(
+            "job_complete", k)
+          end
+          v.filter = filter; v.start = false
+        end
+      end
+      for _, v in ipairs(delete) do jobs[v] = nil end
+    end
+  end
+
+  parallel.waitForAny(function()
+    while running do
+      for k, v in pairs(completed_jobs) do if not v.isfg then print("[" .. k .. "] " .. v.err .. "  " .. v.cmd) end end
+      completed_jobs = {}
+      shell.runAsync(readCommand())
+      while next(jobs) ~= nil do
+        local b = true
+        for k, v in pairs(jobs) do if v.isfg and not v.paused then
+            b = false; break
+          end end
+        if b then break end
+        if os.pullEventRaw() == "terminate" then
+          for k, v in pairs(jobs) do if v.isfg and not v.paused then
+              jobs[k] = nil; print("^T"); b = true; break
+            end end
+        end
+        if b then break end
+      end
+    end
+  end, function()
+    local ctrlHeld = false
+    while running do
+      local ev = { os.pullEventRaw() }
+      if ev[1] == "key" and (ev[2] == keys.leftCtrl or ev[2] == keys.rightCtrl) then
+        ctrlHeld = true
+      elseif ev[1] == "key_up" and (ev[2] == keys.leftCtrl or ev[2] == keys.rightCtrl) then
+        ctrlHeld = false
+      elseif ctrlHeld and ev[1] == "key" and ev[2] == keys.z then
+        print("^Z")
+        for k, v in pairs(jobs) do if v.isfg and not v.paused then
+            v.paused = true; pausedJob = k; print("[" .. k .. "]+  Paused  " .. v.cmd); os.queueEvent("job_paused"); break
+          end end
+      end
+    end
+  end, jobManager)
+
+  if execCommand then
+    shell.run(execCommand); return vars["?"]
+  end
+  return shell_retval
 end
 local function getCustomApps()
   local appList = {}
