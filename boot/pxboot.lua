@@ -42,8 +42,8 @@ local function unbios(path, ...)
     local delete = {
         os = { "version", "pullEventRaw", "pullEvent", "run", "loadAPI", "unloadAPI", "sleep" },
         http = _G.http and
-        { "get", "post", "put", "delete", "patch", "options", "head", "trace", "listen", "checkURLAsync",
-            "websocketAsync" },
+            { "get", "post", "put", "delete", "patch", "options", "head", "trace", "listen", "checkURLAsync",
+                "websocketAsync" },
         fs = { "complete", "isDriveRoot" }
     }
     for k, v in pairs(delete) do
@@ -405,7 +405,7 @@ term.setCursorPos(1, 1)
 
 repeat
     local fn, err = loadfile(
-    shell and fs.combine(fs.getDir(shell.getRunningProgram()), "config.lua") or "pxboot/config.lua", "t", config)
+        shell and fs.combine(fs.getDir(shell.getRunningProgram()), "config.lua") or "pxboot/config.lua", "t", config)
     if not fn then
         printError("Could not load config file: " .. err)
         print("Press any key to continue...")
@@ -463,11 +463,11 @@ registerStyle("phoenix", {
     backgroundcolor = colors.black,
     textcolor = colors.lightGray,
     boxcolor = colors.orange,
-    boxbackground = colors.black,
+    boxbackground = colors.orange,
     selectcolor = colors.orange,
     selecttext = colors.black,
     titlecolor = colors.orange,
-    helpcolor = colors.lightGray,
+    helpcolor = colors.orange,
     descriptioncolor = colors.white
 })
 
