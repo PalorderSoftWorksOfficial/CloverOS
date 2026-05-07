@@ -660,7 +660,10 @@ local function resolveStyle(spec)
 
     return theme
 end
-
+local w, h = term.getSize()
+local enth = h - 11
+local boxwin = window.create(term.current(), 2, 4, w - 2, h - 9)
+local entrywin = window.create(boxwin, 2, 2, w - 4, enth)
 local function fitText(text, width)
     text = tostring(text or "")
     if width <= 0 then
@@ -721,10 +724,6 @@ local function entryName(i)
     end
     return "GUI Styles", "Choose the boot menu theme."
 end
-local w, h = term.getSize()
-local enth = h - 11
-local boxwin = window.create(term.current(), 2, 4, w - 2, h - 9)
-local entrywin = window.create(boxwin, 2, 2, w - 4, enth)
 
 local function drawBootEntries()
     entrywin.setVisible(false)
@@ -948,41 +947,6 @@ while true do
                 mode = "boot"
                 drawScreen()
             end
-        end
-    elseif ev[1] == "terminate" then
-        break
-    end
-end
-
-local tm = config.defaultentry and config.timeout and os.startTimer(1)
-while true do
-    local ev = { coroutine.yield() }
-    if ev[1] == "timer" and ev[2] == tm then
-        config.timeout = config.timeout - 1
-        if config.timeout == 0 then if boot(entry_names[config.defaultentry]) then return end end
-        drawEntries()
-        tm = os.startTimer(1)
-    elseif ev[1] == "key" then
-        if tm then
-            os.cancelTimer(tm)
-            config.timeout, tm = nil
-            drawEntries()
-        end
-        if (ev[2] == keys.down or ev[2] == keys.numPad2) and selection < #entries then
-            selection = selection + 1
-            if selection > scroll + enth - 1 then scroll = scroll + 1 end
-            drawEntries()
-        elseif (ev[2] == keys.up or ev[2] == keys.numPad8) and selection > 1 then
-            selection = selection - 1
-            if selection < scroll then scroll = scroll - 1 end
-            drawEntries()
-        elseif ev[2] == keys.enter then
-            if boot(entries[selection]) then return end
-            term.clear()
-            drawScreen()
-        elseif ev[2] == keys.c then
-            runShell()
-            drawScreen()
         end
     elseif ev[1] == "terminate" then
         break
