@@ -721,6 +721,10 @@ local function entryName(i)
     end
     return "GUI Styles", "Choose the boot menu theme."
 end
+local w, h = term.getSize()
+local enth = h - 11
+local boxwin = window.create(term.current(), 2, 4, w - 2, h - 9)
+local entrywin = window.create(boxwin, 2, 2, w - 4, enth)
 
 local function drawBootEntries()
     entrywin.setVisible(false)
