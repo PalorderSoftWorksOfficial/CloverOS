@@ -47,9 +47,14 @@ local function unbios(path, ...)
     end
     if _G.commands then _G.commands = _G.commands.native end
     if _G.turtle then _G.turtle.native, _G.turtle.craft = nil end
-    local delete = { os = { "version", "pullEventRaw", "pullEvent", "run", "loadAPI", "unloadAPI", "sleep" }, http = _G
-    .http and
-    { "get", "post", "put", "delete", "patch", "options", "head", "trace", "listen", "checkURLAsync", "websocketAsync" }, fs = { "complete", "isDriveRoot" } }
+    local delete = {
+        os = { "version", "pullEventRaw", "pullEvent", "run", "loadAPI", "unloadAPI", "sleep" },
+        http = _G
+            .http and
+            { "get", "post", "put", "delete", "patch", "options", "head", "trace", "listen", "checkURLAsync",
+                "websocketAsync" },
+        fs = { "complete", "isDriveRoot" }
+    }
     for k, v in pairs(delete) do for _, a in ipairs(v) do _G[k][a] = nil end end
     -- Set up TLCO
     -- This functions by crashing `rednet.run` by removing `os.pullEventRaw`. Normally
@@ -211,7 +216,15 @@ function cmds.insmod(t)
     end
     assert(loadfile(path, nil,
         setmetatable(
-        { entries = entries, bootcfg = bootcfg, cmds = cmds, userGlobals = userGlobals, unbios = unbios, config = config },
+            {
+                entries = entries,
+                bootcfg = bootcfg,
+                cmds = cmds,
+                userGlobals = userGlobals,
+                unbios = unbios,
+                config =
+                    config
+            },
             { __index = _ENV })))(t.args, path)
 end
 
@@ -249,18 +262,18 @@ end
 
 local runningDir
 config = setmetatable({
-    title = "Phoenix pxboot",
-    titlecolor = colors.white,
+    title = "CloverOS Bootloader",
     backgroundcolor = colors.black,
-    textcolor = colors.white,
-    boxcolor = colors.white,
+    textcolor = colors.lightGray,
+    titlecolor = colors.white,
+    boxcolor = colors.gray,
     boxbackground = colors.black,
-    selectcolor = colors.white,
-    selecttext = colors.black,
+    selectcolor = colors.blue,
+    selecttext = colors.white,
     background = nil,
-    defaultentry = nil,
-    timeout = 30,
-
+    defaultentry = "CloverOS",
+    timeout = 5,
+    style = "phoenix",
     menuentry = function(name)
         expect(1, name, "string")
         return function(entry)
@@ -270,8 +283,10 @@ config = setmetatable({
             local retval = { name = name, commands = {} }
             for i = 1, n do
                 local c = entry[i]
-                if (type(c) ~= "table" and type(c) ~= "function") or not c.cmd then error(
-                    "bad command entry #" .. i .. (c == nil and " (unknown command)" or " (missing arguments)"), 2) end
+                if (type(c) ~= "table" and type(c) ~= "function") or not c.cmd then
+                    error(
+                        "bad command entry #" .. i .. (c == nil and " (unknown command)" or " (missing arguments)"), 2)
+                end
                 if type(c) == "function" then
                     retval.commands[#retval.commands + 1] = c
                 elseif c.cmd == "description" then
@@ -408,7 +423,7 @@ term.setCursorPos(1, 1)
 
 repeat
     local fn, err = loadfile(
-    shell and fs.combine(fs.getDir(shell.getRunningProgram()), "config.lua") or "pxboot/config.lua", "t", config)
+        shell and fs.combine(fs.getDir(shell.getRunningProgram()), "config.lua") or "pxboot/config.lua", "t", config)
     if not fn then
         printError("Could not load config file: " .. err)
         print("Press any key to continue...")
@@ -432,90 +447,506 @@ end
 
 if #entries == 0 then return runShell() end
 
-local function hex(n) return ("0123456789abcdef"):sub(n, n) end
-
-local w, h = term.getSize()
-local enth = h - 11
-local boxwin = window.create(term.current(), 2, 4, w - 2, h - 9)
-local entrywin = window.create(boxwin, 2, 2, w - 4, enth)
-
-term.setBackgroundColor(config.backgroundcolor)
-term.clear()
-boxwin.setBackgroundColor(config.boxbackground or config.backgroundcolor)
-boxwin.clear()
-entrywin.setBackgroundColor(config.boxbackground or config.backgroundcolor)
-entrywin.clear()
-
-local selection, scroll = 1, 1
-if config.defaultentry then
-    for i = 1, #entries do if entries[i].name == config.defaultentry then
-            selection = i
-            break
-        end end
-    if config.timeout == 0 and boot(entries[selection]) then return end
+local function hex(n)
+    return ("0123456789abcdef"):sub(n, n)
 end
-local function drawEntries()
-    entrywin.setVisible(false)
-    entrywin.setBackgroundColor(config.boxbackground or config.backgroundcolor)
-    entrywin.clear()
-    for i = scroll, scroll + enth - 1 do
-        local e = entries[i]
-        if not e then break end
-        entrywin.setCursorPos(2, i - scroll + 1)
-        if i == selection then
-            entrywin.setBackgroundColor(config.selectcolor)
-            entrywin.setTextColor(config.selecttext)
+
+local function merge(dst, src)
+    for k, v in pairs(src) do
+        if type(v) == "table" and type(dst[k]) == "table" then
+            merge(dst[k], v)
         else
-            entrywin.setBackgroundColor(config.boxbackground or config.backgroundcolor)
-            entrywin.setTextColor(config.textcolor)
-        end
-        entrywin.clearLine()
-        entrywin.write(#e.name > w - 6 and e.name:sub(1, w - 9) .. "..." or e.name)
-        if i == selection and config.timeout then
-            local s = tostring(config.timeout)
-            entrywin.setCursorPos(w - 4 - #s, i - scroll + 1)
-            entrywin.write(s)
-            entrywin.setCursorPos(2, i - scroll + 1)
+            dst[k] = v
         end
     end
+    return dst
+end
+
+local styles = {}
+
+local function registerStyle(name, style)
+    styles[name] = style
+end
+
+registerStyle("phoenix", {
+    title = "Phoenix pxboot",
+    backgroundcolor = colors.black,
+    textcolor = colors.lightGray,
+    boxcolor = colors.orange,
+    boxbackground = colors.black,
+    selectcolor = colors.orange,
+    selecttext = colors.black,
+    titlecolor = colors.orange,
+    helpcolor = colors.lightGray,
+    descriptioncolor = colors.white
+})
+
+registerStyle("dark", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.white,
+    boxcolor = colors.gray,
+    boxbackground = colors.black,
+    selectcolor = colors.blue,
+    selecttext = colors.white,
+    titlecolor = colors.white,
+    helpcolor = colors.lightGray,
+    descriptioncolor = colors.lightGray
+})
+
+registerStyle("light", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.white,
+    textcolor = colors.black,
+    boxcolor = colors.black,
+    boxbackground = colors.white,
+    selectcolor = colors.blue,
+    selecttext = colors.white,
+    titlecolor = colors.black,
+    helpcolor = colors.gray,
+    descriptioncolor = colors.black
+})
+
+registerStyle("blue", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.lightBlue,
+    boxcolor = colors.blue,
+    boxbackground = colors.black,
+    selectcolor = colors.blue,
+    selecttext = colors.white,
+    titlecolor = colors.lightBlue,
+    helpcolor = colors.lightBlue,
+    descriptioncolor = colors.white
+})
+
+registerStyle("red", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.white,
+    boxcolor = colors.red,
+    boxbackground = colors.black,
+    selectcolor = colors.red,
+    selecttext = colors.white,
+    titlecolor = colors.red,
+    helpcolor = colors.lightGray,
+    descriptioncolor = colors.white
+})
+
+registerStyle("green", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.white,
+    boxcolor = colors.green,
+    boxbackground = colors.black,
+    selectcolor = colors.green,
+    selecttext = colors.black,
+    titlecolor = colors.green,
+    helpcolor = colors.lightGray,
+    descriptioncolor = colors.white
+})
+
+registerStyle("purple", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.white,
+    boxcolor = colors.purple,
+    boxbackground = colors.black,
+    selectcolor = colors.purple,
+    selecttext = colors.white,
+    titlecolor = colors.purple,
+    helpcolor = colors.lightGray,
+    descriptioncolor = colors.white
+})
+
+registerStyle("amber", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.lightGray,
+    boxcolor = colors.orange,
+    boxbackground = colors.black,
+    selectcolor = colors.orange,
+    selecttext = colors.black,
+    titlecolor = colors.orange,
+    helpcolor = colors.lightGray,
+    descriptioncolor = colors.white
+})
+
+registerStyle("graphite", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.gray,
+    textcolor = colors.black,
+    boxcolor = colors.black,
+    boxbackground = colors.lightGray,
+    selectcolor = colors.black,
+    selecttext = colors.white,
+    titlecolor = colors.black,
+    helpcolor = colors.gray,
+    descriptioncolor = colors.black
+})
+
+registerStyle("terminal", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.green,
+    boxcolor = colors.green,
+    boxbackground = colors.black,
+    selectcolor = colors.green,
+    selecttext = colors.black,
+    titlecolor = colors.green,
+    helpcolor = colors.green,
+    descriptioncolor = colors.green
+})
+
+registerStyle("mono", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.white,
+    boxcolor = colors.white,
+    boxbackground = colors.black,
+    selectcolor = colors.white,
+    selecttext = colors.black,
+    titlecolor = colors.white,
+    helpcolor = colors.lightGray,
+    descriptioncolor = colors.white
+})
+
+registerStyle("sky", {
+    title = "CloverOS Bootloader",
+    backgroundcolor = colors.black,
+    textcolor = colors.white,
+    boxcolor = colors.lightBlue,
+    boxbackground = colors.black,
+    selectcolor = colors.lightBlue,
+    selecttext = colors.black,
+    titlecolor = colors.lightBlue,
+    helpcolor = colors.lightBlue,
+    descriptioncolor = colors.white
+})
+
+local function resolveStyle(spec)
+    local theme = merge({}, styles.dark)
+
+    if type(spec) == "string" and styles[spec] then
+        merge(theme, styles[spec])
+    elseif type(spec) == "table" then
+        merge(theme, spec)
+    end
+
+    merge(theme, {
+        title = config.title,
+        backgroundcolor = config.backgroundcolor,
+        textcolor = config.textcolor,
+        boxcolor = config.boxcolor,
+        boxbackground = config.boxbackground,
+        selectcolor = config.selectcolor,
+        selecttext = config.selecttext,
+        titlecolor = config.titlecolor,
+        helpcolor = config.helpcolor,
+        descriptioncolor = config.descriptioncolor,
+        background = config.background
+    })
+
+    theme.title = theme.title or "CloverOS Bootloader"
+    theme.backgroundcolor = theme.backgroundcolor or colors.black
+    theme.textcolor = theme.textcolor or colors.white
+    theme.boxbackground = theme.boxbackground or theme.backgroundcolor
+    theme.boxcolor = theme.boxcolor or theme.textcolor
+    theme.selectcolor = theme.selectcolor or colors.blue
+    theme.selecttext = theme.selecttext or colors.white
+    theme.titlecolor = theme.titlecolor or theme.textcolor
+    theme.helpcolor = theme.helpcolor or theme.textcolor
+    theme.descriptioncolor = theme.descriptioncolor or theme.textcolor
+
+    return theme
+end
+
+local function fitText(text, width)
+    text = tostring(text or "")
+    if width <= 0 then
+        return ""
+    end
+    if #text <= width then
+        return text
+    end
+    if width <= 3 then
+        return text:sub(1, width)
+    end
+    return text:sub(1, width - 3) .. "..."
+end
+
+local function centerX(text)
+    return math.max(1, math.floor((w - #text) / 2) + 1)
+end
+
+local styleNames = {}
+for n in pairs(styles) do
+    styleNames[#styleNames + 1] = n
+end
+table.sort(styleNames)
+
+local currentStyleName = config.style or config.gui or config.layout or "phoenix"
+if not styles[currentStyleName] then
+    currentStyleName = "phoenix"
+end
+
+local theme = resolveStyle(currentStyleName)
+local mode = "boot"
+
+local selection, scroll = 1, 1
+local styleSelection, styleScroll = 1, 1
+
+for i, name in ipairs(styleNames) do
+    if name == currentStyleName then
+        styleSelection = i
+        break
+    end
+end
+
+local function applyStyle(name)
+    if styles[name] then
+        currentStyleName = name
+        config.style = name
+        theme = resolveStyle(name)
+    end
+end
+
+local function bootCount()
+    return #entries + 1
+end
+
+local function entryName(i)
+    if i <= #entries then
+        return entries[i].name, entries[i].description
+    end
+    return "GUI Styles", "Choose the boot menu theme."
+end
+
+local function drawBootEntries()
+    entrywin.setVisible(false)
+    entrywin.setBackgroundColor(theme.boxbackground)
+    entrywin.setTextColor(theme.textcolor)
+    entrywin.clear()
+
+    local total = bootCount()
+
+    for i = scroll, scroll + enth - 1 do
+        if i > total then
+            break
+        end
+
+        local name, desc = entryName(i)
+        local y = i - scroll + 1
+
+        entrywin.setCursorPos(2, y)
+
+        if i == selection then
+            entrywin.setBackgroundColor(theme.selectcolor)
+            entrywin.setTextColor(theme.selecttext)
+        else
+            entrywin.setBackgroundColor(theme.boxbackground)
+            entrywin.setTextColor(theme.textcolor)
+        end
+
+        entrywin.clearLine()
+        entrywin.write(fitText(name, w - 6))
+
+        if i == selection and config.timeout and selection <= #entries then
+            local s = tostring(config.timeout)
+            entrywin.setCursorPos(w - 4 - #s, y)
+            entrywin.write(s)
+            entrywin.setCursorPos(2, y)
+        end
+    end
+
     entrywin.setVisible(true)
+
+    term.setBackgroundColor(theme.backgroundcolor)
+    term.setTextColor(theme.descriptioncolor)
     term.setCursorPos(5, h - 5)
     term.clearLine()
-    term.setTextColor(config.titlecolor)
-    term.write(entries[selection].description or "")
+    local _, desc = entryName(selection)
+    term.write(fitText(desc, w - 8))
+
+    term.setTextColor(theme.helpcolor)
+    term.setCursorPos(5, h - 3)
+    term.clearLine()
+    term.write(fitText("Use \x18 and \x19 to select. Enter boots the highlighted entry.", w - 8))
+
+    term.setCursorPos(5, h - 2)
+    term.clearLine()
+    term.write(fitText("'c' shell, 'e' edit, " .. selection .. "/" .. total, w - 8))
+end
+
+local function drawStyleEntries()
+    entrywin.setVisible(false)
+    entrywin.setBackgroundColor(theme.boxbackground)
+    entrywin.setTextColor(theme.textcolor)
+    entrywin.clear()
+
+    for i = styleScroll, styleScroll + enth - 1 do
+        local name = styleNames[i]
+        if not name then
+            break
+        end
+
+        local y = i - styleScroll + 1
+        entrywin.setCursorPos(2, y)
+
+        if i == styleSelection then
+            entrywin.setBackgroundColor(theme.selectcolor)
+            entrywin.setTextColor(theme.selecttext)
+        else
+            entrywin.setBackgroundColor(theme.boxbackground)
+            entrywin.setTextColor(theme.textcolor)
+        end
+
+        entrywin.clearLine()
+        entrywin.write(fitText(name, w - 6))
+    end
+
+    entrywin.setVisible(true)
+
+    term.setBackgroundColor(theme.backgroundcolor)
+    term.setTextColor(theme.descriptioncolor)
+    term.setCursorPos(5, h - 5)
+    term.clearLine()
+    term.write(fitText("Apply a GUI layout. Current: " .. currentStyleName, w - 8))
+
+    term.setTextColor(theme.helpcolor)
+    term.setCursorPos(5, h - 3)
+    term.clearLine()
+    term.write(fitText("Enter applies the selected style. Esc returns to boot entries.", w - 8))
+
+    term.setCursorPos(5, h - 2)
+    term.clearLine()
+    term.write(fitText("Styles: " .. #styleNames .. " available", w - 8))
 end
 
 local function drawScreen()
-    local bbg, bfg = hex(select(2, math.frexp(config.boxbackground or config.backgroundcolor))),
-        hex(select(2, math.frexp(config.boxcolor or config.textcolor)))
-    boxwin.setTextColor(config.boxcolor or config.textcolor)
+    local inner = math.max(0, w - 4)
+    local bbg = hex(select(2, math.frexp(theme.boxbackground)))
+    local bfg = hex(select(2, math.frexp(theme.boxcolor)))
+
+    term.setBackgroundColor(theme.backgroundcolor)
+    term.clear()
+
+    boxwin.setBackgroundColor(theme.boxbackground)
+    boxwin.setTextColor(theme.boxcolor)
+    boxwin.clear()
+
+    entrywin.setBackgroundColor(theme.boxbackground)
+    entrywin.setTextColor(theme.textcolor)
+    entrywin.clear()
+
     boxwin.setCursorPos(1, 1)
-    boxwin.write("\x9C" .. ("\x8C"):rep(w - 4))
+    boxwin.write("\x9C" .. ("\x8C"):rep(inner))
     boxwin.blit("\x93", bbg, bfg)
+
     for y = 2, h - 10 do
         boxwin.setCursorPos(1, y)
         boxwin.blit("\x95", bfg, bbg)
         boxwin.setCursorPos(w - 2, y)
         boxwin.blit("\x95", bbg, bfg)
     end
+
     boxwin.setCursorPos(1, h - 9)
-    boxwin.setBackgroundColor(config.boxbackground or config.backgroundcolor)
-    boxwin.setTextColor(config.boxcolor or config.textcolor)
-    boxwin.write("\x8D" .. ("\x8C"):rep(w - 4) .. "\x8E")
+    boxwin.write("\x8D" .. ("\x8C"):rep(inner) .. "\x8E")
 
-    term.setCursorPos((w - #config.title) / 2, 2)
-    term.setTextColor(config.titlecolor or config.textcolor)
-    term.write(config.title)
-    term.setCursorPos(5, h - 3)
-    term.write("Use the \x18 and \x19 keys to select.")
-    term.setCursorPos(5, h - 2)
-    term.write("Press enter to boot the selected OS.")
-    term.setCursorPos(5, h - 1)
-    term.write("'c' for shell, 'e' to edit.")
+    term.setCursorPos(centerX(theme.title), 2)
+    term.setTextColor(theme.titlecolor)
+    term.write(fitText(theme.title, w - 2))
 
-    drawEntries()
+    if mode == "boot" then
+        drawBootEntries()
+    else
+        drawStyleEntries()
+    end
 end
+
 drawScreen()
+
+local tm = config.defaultentry and config.timeout and os.startTimer(1)
+
+while true do
+    local ev = { coroutine.yield() }
+
+    if ev[1] == "timer" and ev[2] == tm and mode == "boot" then
+        config.timeout = config.timeout - 1
+        if config.timeout == 0 then
+            if selection <= #entries and boot(entries[selection]) then
+                return
+            end
+        end
+        drawBootEntries()
+        tm = os.startTimer(1)
+    elseif ev[1] == "key" then
+        if mode == "boot" then
+            if tm then
+                os.cancelTimer(tm)
+                config.timeout, tm = nil
+                drawBootEntries()
+            end
+
+            local total = bootCount()
+
+            if (ev[2] == keys.down or ev[2] == keys.numPad2) and selection < total then
+                selection = selection + 1
+                if selection > scroll + enth - 1 then
+                    scroll = scroll + 1
+                end
+                drawBootEntries()
+            elseif (ev[2] == keys.up or ev[2] == keys.numPad8) and selection > 1 then
+                selection = selection - 1
+                if selection < scroll then
+                    scroll = scroll - 1
+                end
+                drawBootEntries()
+            elseif ev[2] == keys.enter then
+                if selection == total then
+                    mode = "style"
+                    drawScreen()
+                else
+                    if boot(entries[selection]) then
+                        return
+                    end
+                    term.clear()
+                    drawScreen()
+                end
+            elseif ev[2] == keys.c then
+                runShell()
+                drawScreen()
+            elseif ev[2] == keys.e then
+                shell.run("/rom/programs/edit.lua",
+                    shell and fs.combine(fs.getDir(shell.getRunningProgram()), "config.lua") or "pxboot/config.lua")
+                drawScreen()
+            end
+        else
+            if (ev[2] == keys.down or ev[2] == keys.numPad2) and styleSelection < #styleNames then
+                styleSelection = styleSelection + 1
+                if styleSelection > styleScroll + enth - 1 then
+                    styleScroll = styleScroll + 1
+                end
+                drawStyleEntries()
+            elseif (ev[2] == keys.up or ev[2] == keys.numPad8) and styleSelection > 1 then
+                styleSelection = styleSelection - 1
+                if styleSelection < styleScroll then
+                    styleScroll = styleScroll - 1
+                end
+                drawStyleEntries()
+            elseif ev[2] == keys.enter then
+                applyStyle(styleNames[styleSelection])
+                mode = "boot"
+                drawScreen()
+            elseif ev[2] == keys.backspace or ev[2] == keys.escape then
+                mode = "boot"
+                drawScreen()
+            end
+        end
+    elseif ev[1] == "terminate" then
+        break
+    end
+end
 
 local tm = config.defaultentry and config.timeout and os.startTimer(1)
 while true do
