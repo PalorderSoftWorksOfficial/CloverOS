@@ -6,7 +6,7 @@ titlecolor = colors.lightGray
 
 menuentry "CloverOS" {
     description "Boot CloverOS.";
-    chainloader "kernel.lua"
+    chainloader "boot/kernel.lua"
 }
 
 menuentry "CraftOS" {
