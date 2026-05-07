@@ -633,21 +633,19 @@ local function resolveStyle(spec)
         merge(theme, spec)
     end
 
-    merge(theme, {
-        title = config.title,
-        backgroundcolor = config.backgroundcolor,
-        textcolor = config.textcolor,
-        boxcolor = config.boxcolor,
-        boxbackground = config.boxbackground,
-        selectcolor = config.selectcolor,
-        selecttext = config.selecttext,
-        titlecolor = config.titlecolor,
-        helpcolor = config.helpcolor,
-        descriptioncolor = config.descriptioncolor,
-        background = config.background
-    })
+    theme.title = config.title or theme.title
+    theme.background = config.background or theme.background
 
-    theme.title = theme.title or "CloverOS Bootloader"
+    if config.backgroundcolor ~= nil then theme.backgroundcolor = config.backgroundcolor end
+    if config.textcolor ~= nil then theme.textcolor = config.textcolor end
+    if config.boxcolor ~= nil then theme.boxcolor = config.boxcolor end
+    if config.boxbackground ~= nil then theme.boxbackground = config.boxbackground end
+    if config.selectcolor ~= nil then theme.selectcolor = config.selectcolor end
+    if config.selecttext ~= nil then theme.selecttext = config.selecttext end
+    if config.titlecolor ~= nil then theme.titlecolor = config.titlecolor end
+    if config.helpcolor ~= nil then theme.helpcolor = config.helpcolor end
+    if config.descriptioncolor ~= nil then theme.descriptioncolor = config.descriptioncolor end
+
     theme.backgroundcolor = theme.backgroundcolor or colors.black
     theme.textcolor = theme.textcolor or colors.white
     theme.boxbackground = theme.boxbackground or theme.backgroundcolor
