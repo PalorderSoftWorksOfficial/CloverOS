@@ -824,6 +824,8 @@ local function drawStyleEntries()
 end
 
 local function drawScreen()
+    local w, h = term.getSize()
+
     local inner = math.max(0, w - 4)
     local bbg = hex(select(2, math.frexp(theme.boxbackground)))
     local bfg = hex(select(2, math.frexp(theme.boxcolor)))
