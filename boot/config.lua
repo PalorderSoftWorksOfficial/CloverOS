@@ -19,11 +19,11 @@ end
 local ROOT = findCloverRoot()
 local KERNEL = ROOT .. (ROOT == "/" and "kernel.lua" or "/kernel.lua")
 menuentry "CloverOS" {
-    description "Boot CloverOS.";
-    chainloader KERNEL
+  description "Boot CloverOS.",
+  chainloader = KERNEL
 }
 
 menuentry "CraftOS" {
-    description "Boot into CraftOS.";
-    craftos;
+  description "Boot into CraftOS.",
+  craftos,
 }
