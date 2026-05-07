@@ -1,8 +1,6 @@
 defaultentry = "CloverOS"
 timeout = 5
-backgroundcolor = colors.black
-selectcolor = colors.orange
-titlecolor = colors.lightGray
+
 local function findCloverRoot()
   if fs.exists("/CloverOS_OS.lua") and fs.exists("/CloverOS_API.lua") then
     return "/"
@@ -17,10 +15,11 @@ local function findCloverRoot()
 end
 
 local ROOT = findCloverRoot()
-local KERNEL = ROOT .. (ROOT == "/" and "kernel.lua" or "/kernel.lua")
+local KERNEL = ROOT == "/" and "/kernel.lua" or ROOT .. "/kernel.lua"
+
 menuentry "CloverOS" {
   description "Boot CloverOS.",
-  chainloader = KERNEL
+  chainloader KERNEL
 }
 
 menuentry "CraftOS" {
