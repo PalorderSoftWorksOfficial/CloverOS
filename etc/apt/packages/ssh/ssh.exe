@@ -1,6 +1,10 @@
 local st = {}
 local modem = peripheral.find("modem")
-
+if modem then
+print("Modem is present")
+else
+error("Please attach a wireless modem or an endermodem")
+end
 function modexp(base, exponent, modulus)
     if modulus == 1 then
         return 0
