@@ -38,4 +38,4 @@ else
   error("Failed to load CloverOS_API: " .. tostring(api))
 end
 
-shell.run(root .. "/boot/kernel.lua")
+shell.run(root .. "/boot/pxboot.lua")

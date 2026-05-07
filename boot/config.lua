@@ -19,7 +19,7 @@ local KERNEL = ROOT == "/" and "/kernel.lua" or ROOT .. "/kernel.lua"
 
 menuentry "CloverOS" {
   description "Boot CloverOS.",
-  chainloader KERNEL
+  chainloader(KERNEL),
 }
 
 menuentry "CraftOS" {
