@@ -13,7 +13,7 @@ local monitor
 local config
 
 function cmds.kernel(t)
-    bootcfg.fn = unbios
+    bootcfg.fn = nil
     bootcfg.args = {t.path}
 end
 
