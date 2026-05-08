@@ -96,4 +96,7 @@ _G.CloverOS = setmetatable(API, {
 	end,
 })
 local cloverOS = safeFindOS("CloverOS_OS.lua")
+if not fs.exists(cloverOS) then
+	error("CloverOS_OS.lua not found at: " .. cloverOS)
+end
 shell.run(cloverOS)
