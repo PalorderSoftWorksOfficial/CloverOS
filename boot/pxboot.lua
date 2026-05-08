@@ -255,6 +255,9 @@ end
 
 function cmds.chainloader(t)
 	bootcfg.fn = shell and shell.run or function(path, ...)
+		if fs.exists(path) ~= true and path ~= nil then 
+			error("The OS has not been found the provided path is:" .. path)
+		end
 		os.run({}, path, ...)
 	end
 	bootcfg.args = { t.path }
