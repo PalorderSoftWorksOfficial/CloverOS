@@ -117,6 +117,7 @@ local currentUser = nil
 
 local settingsLoaded = false
 local editionSettings = {}
+
 if settings then
 	editionSettings.softinstall = settings.get("softinstall", false)
 	editionSettings.default = settings.get("default", true)
@@ -127,8 +128,7 @@ if settings then
 	editionSettings.autoLogin = settings.get("autoLogin", false)
 	editionSettings.soundEnabled = settings.get("soundEnabled", true)
 	editionSettings.performanceMode = settings.get("performanceMode", "standard")
-	Terminal.print("")
-	return value
+	settingsLoaded = true
 end
 
 local function loadAuth()
