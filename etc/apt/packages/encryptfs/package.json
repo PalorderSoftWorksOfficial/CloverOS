@@ -1,0 +1,12 @@
+{
+    "name": "encryptfs",
+    "description": "A CloverOS Toolkit for encryption",
+    "license": "GPL-3.0",
+    "author": "CloverOS Team",
+    "version": "0.1.1",
+    "app": false,
+    "binary": true,
+    "files": [
+        "encryptfs.exe"
+    ]
+}

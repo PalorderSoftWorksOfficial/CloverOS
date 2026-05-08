@@ -1,0 +1,205 @@
+local mod = 4294967296
+
+local function ensureDir(path)
+    if path == "" or path == "/" or fs.exists(path) then
+        return
+    end
+    ensureDir(fs.getDir(path))
+    if not fs.exists(path) then
+        fs.makeDir(path)
+    end
+end
+
+local function findDiskRoot()
+    if fs.exists("/CloverOS_OS.lua") then
+        return "/"
+    end
+    for _, name in ipairs(fs.list("/")) do
+        local p = fs.combine("/", name)
+        if fs.isDir(p) and fs.exists(fs.combine(p, "CloverOS_OS.lua")) then
+            return p
+        end
+    end
+    error("CloverOS_OS.lua not found")
+end
+
+local function xorBytes(a, b)
+    local out = {}
+    for i = 1, #a do
+        out[i] = string.char(bit32.bxor(a:byte(i), b:byte(i)))
+    end
+    return table.concat(out)
+end
+
+local function randomBytes(n)
+    local out = {}
+    for i = 1, n do
+        out[i] = string.char(math.random(0, 255))
+    end
+    return table.concat(out)
+end
+
+local function basename(path)
+    return fs.getName(path)
+end
+
+local function keyPathFor(outputPath, cryptoDir)
+    return fs.combine(cryptoDir, "." .. basename(outputPath) .. "_key")
+end
+
+local function defaultEncryptOutput(inputPath)
+    return inputPath .. ".enc"
+end
+
+local function defaultDecryptOutput(inputPath)
+    if inputPath:sub(-4) == ".enc" then
+        return inputPath:sub(1, -5)
+    end
+    return inputPath .. ".dec"
+end
+
+local function copyEncrypted(inputPath, outputPath, keyPath)
+    local inH = fs.open(inputPath, "r")
+    if not inH then
+        return nil, "cannot open input"
+    end
+
+    local outH = fs.open(outputPath, "w")
+    if not outH then
+        inH.close()
+        return nil, "cannot open output"
+    end
+
+    local keyH = fs.open(keyPath, "w")
+    if not keyH then
+        inH.close()
+        outH.close()
+        return nil, "cannot open key file"
+    end
+
+    local chunkSize = 4096
+
+    while true do
+        local data = inH.read(chunkSize)
+        if not data or #data == 0 then
+            break
+        end
+
+        local key = randomBytes(#data)
+        local enc = xorBytes(data, key)
+
+        keyH.write(key)
+        outH.write(enc)
+    end
+
+    inH.close()
+    outH.close()
+    keyH.close()
+    return true
+end
+
+local function copyDecrypted(inputPath, outputPath, keyPath)
+    if not fs.exists(keyPath) then
+        return nil, "missing key file"
+    end
+
+    local inH = fs.open(inputPath, "r")
+    if not inH then
+        return nil, "cannot open input"
+    end
+
+    local outH = fs.open(outputPath, "w")
+    if not outH then
+        inH.close()
+        return nil, "cannot open output"
+    end
+
+    local keyH = fs.open(keyPath, "r")
+    if not keyH then
+        inH.close()
+        outH.close()
+        return nil, "cannot open key file"
+    end
+
+    local chunkSize = 4096
+
+    while true do
+        local data = inH.read(chunkSize)
+        if not data or #data == 0 then
+            break
+        end
+
+        local key = keyH.read(#data)
+        if not key or #key ~= #data then
+            inH.close()
+            outH.close()
+            keyH.close()
+            return nil, "key file is incomplete or does not match input"
+        end
+
+        local dec = xorBytes(data, key)
+        outH.write(dec)
+    end
+
+    inH.close()
+    outH.close()
+    keyH.close()
+    return true
+end
+
+math.randomseed(os.epoch("utc"))
+math.random()
+math.random()
+math.random()
+
+local DISK_ROOT = findDiskRoot()
+local CRYPTO_DIR = fs.combine(fs.combine(fs.combine(DISK_ROOT, "etc"), "sys"), "cryptography")
+ensureDir(CRYPTO_DIR)
+
+local args = { ... }
+local mode = args[1]
+local inputPath = args[2]
+local outputPath = args[3]
+
+if not mode or not inputPath then
+    print("Usage:")
+    print("crypt encrypt <file> [output]")
+    print("crypt decrypt <file> [output]")
+    return
+end
+
+if not fs.exists(inputPath) or fs.isDir(inputPath) then
+    print("Invalid input file")
+    return
+end
+
+if mode == "encrypt" then
+    local out = outputPath and outputPath ~= "" and outputPath or defaultEncryptOutput(inputPath)
+    local keyPath = keyPathFor(out, CRYPTO_DIR)
+    ensureDir(fs.getDir(out))
+    local ok, err = copyEncrypted(inputPath, out, keyPath)
+    if not ok then
+        print(err)
+        return
+    end
+    print(out)
+    print(keyPath)
+    return
+end
+
+if mode == "decrypt" then
+    local out = outputPath and outputPath ~= "" and outputPath or defaultDecryptOutput(inputPath)
+    local keyPath = keyPathFor(inputPath, CRYPTO_DIR)
+    ensureDir(fs.getDir(out))
+    local ok, err = copyDecrypted(inputPath, out, keyPath)
+    if not ok then
+        print(err)
+        return
+    end
+    print(out)
+    return
+end
+
+print("Unknown mode")
+print("crypt encrypt <file> [output]")
+print("crypt decrypt <file> [output]")
