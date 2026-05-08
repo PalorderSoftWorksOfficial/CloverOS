@@ -31,7 +31,14 @@ local function mirrorSetCursor(x, y)
 		monitor.setCursorPos(x, y)
 	end
 end
-
+local function readInput(prompt, hidden)
+	prompt = tostring(prompt or "")
+	write(prompt)
+	if hidden then
+		return read("*")
+	end
+	return read()
+end
 local Terminal = {}
 
 function Terminal.clear()
