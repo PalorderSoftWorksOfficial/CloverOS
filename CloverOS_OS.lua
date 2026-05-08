@@ -1,7 +1,9 @@
 -- CloverOS main interface and shell
 ---@diagnostic disable: undefined-global
 -- luacheck: globals peripheral fs shell term colors textutils read write os
-
+if not kernel then
+	error("CloverOS requires the kernel API to be loaded in the global environment, Please run the OS via boot/kernel.lua or boot/pxboot.lua")
+end
 local monitor = peripheral.find("monitor")
 local fs = fs
 local shell = shell
