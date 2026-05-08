@@ -2034,10 +2034,14 @@ function kernel.net.lookupAll(protocol)
 	end
 	return results
 end
-mergeTables(kernel,API)
-_G.CloverOS = setmetatable(kernel, {
+_G.CloverOS = setmetatable(API, {
 	__newindex = function()
 		error("CloverOS API is read-only")
+	end,
+})
+_G.kernel = setmetatable(kernel, {
+	__newindex = function()
+		error("kernel API is read-only")
 	end,
 })
 
