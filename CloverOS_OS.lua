@@ -4,15 +4,18 @@
 if not kernel then
 	error("CloverOS requires the kernel API to be loaded in the global environment, Please run the OS via boot/kernel.lua or boot/pxboot.lua")
 end
-local monitor = peripheral.find("monitor")
-local fs = fs
-local shell = shell
-local term = term
-local colors = colors
-local textutils = textutils
+local monitor = kernel.peripheral.find("monitor")
+local fs = kernel.fs
+local process = kernel.process
+local term = kernel.term
+local settings = kernel.settings
+local serialize = kernel.serialize
+local path = kernel.path
+local colors = kernel.colors
+local textutils = kernel.textutils
 
 local function mirrorWrite(text)
-	write(text)
+    term.write(text)
 	if monitor then
 		monitor.write(text)
 	end
@@ -33,13 +36,10 @@ local function mirrorSetCursor(x, y)
 		monitor.setCursorPos(x, y)
 	end
 end
+
 local function readInput(prompt, hidden)
 	prompt = tostring(prompt or "")
-	write(prompt)
-	if hidden then
-		return read("*")
-	end
-	return read()
+	return kernel.input.line(prompt, hidden)
 end
 local Terminal = {}
 
@@ -77,10 +77,7 @@ function Terminal.print(...)
 end
 
 function Terminal.read(hidden)
-	if hidden then
-		return read("*")
-	end
-	return read()
+	return kernel.input.line(nil, hidden)
 end
 
 function Terminal.setCursor(x, y)
@@ -150,7 +147,7 @@ local function loadAuth()
 		return nil
 	end
 
-	local ok, auth = pcall(textutils.unserialize, handle.readAll())
+	local ok, auth = pcall(serialize.untable, handle.readAll())
 	handle.close()
 
 	if ok and type(auth) == "table" and auth.user and auth.pass then
@@ -165,7 +162,7 @@ local function saveAuth(username, password)
 	if not handle then
 		return false
 	end
-	handle.write(textutils.serialize({ user = tostring(username), pass = tostring(password) }))
+	handle.write(serialize.table({ user = tostring(username), pass = tostring(password) }))
 	handle.close()
 	return true
 end
@@ -180,7 +177,7 @@ local function login()
 		local password = readInput("New password: ", true)
 		saveAuth(username, password)
 		Terminal.print("Account created. Starting CloverOS...")
-		os.sleep(1.2)
+		kernel.sleep(1.2)
 		return
 	end
 
@@ -193,12 +190,12 @@ local function login()
 
 		if username == auth.user and password == auth.pass then
 			Terminal.print("Login successful.")
-			os.sleep(1)
+			kernel.sleep(1)
 			return
 		end
 
 		Terminal.print("Invalid credentials. Try again.")
-		os.sleep(1.2)
+		kernel.sleep(1.2)
 	end
 end
 
@@ -221,9 +218,9 @@ local function simulateLoading()
 	local w, _ = Terminal.getSize()
 	for i, message in ipairs(logLines) do
 		Terminal.centerText(4 + i, message)
-		os.sleep(sleepTime)
+		kernel.sleep(sleepTime)
 	end
-	os.sleep(sleepTime * 2)
+	kernel.sleep(sleepTime * 2)
 end
 local function DISK_ROOT()
 	local function isCloverRoot(root)
@@ -252,20 +249,21 @@ local function listCommands()
 
 	if ROOT and ROOT ~= "" then
 		paths[#paths + 1] = ROOT .. "/bin"
+		paths[#paths + 1] = ROOT .. "/usr/bin"
 	end
 
 	paths[#paths + 1] = "/bin"
+	paths[#paths + 1] = "/usr/bin"
 
-	for _, path in ipairs(paths) do
-		if fs.exists(path) and fs.isDir(path) then
-			for _, file in ipairs(fs.list(path)) do
-				local full = fs.combine(path, file)
+	for _, dir in ipairs(paths) do
+		if fs.exists(dir) and fs.isDir(dir) then
+			for _, file in ipairs(fs.list(dir)) do
+				local full = fs.combine(dir, file)
 				if fs.exists(full) and not fs.isDir(full) then
 					local isExecutable = file:match("%.[lL][uU][aA]$")
 						or file:match("%.[eE][xX][eE]$")
 						or file:match("%.[dD][lL][lL]$")
 						or not file:match("%.")
-
 					if isExecutable then
 						local name = file:gsub("%..+$", "")
 						commands[name] = full
@@ -348,6 +346,54 @@ local function expandToken(tok)
 	end)
 
 	return tok
+end
+
+local function parseEnvLine(line)
+	if not line or line == "" then
+		return nil, nil
+	end
+	line = trim(line)
+	if line == "" or line:sub(1, 1) == "#" then
+		return nil, nil
+	end
+	local name, value = line:match("^([%w_]+)%s*=%s*(.*)$")
+	if not name then
+		name, value = line:match("^export%s+([%w_]+)%s*=%s*(.*)$")
+	end
+	if name then
+		value = value or ""
+		if value:sub(1, 1) == '"' and value:sub(-1) == '"' then
+			value = value:sub(2, -2)
+		end
+		return name, value
+	end
+	return nil, nil
+end
+
+local function loadProfile(path)
+	if not fs.exists(path) or fs.isDir(path) then
+		return
+	end
+	local handle = fs.open(path, "r")
+	if not handle then
+		return
+	end
+	while true do
+		local line = handle.readLine()
+		if line == nil then break end
+		local name, value = parseEnvLine(line)
+		if name then
+			shellEnv[name] = value
+		end
+	end
+	handle.close()
+end
+
+local function loadShellProfiles()
+	loadProfile("/etc/profile")
+	local home = shellEnv.HOME or ROOT or "/"
+	local userProfile = home .. "/.profile"
+	loadProfile(userProfile)
 end
 
 local function startsWith(value, prefix)
@@ -438,12 +484,7 @@ local function completeLine(line)
 end
 
 local function readLine(prompt, history)
-	if type(read) == "function" then
-		write(prompt)
-		return read(nil, history, completeLine)
-	end
-
-	return readInput(prompt)
+	return kernel.input.readline(prompt, history, completeLine)
 end
 
 local function shellBuiltinHelp()
@@ -515,9 +556,9 @@ end
 
 local function resolvePath(path)
 	if not path or path == "" then
-		return shell.dir()
+		return process.dir()
 	end
-	return shell.resolve(path)
+	return path.resolve(path)
 end
 
 local function printFile(path)
@@ -591,9 +632,14 @@ local builtins = {
 		Terminal.print("  clear")
 		Terminal.print("  echo <text>")
 		Terminal.print("  sleep <seconds>")
+		Terminal.print("  ls [options] [path]")
 		Terminal.print("  history")
 		Terminal.print("  alias [name value]")
 		Terminal.print("  unalias <name>")
+		Terminal.print("  env")
+		Terminal.print("  set")
+		Terminal.print("  uname [option]")
+		Terminal.print("  grep <pattern> <file> [file...]")
 		Terminal.print("  which <command>")
 		Terminal.print("  touch <file>")
 		Terminal.print("  cat <file>")
@@ -629,18 +675,18 @@ local builtins = {
 	end,
 
 	shutdown = function()
-		os.shutdown()
+		kernel.shutdown()
 	end,
 
 	reboot = function()
-		os.reboot()
+		kernel.reboot()
 	end,
 
 	installer = function()
 		if _G.CloverOS and type(_G.CloverOS.runInstaller) == "function" then
 			_G.CloverOS.runInstaller()
 		else
-			shell.run("wget", "run", "https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
+			process.run("wget", "run", "https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua")
 		end
 	end,
 
@@ -660,25 +706,27 @@ local builtins = {
 			return
 		end
 
-		shell.run(targetPath, table.unpack(args))
+		process.run(targetPath, table.unpack(args))
 	end,
 
 	cd = function(path)
 		if not path or path == "" then
-			shell.setDir(ROOT)
+			process.setDir(ROOT)
+			shellEnv.PWD = process.dir()
 			return
 		end
 
 		local target = resolvePath(path)
 		if fs.isDir(target) then
-			shell.setDir(target)
+			process.setDir(target)
+			shellEnv.PWD = process.dir()
 		else
 			Terminal.print("Not a directory: " .. tostring(path))
 		end
 	end,
 
 	pwd = function()
-		Terminal.print(shell.dir())
+		Terminal.print(process.dir())
 	end,
 
 	clear = function()
@@ -692,7 +740,7 @@ local builtins = {
 	sleep = function(sec)
 		sec = tonumber(sec) or 0
 		if sec > 0 then
-			os.sleep(sec)
+			kernel.sleep(sec)
 		end
 	end,
 
@@ -750,7 +798,7 @@ local builtins = {
 		end
 
 		-- search PATH
-		local pathEnv = shellEnv.PATH or shell.path and shell.path() or "/bin"
+		local pathEnv = shellEnv.PATH or process.path() or "/bin"
 		for p in pathEnv:gmatch("[^:]+") do
 			local candidate = fs.combine(p, resolved)
 			if fs.exists(candidate) and not fs.isDir(candidate) then
@@ -760,6 +808,47 @@ local builtins = {
 		end
 
 		Terminal.print("Not found")
+	end,
+
+	ls = function(...)
+		local args = { ... }
+		local showAll = false
+		local longFormat = false
+		local target = "."
+		for _, arg in ipairs(args) do
+			if arg == "-a" then
+				showAll = true
+			elseif arg == "-l" then
+				longFormat = true
+			elseif arg:sub(1, 1) == "-" then
+				-- ignore unknown option
+			else
+				target = arg
+			end
+		end
+		local path = resolvePath(target)
+		if not fs.exists(path) then
+			Terminal.print("No such file or directory: " .. tostring(target))
+			return
+		end
+		if fs.isDir(path) then
+			local entries = fs.list(path)
+			table.sort(entries)
+			for _, name in ipairs(entries) do
+				if showAll or name:sub(1, 1) ~= "." then
+					if longFormat then
+						local full = fs.combine(path, name)
+						local info = fs.isDir(full) and "d" or "-"
+						local size = fs.isDir(full) and "" or tostring(fs.getSize(full))
+						Terminal.print(string.format("%s %s %s", info, name, size))
+					else
+						Terminal.print(name)
+					end
+				end
+			end
+		else
+			Terminal.print(target)
+		end
 	end,
 
 	export = function(name, value)
@@ -779,12 +868,18 @@ local builtins = {
 			return
 		end
 		-- check builtin help usage and command metadata
-		if builtins[cmd] and debug and type(builtins[cmd]) == "function" then
+		if builtins[cmd] and type(builtins[cmd]) == "function" then
 			Terminal.print("No manual entry for builtin: " .. cmd)
 			return
 		end
 		local commands = listCommands()
 		local path = commands[cmd]
+		local manPath = shellEnv.MANPATH or "/etc/man"
+		local manFile = fs.combine(manPath, cmd .. ".man")
+		if fs.exists(manFile) and not fs.isDir(manFile) then
+			printFile(manFile)
+			return
+		end
 		if not path then
 			Terminal.print("No manual entry for: " .. cmd)
 			return
@@ -798,6 +893,75 @@ local builtins = {
 			return
 		end
 		Terminal.print("No manual entry for: " .. cmd)
+	end,
+
+	env = function()
+		for k, v in pairs(shellEnv) do
+			Terminal.print(k .. "=" .. tostring(v))
+		end
+	end,
+
+	set = function()
+		local keys = {}
+		for k in pairs(shellEnv) do
+			table.insert(keys, k)
+		end
+		table.sort(keys)
+		for _, k in ipairs(keys) do
+			Terminal.print(k .. "=" .. tostring(shellEnv[k]))
+		end
+	end,
+
+	grep = function(pattern, ...)
+		if not pattern or pattern == "" then
+			Terminal.print("Usage: grep <pattern> <file> [file...]")
+			return
+		end
+		local args = { ... }
+		if #args == 0 then
+			Terminal.print("Usage: grep <pattern> <file> [file...]")
+			return
+		end
+		for _, p in ipairs(args) do
+			local target = resolvePath(p)
+			local h = fs.open(target, "r")
+			if not h then
+				Terminal.print("Unable to open file: " .. tostring(p))
+				goto continue_grep
+			end
+			local lineno = 0
+			while true do
+				local line = h.readLine()
+				if not line then break end
+				lineno = lineno + 1
+				if line:find(pattern) then
+					Terminal.print(string.format("%s:%d:%s", p, lineno, line))
+				end
+			end
+			h.close()
+			::continue_grep::
+		end
+	end,
+
+	uname = function(option)
+		local sysname = "CloverOS"
+		local nodename = shellEnv.HOSTNAME or "CloverOS"
+		local release = "1.0"
+		local version = "CloverOS Linux-like Shell"
+		local machine = "cc"
+		if option == "-a" then
+			Terminal.print(sysname .. " " .. nodename .. " " .. release .. " " .. version .. " " .. machine)
+		elseif option == "-s" then
+			Terminal.print(sysname)
+		elseif option == "-n" then
+			Terminal.print(nodename)
+		elseif option == "-r" then
+			Terminal.print(release)
+		elseif option == "-v" then
+			Terminal.print(version)
+		else
+			Terminal.print(sysname)
+		end
 	end,
 
 	touch = function(path)
@@ -974,11 +1138,11 @@ local builtins = {
 	end,
 
 	date = function()
-		Terminal.print(textutils.formatTime(os.time(), true))
+		Terminal.print(kernel.date("%c"))
 	end,
 
 	time = function()
-		Terminal.print(textutils.formatTime(os.time(), true))
+		Terminal.print(kernel.date("%X"))
 	end,
 
 	whoami = function()
@@ -1143,29 +1307,21 @@ local function autoRegisterCompletions()
 	end
 end
 local function formatPrompt()
-	local dir = shell.dir()
-
-	if dir == "" or dir == "/" then
-		return "root@CloverOS:~$ "
-	end
-
-	local root = ROOT
-	if root == "/" then
-		return "root@CloverOS:~" .. dir .. "$ "
-	end
-
-	if dir:sub(1, #root) == root then
-		local rel = dir:sub(#root + 1)
-		if rel == "" then
-			rel = "/"
+	local dir = process.dir()
+	local user = shellEnv.USER or "root"
+	local host = shellEnv.HOSTNAME or "CloverOS"
+	local cwd = dir
+	if cwd == "" or cwd == "/" then
+		cwd = "/"
+	elseif ROOT and ROOT ~= "/" and cwd:sub(1, #ROOT) == ROOT then
+		cwd = cwd:sub(#ROOT + 1)
+		if cwd == "" then
+			cwd = "/"
 		end
-		if rel:sub(1, 1) ~= "/" then
-			rel = "/" .. rel
-		end
-		return "root@CloverOS:~" .. rel .. "$ "
 	end
-
-	return "root@CloverOS:" .. dir .. "$ "
+	local prompt = shellEnv.PS1 or "%u@%h:%w$ "
+	prompt = prompt:gsub("%%u", user):gsub("%%h", host):gsub("%%w", cwd)
+	return prompt
 end
 local function runShell()
 	autoRegisterCompletions()
@@ -1175,10 +1331,16 @@ local function runShell()
 	local history = {}
 
 	-- initialize basic shell environment
-	shellEnv.PATH = shell.path and shell.path() or "/bin"
-	shellEnv.HOME = "/"
-	shellEnv.PWD = shell.dir()
+	shellEnv.PATH = process.path() or "/bin"
+	shellEnv.USER = "root"
+	shellEnv.HOME = ROOT or "/"
+	shellEnv.SHELL = "/bin/sh"
+	shellEnv.HOSTNAME = "CloverOS"
+	shellEnv.MANPATH = "/etc/man"
+	shellEnv.PS1 = "%u@%h:%w$ "
+	shellEnv.PWD = process.dir()
 	shellEnv["?"] = "0"
+	loadShellProfiles()
 
 	while true do
 		local line = readLine(formatPrompt(), history)
@@ -1209,7 +1371,7 @@ local function runShell()
 					return
 				end
 			elseif commands[resolved] then
-				local ok, err = pcall(shell.run, commands[resolved], table.unpack(parts))
+				local ok, err = pcall(process.run, commands[resolved], table.unpack(parts))
 				shellEnv["?"] = ok and "0" or "1"
 				if not ok then
 					Terminal.print("Error: " .. tostring(err))
@@ -1234,11 +1396,11 @@ local function getCustomApps()
 						run = function()
 							Terminal.clear()
 							local ok, err = pcall(function()
-								shell.run(filePath)
+								process.run(filePath)
 							end)
 							if not ok then
 								Terminal.print("App crash: " .. tostring(err))
-								os.sleep(1.5)
+								kernel.sleep(1.5)
 							end
 						end,
 					})
@@ -1263,11 +1425,11 @@ local function getCustomApps()
 								run = function()
 									Terminal.clear()
 									local ok, err = pcall(function()
-										shell.run(filePath)
+											process.run(filePath)
 									end)
 									if not ok then
 										Terminal.print("App crash: " .. tostring(err))
-										os.sleep(1.5)
+										kernel.sleep(1.5)
 									end
 								end,
 							})
@@ -1321,7 +1483,7 @@ local function fileManager()
 					local handle = fs.open(chosen, "r")
 					if not handle then
 						Terminal.print("Unable to open file.")
-						os.sleep(1.2)
+						kernel.sleep(1.2)
 					else
 						Terminal.clear()
 						Terminal.print("Viewing: " .. chosen)
@@ -1376,8 +1538,8 @@ local function desktop()
 			name = "Shutdown",
 			run = function()
 				Terminal.print("Shutting down...")
-				os.sleep(1)
-				os.shutdown()
+				kernel.sleep(1)
+				kernel.shutdown()
 			end,
 		},
 	}
@@ -1409,7 +1571,7 @@ local function desktop()
 		end
 		key = key:lower()
 		if key == "shutdown" or key == "poweroff" then
-			os.shutdown()
+			kernel.shutdown()
 			return
 		end
 
@@ -1419,7 +1581,7 @@ local function desktop()
 			local ok, err = pcall(allOptions[index].run)
 			if not ok then
 				Terminal.print("Execution error: " .. tostring(err))
-				os.sleep(1.5)
+				kernel.sleep(1.5)
 			end
 			activated = true
 		else
@@ -1428,7 +1590,7 @@ local function desktop()
 					local ok, err = pcall(option.run)
 					if not ok then
 						Terminal.print("Execution error: " .. tostring(err))
-						os.sleep(1.5)
+						kernel.sleep(1.5)
 					end
 					activated = true
 					break
@@ -1438,7 +1600,7 @@ local function desktop()
 
 		if not activated then
 			Terminal.print("No matching app found.")
-			os.sleep(1.2)
+			kernel.sleep(1.2)
 		end
 
 		::continue::
@@ -1451,4 +1613,4 @@ if not (settingsLoaded and editionSettings.autoLogin) then
 end
 desktop()
 
-term.setCursorBlink(true)
+kernel.term.native().setCursorBlink(true)

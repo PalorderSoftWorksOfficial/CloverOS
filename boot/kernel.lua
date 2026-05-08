@@ -183,9 +183,15 @@ function kernel.warn(...)
 	return kernel.log("warn", ...)
 end
 
-function kernel.debug(...)
-	return kernel.log("debug", ...)
+if kernel.debug == nil then
+	kernel.debug = {}
 end
+
+setmetatable(kernel.debug, {
+    __call = function(_, ...)
+        return kernel.log("debug", ...)
+    end,
+})
 
 function kernel.error(...)
 	return kernel.log("error", ...)
@@ -505,6 +511,9 @@ function kernel.peripheral.hasMethod(name, method)
 	end
 	return false
 end
+
+kernel.colors = colors
+kernel.textutils = textutils
 
 kernel.settings = {}
 
@@ -844,8 +853,8 @@ function kernel.table.count(t)
 	return n
 end
 
-kernel.serialize = kernel.serialize or {}
-kernel.file = kernel.file or {}
+if type(kernel.serialize) ~= "table" then kernel.serialize = {} end
+if type(kernel.file) ~= "table" then kernel.file = {} end
 
 function kernel.serialize.table(t)
 	return textutils.serialize(t)
@@ -1059,9 +1068,9 @@ function kernel.process.setPath(path)
 end
 
 
-kernel.peripheral = kernel.peripheral or {}
-kernel.monitor = kernel.monitor or {}
-kernel.color = kernel.color or {}
+if type(kernel.peripheral) ~= "table" then kernel.peripheral = {} end
+if type(kernel.monitor) ~= "table" then kernel.monitor = {} end
+if type(kernel.color) ~= "table" then kernel.color = {} end
 
 kernel.color.names = {
 	white = colors.white,
@@ -1297,18 +1306,27 @@ function kernel.util.import(path)
 	end
 	return false, result
 end
-kernel.fs = kernel.fs or {}
-kernel.path = kernel.path or {}
-kernel.table = kernel.table or {}
-kernel.config = kernel.config or {}
-kernel.registry = kernel.registry or {}
-kernel.ui = kernel.ui or {}
-kernel.input = kernel.input or {}
-kernel.task = kernel.task or {}
-kernel.app = kernel.app or {}
-kernel.debug = kernel.debug or {}
-kernel.system = kernel.system or {}
-kernel.net = kernel.net or {}
+if type(kernel.fs) ~= "table" then kernel.fs = {} end
+if type(kernel.path) ~= "table" then kernel.path = {} end
+if type(kernel.table) ~= "table" then kernel.table = {} end
+if type(kernel.config) ~= "table" then kernel.config = {} end
+if type(kernel.registry) ~= "table" then kernel.registry = {} end
+if type(kernel.ui) ~= "table" then kernel.ui = {} end
+if type(kernel.input) ~= "table" then kernel.input = {} end
+if type(kernel.task) ~= "table" then kernel.task = {} end
+if type(kernel.app) ~= "table" then kernel.app = {} end
+if type(kernel.debug) ~= "table" then
+	local dbg = kernel.debug
+	kernel.debug = {}
+	if type(dbg) == "function" then
+		local mt = getmetatable(dbg)
+		if mt then
+			setmetatable(kernel.debug, mt)
+		end
+	end
+end
+if type(kernel.system) ~= "table" then kernel.system = {} end
+if type(kernel.net) ~= "table" then kernel.net = {} end
 function kernel.fs.getFreeSpace(path)
 	return fs.getFreeSpace(path or "/")
 end
@@ -1707,15 +1725,37 @@ function kernel.ui.statusLine(text)
 	term.write(kernel.text.padRight(tostring(text or ""), w))
 end
 
-function kernel.input.line(prompt, default)
+function kernel.input.line(prompt, hiddenOrDefault, default)
+	local hidden = false
+	if type(hiddenOrDefault) == "boolean" then
+		hidden = hiddenOrDefault
+	else
+		default = hiddenOrDefault
+	end
+
 	if prompt and prompt ~= "" then
 		write(tostring(prompt))
 	end
-	local input = read()
+	local input
+	if hidden and type(read) == "function" then
+		input = read("*")
+	else
+		input = read()
+	end
 	if input == "" and default ~= nil then
 		return default
 	end
 	return input
+end
+
+function kernel.input.readline(prompt, history, complete)
+	if prompt and prompt ~= "" then
+		term.write(tostring(prompt))
+	end
+	if type(read) == "function" then
+		return read(nil, history, complete)
+	end
+	return read()
 end
 
 function kernel.input.number(prompt, default)
