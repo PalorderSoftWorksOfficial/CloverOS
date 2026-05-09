@@ -13,30 +13,6 @@ local serialize = kernel.serialize
 local path = kernel.path
 local colors = kernel.colors
 local textutils = kernel.textutils
-
-local function mirrorWrite(text)
-    term.write(text)
-	if monitor then
-		monitor.write(text)
-	end
-end
-
-local function mirrorClear()
-	term.clear()
-	term.setCursorPos(1, 1)
-	if monitor then
-		monitor.clear()
-		monitor.setCursorPos(1, 1)
-	end
-end
-
-local function mirrorSetCursor(x, y)
-	term.setCursorPos(x, y)
-	if monitor then
-		monitor.setCursorPos(x, y)
-	end
-end
-
 local function readInput(prompt, hidden)
 	prompt = tostring(prompt or "")
 	return kernel.input.line(prompt, hidden)
@@ -60,11 +36,11 @@ function Terminal.clear()
 		monitor.setBackgroundColor(bg)
 		monitor.setTextColor(fg)
 	end
-	mirrorClear()
+	term.write(clear)
 end
 
 function Terminal.write(text)
-	mirrorWrite(text)
+	term.write(text)
 end
 
 function Terminal.print(...)
@@ -72,8 +48,8 @@ function Terminal.print(...)
 	for i = 1, select("#", ...) do
 		parts[i] = tostring(select(i, ...))
 	end
-	mirrorWrite(table.concat(parts, "\t"))
-	mirrorWrite("\n")
+	term.write(table.concat(parts, "\t"))
+	term.write("\n")
 end
 
 function Terminal.read(hidden)
@@ -81,7 +57,7 @@ function Terminal.read(hidden)
 end
 
 function Terminal.setCursor(x, y)
-	mirrorSetCursor(x, y)
+	term.setCursorPos(x, y)
 end
 
 function Terminal.getSize()
@@ -97,8 +73,8 @@ function Terminal.centerText(y, text, fg, bg)
 	end
 	local w = select(1, Terminal.getSize())
 	local x = math.max(1, math.floor((w - #text) / 2) + 1)
-	mirrorSetCursor(x, y)
-	mirrorWrite(text)
+	term.setCursorPos(x, y)
+	term.write(text)
 	term.setTextColor(colors.white)
 	term.setBackgroundColor(colors.black)
 end
