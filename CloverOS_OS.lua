@@ -36,7 +36,7 @@ function Terminal.clear()
 		monitor.setBackgroundColor(bg)
 		monitor.setTextColor(fg)
 	end
-	term.write(clear)
+	term.clear()
 end
 
 function Terminal.write(text)
@@ -91,8 +91,25 @@ local function findCloverRoot()
 	end
 	return "/"
 end
+local function ensureDirectory(path)
+	if not fs.exists(path) then
+		fs.makeDir(path)
+	end
+end
 
 local ROOT = findCloverRoot()
+ensureDirectory(ROOT .. "/etc")
+ensureDirectory(ROOT .. "/etc/man")
+ensureDirectory(ROOT .. "/usr/bin")
+ensureDirectory(ROOT .. "/bin")
+local defaultProfile = ROOT .. "/etc/profile"
+if not fs.exists(defaultProfile) then
+	local handle = fs.open(defaultProfile, "w")
+	if handle then
+		handle.write('PATH="/bin:/usr/bin"\nPS1="%u@%h:%w$ "\nMANPATH="/etc/man"\n')
+		handle.close()
+	end
+end
 local AUTH_FILE = ROOT .. "/auth"
 local USERS_FILE = ROOT .. "/users"
 local currentUser = nil
@@ -871,6 +888,32 @@ local builtins = {
 		Terminal.print("No manual entry for: " .. cmd)
 	end,
 
+	source = function(file)
+		if not file or file == "" then
+			Terminal.print("Usage: source <file>")
+			return
+		end
+		local target = resolvePath(file)
+		if not fs.exists(target) then
+			Terminal.print("No such file: " .. tostring(file))
+			return
+		end
+		local handle = fs.open(target, "r")
+		if not handle then
+			Terminal.print("Unable to open file: " .. tostring(file))
+			return
+		end
+		while true do
+			local line = handle.readLine()
+			if not line then break end
+			local name, value = parseEnvLine(line)
+			if name then
+				shellEnv[name] = value
+			end
+		end
+		handle.close()
+	end,
+
 	env = function()
 		for k, v in pairs(shellEnv) do
 			Terminal.print(k .. "=" .. tostring(v))
@@ -1329,6 +1372,14 @@ local function runShell()
 
 			local parts = tokenize(commandLine)
 			local command = table.remove(parts, 1)
+			while command and command:match("^[%w_]+=.*$") do
+				local name, value = command:match("^([%w_]+)=(.*)$")
+				if not name then
+					break
+				end
+				shellEnv[name] = expandToken(value)
+				command = table.remove(parts, 1)
+			end
 			-- expand tokens
 			for i = 1, #parts do
 				parts[i] = expandToken(parts[i])
@@ -1589,4 +1640,7 @@ if not (settingsLoaded and editionSettings.autoLogin) then
 end
 desktop()
 
-kernel.term.native().setCursorBlink(true)
+local nativeTerm = kernel.term.native()
+if nativeTerm and type(nativeTerm.setCursorBlink) == "function" then
+	nativeTerm.setCursorBlink(true)
+end
