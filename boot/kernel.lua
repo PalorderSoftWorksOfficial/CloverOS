@@ -93,7 +93,7 @@ end
 local kernel = {
 	_name = "CloverOS Kernel",
 	_version = "1.0.0",
-	_build = "2026-05-08",
+	_build = "2026-05-11",
 	_startedAt = os.clock(),
 	_services = {},
 	_drivers = {},
@@ -637,6 +637,52 @@ function kernel.service.list()
 end
 
 kernel.driver = {}
+
+function kernel.driver.unload(id)
+	local driver = kernel._drivers[id]
+	if not driver then
+		return nil, "driver not loaded"
+	end
+
+	if type(driver.shutdown) == "function" then
+		local ok, err = pcall(driver.shutdown, kernel, kernel.old or {})
+		if not ok then
+			return nil, "driver shutdown failed: " .. tostring(err)
+		end
+	end
+
+	kernel._drivers[id] = nil
+	return true
+end
+
+function kernel.driver.load(filePath)
+	local ok, driver = pcall(dofile, filePath)
+	if not ok then
+		return nil, "failed to load driver: " .. tostring(driver)
+	end
+
+	if type(driver) ~= "table" then
+		return nil, "driver must return a table"
+	end
+
+	if type(driver.id) ~= "string" or driver.id == "" then
+		return nil, "driver missing valid id"
+	end
+
+	if kernel._drivers[driver.id] then
+		return nil, "driver already loaded: " .. driver.id
+	end
+
+	if type(driver.init) == "function" then
+		local ok2, err = pcall(driver.init, kernel, kernel.old or {})
+		if not ok2 then
+			return nil, "driver init failed: " .. tostring(err)
+		end
+	end
+
+	kernel._drivers[driver.id] = driver
+	return driver
+end
 
 function kernel.driver.register(name, value)
 	if type(name) ~= "string" or name == "" then
@@ -2053,20 +2099,97 @@ _G.kernel = setmetatable(kernel, {
 		error("kernel API is read-only")
 	end,
 })
--- Letsa override the lua enviroment
-_G.process = kernel.process
-_G.term = kernel.term
-_G.settings = kernel.settings
-_G.serialize = kernel.serialize
-_G.path = kernel.path
-_G.colors = kernel.colors
-_G.textutils = kernel.textutils
-_G.shell = kernel.shell
-_G.redstone = kernel.redstone
-_G.peripheral = kernel.peripheral
-_G.os = kernel.os
-_G.http = kernel.http
+local function DISK_ROOT()
+	local function isCloverRoot(root)
+		return fs.exists(root .. "/CloverOS_API.lua") and fs.exists(root .. "/boot/kernel.lua")
+	end
 
+	if isCloverRoot("") or isCloverRoot("/") then
+		return ""
+	end
+
+	for i = 1, 99 do
+		local root = "/disk" .. (i == 1 and "" or i)
+		if isCloverRoot(root) then
+			return root
+		end
+	end
+
+	return nil
+end
+
+local root = DISK_ROOT()
+if not root then
+	error("CloverOS root not found")
+end
+
+local driverRoot = root .. "/boot/kernel/drivers"
+
+if not fs.exists(driverRoot) then
+	fs.makeDir(driverRoot)
+
+	local exampleDriver = [[
+return {
+  id = "example_driver",
+
+  init = function(kernel)
+    kernel.info("Example driver initialized")
+  end,
+
+  shutdown = function(kernel)
+    kernel.info("Example driver shutdown")
+  end
+}
+]]
+
+	local h = fs.open(fs.combine(driverRoot, "example.lua"), "w")
+	h.write(exampleDriver)
+	h.close()
+end
+
+local function loadDriver(path)
+	local driver, err = kernel.driver.load(path)
+
+	if not driver then
+		kernel.warn("Driver load failed:", path, err)
+		return
+	end
+
+	kernel.info("Loaded driver:", driver.id or path)
+end
+
+local function loadDrivers(dir)
+	if not fs.exists(dir) then
+		return
+	end
+
+	for _, name in ipairs(fs.list(dir)) do
+		local path = fs.combine(dir, name)
+
+		if fs.isDir(path) then
+			local initPath = fs.combine(path, "init.lua")
+
+			if fs.exists(initPath) then
+				loadDriver(initPath)
+			else
+				loadDrivers(path)
+			end
+		else
+			local lower = name:lower()
+
+			if
+				lower:sub(-4) == ".lua" or
+				lower:sub(-4) == ".sys" or
+				lower:sub(-4) == ".dll" or
+				lower:sub(-5) == ".luau"
+			then
+				loadDriver(path)
+			end
+		end
+	end
+end
+
+loadDrivers(driverRoot)
 fs.write("/startup.lua", [[
 	print("Setting up CraftOS environment...")
 
