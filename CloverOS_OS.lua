@@ -193,27 +193,158 @@ local function login()
 end
 
 local function simulateLoading()
-	Terminal.clear()
-	local logLines = {
-		"[BOOT] Initializing CloverOS...",
-		"[BOOT] Detecting hardware...",
-		"[BOOT] Loading modules...",
-		"[BOOT] Mounting filesystems...",
-		"[BOOT] Starting core services...",
-		"[OK] CloverOS ready.",
-	}
+    local w, h = kernel.ui.size()
 
-	local sleepTime = 0.25
-	if settingsLoaded and editionSettings.performanceMode == "low" then
-		sleepTime = 0.1
-	end
+    kernel.term.setBackgroundColor(colors.black)
+    kernel.term.setTextColor(colors.white)
+    kernel.ui.clear()
 
-	local w, _ = Terminal.getSize()
-	for i, message in ipairs(logLines) do
-		Terminal.centerText(4 + i, message)
-		kernel.sleep(sleepTime)
-	end
-	kernel.sleep(sleepTime * 2)
+    local function centerPrint(y, text, fg, bg)
+        kernel.term.setTextColor(fg or colors.white)
+        kernel.term.setBackgroundColor(bg or colors.black)
+        kernel.ui.centerText(y, text)
+    end
+
+    local logo = {
+        "   _____ _                      ____   _____ ",
+        "  / ____| |                    / __ \\ / ____|",
+        " | |    | | _____   _____ _ __| |  | | (___  ",
+        " | |    | |/ _ \\ \\ / / _ \\ '__| |  | |\\___ \\ ",
+        " | |____| | (_) \\ V /  __/ |  | |__| |____) |",
+        "  \\_____|_|\\___/ \\_/ \\___|_|   \\____/|_____/ ",
+    }
+
+    for i, line in ipairs(logo) do
+        centerPrint(2 + i, line, colors.green)
+        kernel.sleep(0.05)
+    end
+
+    kernel.sleep(0.6)
+
+    centerPrint(10, "CloverOS Krnl v1.0.0", colors.white)
+
+    local visibleLines = 19
+    local scrollTop = 12
+    local logBuffer = {}
+
+    local function redrawLogs()
+        for i = 0, visibleLines - 1 do
+            kernel.term.setCursorPos(1, scrollTop + i)
+            kernel.term.clearLine()
+        end
+
+        for i, entry in ipairs(logBuffer) do
+            local y = scrollTop + i - 1
+
+            kernel.term.setTextColor(entry.color)
+            kernel.ui.centerText(y, entry.text)
+        end
+    end
+
+    local function pushLog(text, color)
+        table.insert(logBuffer, {
+            text = text,
+            color = color or colors.white
+        })
+
+        if #logBuffer > visibleLines then
+            table.remove(logBuffer, 1)
+        end
+
+        redrawLogs()
+    end
+
+    local bootMessages = {
+        "[BOOT] Detecting CPU and kernel features...",
+        "[BOOT] Initializing hardware interfaces...",
+        "[BOOT] Loading kernel modules...",
+        "[KERNEL] Mounting root filesystem...",
+        "[KERNEL] Checking disk integrity...",
+        "[KERNEL] Starting process manager...",
+        "[INIT] Launching device services...",
+        "[INIT] Initializing network stack...",
+        "[SERVICES] Starting system daemons...",
+        "[SEC] Initializing security policies...",
+        "[OK] System services running.",
+        "[OK] All critical kernel modules loaded.",
+        "[BOOT] Loading virtual filesystem...",
+        "[BOOT] Probing connected devices...",
+        "[INIT] Starting scheduler...",
+        "[INIT] Loading terminal driver...",
+        "[SERVICES] Starting audio manager...",
+        "[SERVICES] Starting display server...",
+        "[SERVICES] Starting update checker...",
+        "[OK] Boot tasks completed.",
+        "[OK] Kernel online."
+    }
+
+    for _, msg in ipairs(bootMessages) do
+        local color = colors.white
+
+        if msg:find("%[FAIL%]") then
+            color = colors.red
+            kernel.error(msg)
+
+        elseif msg:find("%[WARN%]") then
+            color = colors.orange
+            kernel.warn(msg)
+
+        elseif msg:find("%[OK%]") then
+            color = colors.lime
+            kernel.info(msg)
+
+        elseif msg:find("%[BOOT%]") then
+            color = colors.lightBlue
+            kernel.debug(msg)
+
+        elseif msg:find("%[INIT%]") then
+            color = colors.green
+            kernel.debug(msg)
+
+        elseif msg:find("%[KERNEL%]") then
+            color = colors.cyan
+            kernel.debug(msg)
+
+        elseif msg:find("%[SERVICES%]") then
+            color = colors.orange
+            kernel.debug(msg)
+
+        elseif msg:find("%[SEC%]") then
+            color = colors.purple
+            kernel.debug(msg)
+        end
+
+        pushLog(msg, color)
+
+        kernel.sleep(0.45 + math.random() * 0.15)
+    end
+
+    local barW = math.min(50, w - 10)
+    local bx = math.floor((w - barW) / 2) + 1
+    local by = scrollTop + visibleLines + 1
+
+    centerPrint(by - 2, "Loading kernel components:", colors.lightGray)
+
+    for i = 1, barW do
+        kernel.term.setCursorPos(bx + i - 1, by)
+        kernel.term.setBackgroundColor(colors.green)
+        kernel.term.write(" ")
+
+        local percent = math.floor((i / barW) * 100)
+
+        kernel.term.setBackgroundColor(colors.black)
+        centerPrint(by + 1, percent .. "%", colors.white)
+
+        kernel.sleep(0.02 + math.random() * 0.02)
+    end
+
+    kernel.term.setBackgroundColor(colors.black)
+
+    centerPrint(by + 3, "CloverOS Krnl started successfully.", colors.lime)
+
+    kernel.boot()
+
+    kernel.sleep(0.9)
 end
 local function DISK_ROOT()
 	local function isCloverRoot(root)
