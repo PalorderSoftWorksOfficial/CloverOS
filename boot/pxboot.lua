@@ -558,7 +558,18 @@ repeat
 	end
 until true
 
-local function runShell() end
+local function runShell()
+	term.setTextColor(colors.yellow)
+		print(os.version())
+		term.setTextColor(colors.white)
+		if settings.get("motd.enable") then
+			if shell then
+				shell.run("motd")
+			else
+				os.run({}, "/rom/programs/motd.lua")
+			end
+		end
+end
 
 if #entries == 0 then
 	return runShell()
