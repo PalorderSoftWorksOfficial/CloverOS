@@ -188,9 +188,9 @@ if kernel.debug == nil then
 end
 
 setmetatable(kernel.debug, {
-    __call = function(_, ...)
-        return kernel.log("debug", ...)
-    end,
+	__call = function(_, ...)
+		return kernel.log("debug", ...)
+	end,
 })
 
 function kernel.error(...)
@@ -718,7 +718,7 @@ end
 
 function kernel.text.endsWith(s, suffix)
 	s, suffix = tostring(s or ""), tostring(suffix or "")
-	return suffix == "" or s:sub(-#suffix) == suffix
+	return suffix == "" or s:sub(- #suffix) == suffix
 end
 
 function kernel.text.padLeft(s, len, char)
@@ -1051,6 +1051,7 @@ end
 function kernel.process.exists(name)
 	return shell.resolveProgram(name) ~= nil
 end
+
 function kernel.process.dir()
 	return shell.dir()
 end
@@ -1066,7 +1067,6 @@ end
 function kernel.process.setPath(path)
 	return shell.setPath(path)
 end
-
 
 if type(kernel.peripheral) ~= "table" then kernel.peripheral = {} end
 if type(kernel.monitor) ~= "table" then kernel.monitor = {} end
@@ -1257,6 +1257,7 @@ function kernel.net.lookup(protocol, hostname)
 	end
 	return rednet.lookup(protocol, hostname)
 end
+
 kernel.system = kernel.system or {}
 kernel.util = kernel.util or {}
 
@@ -1280,7 +1281,8 @@ function kernel.system.setHostname(name)
 end
 
 function kernel.util.uuidLike()
-	return string.format("%08x-%04x-%04x-%04x-%012x", os.epoch("utc") % 0xFFFFFFFF, math.random(0, 0xFFFF), math.random(0, 0xFFFF), math.random(0, 0xFFFF), math.random(0, 0xFFFFFFFFFFFF))
+	return string.format("%08x-%04x-%04x-%04x-%012x", os.epoch("utc") % 0xFFFFFFFF, math.random(0, 0xFFFF),
+		math.random(0, 0xFFFF), math.random(0, 0xFFFF), math.random(0, 0xFFFFFFFFFFFF))
 end
 
 function kernel.util.timeMs()
@@ -1306,6 +1308,7 @@ function kernel.util.import(path)
 	end
 	return false, result
 end
+
 if type(kernel.fs) ~= "table" then kernel.fs = {} end
 if type(kernel.path) ~= "table" then kernel.path = {} end
 if type(kernel.table) ~= "table" then kernel.table = {} end
@@ -1391,6 +1394,7 @@ function kernel.fs.count(path)
 	end
 	return n
 end
+
 function kernel.path.normalize(path)
 	path = tostring(path or "")
 	local absolute = path:sub(1, 1) == "/"
@@ -1444,6 +1448,7 @@ end
 function kernel.path.hasExtension(path)
 	return kernel.path.extension(path) ~= nil
 end
+
 function kernel.table.filter(t, fn)
 	local out = {}
 	for k, v in pairs(t or {}) do
@@ -1504,6 +1509,7 @@ function kernel.table.clear(t)
 	end
 	return t
 end
+
 kernel._configs = kernel._configs or {}
 
 function kernel.config.path(name)
@@ -1592,6 +1598,7 @@ end
 function kernel.config.list()
 	return kernel.table.keys(kernel._configs)
 end
+
 kernel._registry = kernel._registry or {}
 
 function kernel.registry.set(namespace, key, value)
@@ -1896,6 +1903,7 @@ function kernel.task.cleanup()
 	end
 	return true
 end
+
 function kernel.input.waitKey(filter)
 	return os.pullEvent(filter or "key")
 end
@@ -2034,6 +2042,7 @@ function kernel.net.lookupAll(protocol)
 	end
 	return results
 end
+
 _G.CloverOS = setmetatable(API, {
 	__newindex = function()
 		error("CloverOS API is read-only")
@@ -2044,6 +2053,38 @@ _G.kernel = setmetatable(kernel, {
 		error("kernel API is read-only")
 	end,
 })
+-- Letsa override the lua enviroment
+_G.process = kernel.process
+_G.term = kernel.term
+_G.settings = kernel.settings
+_G.serialize = kernel.serialize
+_G.path = kernel.path
+_G.colors = kernel.colors
+_G.textutils = kernel.textutils
+_G.shell = kernel.shell
+_G.redstone = kernel.redstone
+_G.peripheral = kernel.peripheral
+_G.os = kernel.os
+_G.http = kernel.http
+
+fs.write("/startup.lua", [[
+	print("Setting up CraftOS environment...")
+
+	pcall(function()
+		shell.run("attach left drive")
+		shell.run("attach right speaker")
+		shell.run("attach back monitor")
+		if mounter and mounter.mount then
+			mounter.mount("/CloverOS_Disks/0", "C:\\CloverOS_Disks\\0")
+		end
+
+		if disk and disk.insertDisk then
+			disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
+		end
+	end)
+
+	print("Environment setup complete.")
+]])
 
 local cloverOS = safeFindOS("CloverOS_OS.lua")
 shell.run(cloverOS)
