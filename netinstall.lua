@@ -484,9 +484,9 @@ end
 
 print(
 	"CloverOS "
-		.. (installMode == "reinstall" and "reinstalled" or "installed")
-		.. " successfully to "
-		.. selectedDisk.path
+	.. (installMode == "reinstall" and "reinstalled" or "installed")
+	.. " successfully to "
+	.. selectedDisk.path
 )
 sleep(1)
 

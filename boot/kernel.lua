@@ -2108,7 +2108,7 @@ local function DISK_ROOT()
 		return ""
 	end
 
-	for i = 1, 99 do
+	for i = 0, 99 do
 		local root = "/disk" .. (i == 1 and "" or i)
 		if isCloverRoot(root) then
 			return root
@@ -2190,24 +2190,38 @@ local function loadDrivers(dir)
 end
 
 loadDrivers(driverRoot)
-fs.write("/startup.lua", [[
-	print("Setting up CraftOS environment...")
 
-	pcall(function()
-		shell.run("attach left drive")
-		shell.run("attach right speaker")
-		shell.run("attach back monitor")
-		if mounter and mounter.mount then
-			mounter.mount("/CloverOS_Disks/0", "C:\\CloverOS_Disks\\0")
-		end
+local startupPath = "/startup.lua"
 
-		if disk and disk.insertDisk then
-			disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
-		end
-	end)
+if settings.get("envType") == "craftos" and not fs.exists(startupPath) then
+	local h = fs.open(startupPath, "w")
 
-	print("Environment setup complete.")
+	h.write([[
+print("Setting up CraftOS environment...")
+
+pcall(function()
+	shell.run("attach left drive")
+	shell.run("attach right speaker")
+	shell.run("attach back monitor")
+
+	if mounter and mounter.mount then
+		mounter.mount("/CloverOS_Disks/0", "C:\\CloverOS_Disks\\0")
+	end
+
+	if disk and disk.insertDisk then
+		disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
+	end
+end)
+
+local diskStartup = "/disk/startup.lua"
+
+if fs.exists(diskStartup) and diskStartup ~= shell.getRunningProgram() then
+	shell.run(diskStartup)
+end
 ]])
+
+	h.close()
+end
 
 local cloverOS = safeFindOS("CloverOS_OS.lua")
 shell.run(cloverOS)
