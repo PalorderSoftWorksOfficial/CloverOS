@@ -103,6 +103,91 @@ ensureDirectory(ROOT .. "/etc")
 ensureDirectory(ROOT .. "/etc/man")
 ensureDirectory(ROOT .. "/usr/bin")
 ensureDirectory(ROOT .. "/bin")
+ensureDirectory(ROOT .. "/home")
+ensureDirectory(ROOT .. "/var")
+ensureDirectory(ROOT .. "/tmp")
+ensureDirectory(ROOT .. "/usr/local/bin")
+if not fs.exists(ROOT .. "/etc/passwd") then
+  local h = fs.open(ROOT .. "/etc/passwd", "w")
+  if h then
+    h.write("root:x:0:0::/root:/bin/sh\n")
+    h.close()
+  end
+end
+if not fs.exists(ROOT .. "/etc/group") then
+  local h = fs.open(ROOT .. "/etc/group", "w")
+  if h then
+    h.write("root:x:0:root\nusers:x:1000:\n")
+    h.close()
+  end
+end
+local users = { root = { uid = 0, gid = 0, home = "/root", shell = "/bin/sh", password = "x" } }
+local groups = { root = { gid = 0, members = {"root"} }, users = { gid = 1000, members = {} } }
+
+local function loadUsers()
+  if fs.exists(ROOT .. "/etc/passwd") then
+    local h = fs.open(ROOT .. "/etc/passwd", "r")
+    if h then
+      users = {}
+      while true do
+        local line = h.readLine()
+        if not line then break end
+        local name, pass, uid, gid, gecos, home, shell = line:match("([^:]+):([^:]+):([^:]+):([^:]+):([^:]*):([^:]+):([^:]+)")
+        if name then
+          users[name] = {
+            uid = tonumber(uid),
+            gid = tonumber(gid),
+            home = home,
+            shell = shell,
+            password = pass
+          }
+        end
+      end
+      h.close()
+    end
+  end
+  if fs.exists(ROOT .. "/etc/group") then
+    local h = fs.open(ROOT .. "/etc/group", "r")
+    if h then
+      groups = {}
+      while true do
+        local line = h.readLine()
+        if not line then break end
+        local name, pass, gid, members = line:match("([^:]+):([^:]+):([^:]+):(.*)")
+        if name then
+          groups[name] = {
+            gid = tonumber(gid),
+            members = {}
+          }
+          for member in members:gmatch("[^,]+") do
+            table.insert(groups[name].members, member)
+          end
+        end
+      end
+      h.close()
+    end
+  end
+end
+
+local function saveUsers()
+  local h = fs.open(ROOT .. "/etc/passwd", "w")
+  if h then
+    for name, info in pairs(users) do
+      h.write(name .. ":" .. info.password .. ":" .. info.uid .. ":" .. info.gid .. "::" .. info.home .. ":" .. info.shell .. "\n")
+    end
+    h.close()
+  end
+end
+
+local function saveGroups()
+  local h = fs.open(ROOT .. "/etc/group", "w")
+  if h then
+    for name, info in pairs(groups) do
+      h.write(name .. ":x:" .. info.gid .. ":" .. table.concat(info.members, ",") .. "\n")
+    end
+    h.close()
+  end
+end
 local defaultProfile = ROOT .. "/etc/profile"
 if not fs.exists(defaultProfile) then
   local handle = fs.open(defaultProfile, "w")
@@ -162,14 +247,19 @@ local function saveAuth(username, password)
 end
 
 local function login()
-  local auth = loadAuth()
-  if not auth then
+  loadUsers()
+  if not next(users) then
     Terminal.clear()
     Terminal.centerText(2, "CloverOS Setup", colors.white, colors.blue)
     Terminal.print("")
     local username = readInput("New username: ")
     local password = readInput("New password: ", true)
-    saveAuth(username, password)
+    users[username] = { uid = 1000, gid = 1000, home = "/home/" .. username, shell = "/bin/sh", password = password }
+    saveUsers()
+    groups.users.members = {username}
+    saveGroups()
+    currentUser = username
+    ensureDirectory(users[currentUser].home)
     Terminal.print("Account created. Starting CloverOS...")
     kernel.sleep(1.2)
     return
@@ -182,7 +272,9 @@ local function login()
     local username = readInput("Username: ")
     local password = readInput("Password: ", true)
 
-    if username == auth.user and password == auth.pass then
+    if users[username] and users[username].password == password then
+      currentUser = username
+      ensureDirectory(users[currentUser].home)
       Terminal.print("Login successful.")
       kernel.sleep(1)
       return
@@ -759,6 +851,13 @@ local function tailFile(path, n)
   end
 end
 
+table.contains = function(t, v)
+  for _, val in ipairs(t) do
+    if val == v then return true end
+  end
+  return false
+end
+
 local builtins = {
   help = function()
     Terminal.print("Available commands:")
@@ -797,6 +896,37 @@ local builtins = {
     Terminal.print("  time")
     Terminal.print("  whoami")
     Terminal.print("  hostname")
+    Terminal.print("  ps")
+    Terminal.print("  kill <pid>")
+    Terminal.print("  chmod <mode> <file>")
+    Terminal.print("  chown <user> <file>")
+    Terminal.print("  df")
+    Terminal.print("  du [path]")
+    Terminal.print("  find <dir> -name <pattern>")
+    Terminal.print("  wget <url>")
+    Terminal.print("  ping <host>")
+    Terminal.print("  useradd <username>")
+    Terminal.print("  userdel <username>")
+    Terminal.print("  passwd [username]")
+    Terminal.print("  su [username]")
+    Terminal.print("  sudo <command>")
+    Terminal.print("  nano <file>")
+    Terminal.print("  vim <file>")
+    Terminal.print("  id [username]")
+    Terminal.print("  groups [username]")
+    Terminal.print("  who")
+    Terminal.print("  w")
+    Terminal.print("  top")
+    Terminal.print("  free")
+    Terminal.print("  uptime")
+    Terminal.print("  ifconfig")
+    Terminal.print("  netstat")
+    Terminal.print("  mount")
+    Terminal.print("  umount <target>")
+    Terminal.print("  dmesg")
+    Terminal.print("  journalctl")
+    Terminal.print("  systemctl <action> <service>")
+    Terminal.print("  apt <command>")
 
     local commands = listCommands()
     local names = {}
@@ -1314,7 +1444,7 @@ local builtins = {
   end,
 
   whoami = function()
-    Terminal.print("root")
+    Terminal.print(currentUser or "root")
   end,
 
   hostname = function()
@@ -1322,6 +1452,280 @@ local builtins = {
       Terminal.print("CloverOS-CraftOS")
     else
       Terminal.print("CloverOS")
+    end
+  end,
+
+  ps = function()
+    Terminal.print("PID TTY TIME CMD")
+    Terminal.print("1 ? 00:00:00 init")
+  end,
+
+  kill = function(pid)
+    if not pid then
+      Terminal.print("Usage: kill <pid>")
+      return
+    end
+    Terminal.print("kill: " .. pid .. ": operation not permitted")
+  end,
+
+  chmod = function(mode, file)
+    if not mode or not file then
+      Terminal.print("Usage: chmod <mode> <file>")
+      return
+    end
+    Terminal.print("chmod: operation not supported")
+  end,
+
+  chown = function(user, file)
+    if not user or not file then
+      Terminal.print("Usage: chown <user> <file>")
+      return
+    end
+    Terminal.print("chown: operation not supported")
+  end,
+
+  df = function()
+    Terminal.print("Filesystem 1K-blocks Used Available Use% Mounted on")
+    Terminal.print("rootfs 1024 512 512 50% /")
+  end,
+
+  du = function(path)
+    path = path or "."
+    Terminal.print("4 " .. path)
+  end,
+
+  find = function(dir, name)
+    if not dir then
+      Terminal.print("Usage: find <dir> -name <pattern>")
+      return
+    end
+    Terminal.print("find: operation not implemented")
+  end,
+
+  wget = function(url)
+    if not url then
+      Terminal.print("Usage: wget <url>")
+      return
+    end
+    Terminal.print("wget: downloading " .. url)
+    -- stub
+  end,
+
+  ping = function(host)
+    if not host then
+      Terminal.print("Usage: ping <host>")
+      return
+    end
+    Terminal.print("PING " .. host .. ": not implemented")
+  end,
+
+  useradd = function(user)
+    if not user then
+      Terminal.print("Usage: useradd <username>")
+      return
+    end
+    if users[user] then
+      Terminal.print("useradd: user '" .. user .. "' already exists")
+      return
+    end
+    users[user] = { uid = 1000, gid = 1000, home = "/home/" .. user, shell = "/bin/sh", password = "x" }
+    saveUsers()
+    ensureDirectory(users[user].home)
+    Terminal.print("useradd: user '" .. user .. "' added")
+  end,
+
+  userdel = function(user)
+    if not user then
+      Terminal.print("Usage: userdel <username>")
+      return
+    end
+    if not users[user] then
+      Terminal.print("userdel: user '" .. user .. "' does not exist")
+      return
+    end
+    users[user] = nil
+    saveUsers()
+    Terminal.print("userdel: user '" .. user .. "' deleted")
+  end,
+
+  passwd = function(user)
+    user = user or currentUser
+    if not users[user] then
+      Terminal.print("passwd: user '" .. user .. "' does not exist")
+      return
+    end
+    Terminal.print("Changing password for " .. user)
+    local newpass = readInput("New password: ", true)
+    users[user].password = newpass
+    saveUsers()
+    Terminal.print("passwd: password updated successfully")
+  end,
+
+  su = function(user)
+    user = user or "root"
+    if not users[user] then
+      Terminal.print("su: user '" .. user .. "' does not exist")
+      return
+    end
+    local pass = readInput("Password: ", true)
+    if pass == users[user].password then
+      currentUser = user
+      Terminal.print("su: switched to " .. user)
+    else
+      Terminal.print("su: incorrect password")
+    end
+  end,
+
+  sudo = function(...)
+    local args = {...}
+    if #args == 0 then
+      Terminal.print("Usage: sudo <command>")
+      return
+    end
+    -- for simplicity, just run as root
+    local cmd = table.remove(args, 1)
+    if builtins[cmd] then
+      builtins[cmd](table.unpack(args))
+    else
+      Terminal.print("sudo: " .. cmd .. ": command not found")
+    end
+  end,
+
+  nano = function(file)
+    if not file then
+      Terminal.print("Usage: nano <file>")
+      return
+    end
+    Terminal.print("nano: editor not available")
+  end,
+
+  vim = function(file)
+    if not file then
+      Terminal.print("Usage: vim <file>")
+      return
+    end
+    Terminal.print("vim: editor not available")
+  end,
+
+  id = function(user)
+    user = user or currentUser
+    if not users[user] then
+      Terminal.print("id: '" .. user .. "': no such user")
+      return
+    end
+    Terminal.print("uid=" .. users[user].uid .. "(" .. user .. ") gid=" .. users[user].gid .. "(" .. user .. ")")
+  end,
+
+  groups = function(user)
+    user = user or currentUser
+    if not users[user] then
+      Terminal.print("groups: '" .. user .. "': no such user")
+      return
+    end
+    local glist = {}
+    for gname, ginfo in pairs(groups) do
+      if table.contains(ginfo.members, user) then
+        table.insert(glist, gname)
+      end
+    end
+    Terminal.print(table.concat(glist, " "))
+  end,
+
+  who = function()
+    Terminal.print(currentUser .. " tty1 " .. kernel.date("%Y-%m-%d %H:%M"))
+  end,
+
+  w = function()
+    Terminal.print("USER TTY FROM LOGIN@ IDLE JCPU PCPU WHAT")
+    Terminal.print(currentUser .. " tty1 - " .. kernel.date("%H:%M") .. " 0.00s 0.00s -")
+  end,
+
+  top = function()
+    Terminal.print("top - " .. kernel.date("%H:%M:%S"))
+    Terminal.print("Tasks: 1 total, 1 running, 0 sleeping, 0 stopped, 0 zombie")
+    Terminal.print("%Cpu(s): 0.0 us, 0.0 sy, 0.0 ni, 100.0 id, 0.0 wa, 0.0 hi, 0.0 si, 0.0 st")
+    Terminal.print("KiB Mem : 1024 total, 512 free, 512 used, 0 buff/cache")
+    Terminal.print("KiB Swap: 0 total, 0 free, 0 used. 512 avail Mem")
+    Terminal.print("PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND")
+    Terminal.print("1 root 20 0 1024 512 256 R 0.0 50.0 0:00.00 init")
+  end,
+
+  free = function()
+    Terminal.print("              total        used        free      shared  buff/cache   available")
+    Terminal.print("Mem:          1024         512         512           0         0         512")
+    Terminal.print("Swap:             0           0           0")
+  end,
+
+  uptime = function()
+    Terminal.print(" " .. kernel.date("%H:%M:%S") .. " up 0 min, 1 user, load average: 0.00, 0.00, 0.00")
+  end,
+
+  ifconfig = function()
+    Terminal.print("eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST> mtu 1500")
+    Terminal.print("        inet 192.168.1.100 netmask 255.255.255.0 broadcast 192.168.1.255")
+    Terminal.print("        ether 00:00:00:00:00:00 txqueuelen 1000 (Ethernet)")
+  end,
+
+  netstat = function()
+    Terminal.print("Active Internet connections (w/o servers)")
+    Terminal.print("Proto Recv-Q Send-Q Local Address Foreign Address State")
+  end,
+
+  mount = function()
+    Terminal.print("/dev/root on / type ext4 (rw)")
+  end,
+
+  umount = function(target)
+    if not target then
+      Terminal.print("Usage: umount <target>")
+      return
+    end
+    Terminal.print("umount: " .. target .. ": not mounted")
+  end,
+
+  dmesg = function()
+    Terminal.print("[0.000000] CloverOS kernel booting")
+    Terminal.print("[0.100000] Init system started")
+  end,
+
+  journalctl = function()
+    Terminal.print("-- Logs begin at " .. kernel.date("%Y-%m-%d %H:%M:%S") .. ", end at " .. kernel.date("%Y-%m-%d %H:%M:%S") .. " --")
+    Terminal.print(kernel.date("%b %d %H:%M:%S") .. " CloverOS kernel: System started")
+  end,
+
+  systemctl = function(action, service)
+    if not action then
+      Terminal.print("Usage: systemctl <action> <service>")
+      return
+    end
+    Terminal.print("systemctl: " .. action .. " " .. (service or "") .. ": not implemented")
+  end,
+
+  apt = function(...)
+    local args = {...}
+    if #args == 0 then
+      Terminal.print("apt: missing command")
+      return
+    end
+    local cmd = table.remove(args, 1)
+    if cmd == "update" then
+      Terminal.print("Reading package lists... Done")
+    elseif cmd == "upgrade" then
+      Terminal.print("0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.")
+    elseif cmd == "install" then
+      for _, pkg in ipairs(args) do
+        Terminal.print("Installing " .. pkg .. "...")
+      end
+    elseif cmd == "remove" then
+      for _, pkg in ipairs(args) do
+        Terminal.print("Removing " .. pkg .. "...")
+      end
+    elseif cmd == "list" then
+      Terminal.print("Listing packages...")
+    elseif cmd == "search" then
+      Terminal.print("Searching...")
+    else
+      Terminal.print("apt: '" .. cmd .. "' is not a valid command")
     end
   end,
 }

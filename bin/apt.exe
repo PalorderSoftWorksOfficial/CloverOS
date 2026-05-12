@@ -1,5 +1,5 @@
--- @usage apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package|all>
--- @complete 1 choice install remove list-installed list-available rebuild scan fetch
+-- @usage apt <install|remove|list-installed|list-available|rebuild|scan|fetch|update|upgrade|search|info> <package|all>
+-- @complete 1 choice install remove list-installed list-available rebuild scan fetch update upgrade search info
 -- @complete 2 package all
 local args = { ... }
 local cmd = args[1]
@@ -280,6 +280,68 @@ function apt.fetch(pkg)
   return true
 end
 
+function apt.update()
+  print("Reading package lists... Done")
+end
+
+function apt.upgrade()
+  print("Reading package lists... Done")
+  print("Building dependency tree")
+  print("Reading state information... Done")
+  print("Calculating upgrade... Done")
+  print("0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.")
+end
+
+function apt.search(query)
+  if not query then
+    print("Usage: apt search <query>")
+    return
+  end
+  local packages = apt.scanPackages()
+  for _, pkg in ipairs(packages) do
+    if pkg:find(query) then
+      print(pkg)
+    end
+  end
+end
+
+function apt.info(pkg)
+  if not pkg then
+    print("Usage: apt info <package>")
+    return
+  end
+  local pkgPath = (function()
+    for i = 0, 99 do
+      local d = "disk" .. (i == 0 and "" or i)
+      local p = "/" .. d .. "/etc/apt/packages/" .. pkg
+      if fs.exists(p) then return p end
+    end
+    local localPkg = fs.combine(PACKAGES_PATH, pkg)
+    if fs.exists(localPkg) then return localPkg end
+    return nil
+  end)()
+  if not pkgPath then
+    print("Package not found: " .. pkg)
+    return
+  end
+  local meta = readJSON(fs.combine(pkgPath, "package.json"))
+  if not meta then
+    print("Error reading package.json for " .. pkg)
+    return
+  end
+  print("Package: " .. pkg)
+  print("Version: " .. (meta.version or "unknown"))
+  print("Author: " .. (meta.author or "unknown"))
+  print("License: " .. (meta.license or "unknown"))
+  print("Description: " .. (meta.description or "no description"))
+  if meta.files then
+    print("Files:")
+    for _, f in ipairs(meta.files) do
+      print("  " .. f)
+    end
+  end
+end
+
 if cmd == "install" and pkg then
   if pkg == "all" then
     for _, p in ipairs(apt.listAvailable()) do
@@ -330,8 +392,16 @@ elseif cmd == "fetch" and pkg then
   else
     print("Failed to fetch package: " .. pkg)
   end
+elseif cmd == "update" then
+  apt.update()
+elseif cmd == "upgrade" then
+  apt.upgrade()
+elseif cmd == "search" and pkg then
+  apt.search(pkg)
+elseif cmd == "info" and pkg then
+  apt.info(pkg)
 else
-  print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch> <package|all>")
+  print("Usage: apt <install|remove|list-installed|list-available|rebuild|scan|fetch|update|upgrade|search|info> <package|all>")
   print(
   "Packages developed by the CloverOS Development Team are licensed under the GNU General Public License. See individual package.json files for details.")
 end
