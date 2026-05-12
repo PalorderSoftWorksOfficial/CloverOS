@@ -672,11 +672,12 @@ local function shellUsage(cmd, usage)
   Terminal.print("Usage: " .. cmd .. (usage and (" " .. usage) or ""))
 end
 
-local function resolvePath(path)
-  if not path or path == "" then
+local function resolvePath(p)
+  if not p or p == "" then
     return process.dir()
   end
-  return path.resolve(path)
+
+  return path.resolve(p)
 end
 
 local function printFile(path)
