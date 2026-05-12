@@ -363,6 +363,7 @@ local shellEnv = {}
 
 local function listCommands()
   local commands = {}
+  local seen = {}
   local paths = {}
 
   if ROOT and ROOT ~= "" then
@@ -377,14 +378,19 @@ local function listCommands()
     if fs.exists(dir) and fs.isDir(dir) then
       for _, file in ipairs(fs.list(dir)) do
         local full = fs.combine(dir, file)
+
         if fs.exists(full) and not fs.isDir(full) then
           local isExecutable = file:match("%.[lL][uU][aA]$")
-              or file:match("%.[eE][xX][eE]$")
-              or file:match("%.[dD][lL][lL]$")
-              or not file:match("%.")
+            or file:match("%.[eE][xX][eE]$")
+            or file:match("%.[dD][lL][lL]$")
+            or not file:match("%.")
+
           if isExecutable then
             local name = file:gsub("%..+$", "")
-            commands[name] = fs.combine("/", full)
+            if not seen[name] then
+              seen[name] = true
+              commands[name] = full
+            end
           end
         end
       end
