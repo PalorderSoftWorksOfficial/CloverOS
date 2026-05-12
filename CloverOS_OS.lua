@@ -384,7 +384,7 @@ local function listCommands()
               or not file:match("%.")
           if isExecutable then
             local name = file:gsub("%..+$", "")
-            commands[name] = full
+            commands[name] = fs.combine("/", full)
           end
         end
       end
