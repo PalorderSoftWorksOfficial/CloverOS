@@ -1031,6 +1031,7 @@ function quit(bypass, method)
 		sPos(1, 1)
 		term.clear()
 		os.pullEvent = pullEvent
+		wait(1.2)
 		shell.run(PXBOOT)
 		return
 	elseif method == "exit" then
