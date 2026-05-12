@@ -452,7 +452,7 @@ local function DISK_ROOT()
 end
 local completionInfo = {}
 local aliases = {}
-local ShellEnv = {}
+ShellEnv = {}
 local function getCommandDirs()
   local dirs = {}
   local seen = {}
@@ -1701,34 +1701,119 @@ local builtins = {
     end
     Terminal.print("systemctl: " .. action .. " " .. (service or "") .. ": not implemented")
   end,
+  screenfetch = function()
+	local fs = kernel.fs
+	local term = kernel.term
+	local computer = kernel.computer
+	local system = kernel.system
 
-  apt = function(...)
-    local args = {...}
-    if #args == 0 then
-      Terminal.print("apt: missing command")
-      return
-    end
-    local cmd = table.remove(args, 1)
-    if cmd == "update" then
-      Terminal.print("Reading package lists... Done")
-    elseif cmd == "upgrade" then
-      Terminal.print("0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.")
-    elseif cmd == "install" then
-      for _, pkg in ipairs(args) do
-        Terminal.print("Installing " .. pkg .. "...")
-      end
-    elseif cmd == "remove" then
-      for _, pkg in ipairs(args) do
-        Terminal.print("Removing " .. pkg .. "...")
-      end
-    elseif cmd == "list" then
-      Terminal.print("Listing packages...")
-    elseif cmd == "search" then
-      Terminal.print("Searching...")
-    else
-      Terminal.print("apt: '" .. cmd .. "' is not a valid command")
-    end
-  end,
+	local logo = {
+		"\x1b[30;40m                \x1b[0m",
+		"\x1b[30;40m  \x1b[33;106m\x88\x1b[96;43m\x8F\x1b[96;40m\x90 \x1b[30;106m\x9F\x1b[96;40m\x90   \x1b[30;106m\x9F\x1b[96;43m\x8F\x1b[33;106m\x84\x1b[30;40m  \x1b[0m",
+		"\x1b[96;40m \x9A\x1b[33;106m\x89\x84\x1b[33;41m\x82\x1b[33;40m\x94\x1b[30;106m\x95 \x1b[96;40m\x90 \x1b[30;43m\x97\x1b[33;41m\x81\x1b[33;106m\x88\x86\x1b[30;106m\x9A\x1b[30;40m \x1b[0m",
+		"\x1b[30;106m\x9F\x1b[96;43m\x9B\x8C\x1b[96;41m\x95 \x1b[33;40m\x95\x1b[30;106m\x95 \x96\x1b[30;40m \x1b[30;43m\x95\x1b[96;41m \x1b[31;106m\x95\x1b[96;43m\x8C\x1b[33;106m\x98\x1b[96;40m\x90\x1b[0m",
+		"\x1b[30;106m\x95\x1b[33;106m\x8C\x84\x1b[96;41m\x95 \x1b[30;43m\x8A\x1b[30;106m\x95\x1b[96;100m\x8F\x8F\x1b[96;40m\x95\x1b[30;43m\x85\x1b[96;41m \x1b[31;106m\x95\x1b[33;106m\x88\x8C\x1b[96;40m\x95\x1b[0m",
+		"\x1b[96;40m\x8A\x1b[96;43m\x9C\x8E\x1b[31;106m\x82\x1b[33;41m \x82\x1b[90;106m\x95\x1b[33;106m\x90\x1b[96;43m\x9F\x1b[96;100m\x95\x1b[33;41m\x81 \x1b[31;106m\x81\x1b[96;43m\x8D\x1b[33;106m\x93\x1b[96;40m\x85\x1b[0m",
+		"\x1b[30;40m \x1b[96;43m\x9E\x1b[33;106m\x8C\x1b[96;43m\x9B\x1b[31;106m\x82\x1b[96;41m\x90\x1b[90;106m\x95\x1b[33;106m\x85\x8A\x1b[96;100m\x95\x1b[31;106m\x9F\x81\x1b[33;106m\x98\x8C\x92\x1b[30;40m \x1b[0m",
+		"\x1b[96;40m \x82\x1b[33;106m\x86\x99\x99\x1b[96;100m\x95\x1b[33;106m\x8A\x88\x81\x85\x1b[90;106m\x95\x1b[96;43m\x99\x99\x1b[33;106m\x89\x1b[106;40m\x81 \x1b[0m",
+		"\x1b[33;40m  \x82\x8B\x1b[90;106m \x96 \x1b[33;106m\x95\x1b[96;43m\x95\x1b[96;106m \x1b[96;100m\x96\x1b[96;106m \x1b[33;40m\x87\x81  \x1b[0m",
+		"\x1b[96;40m     \x83\x8B\x8F\x8F\x87\x83     \x1b[0m",
+		"\x1b[30;40m                \x1b[0m",
+	}
+
+	local function formatTime(seconds)
+		local h = math.floor(seconds / 3600)
+		local m = math.floor(seconds / 60) % 60
+		local s = seconds % 60
+
+		local out = s .. "s"
+		if m > 0 or h > 0 then
+			out = m .. "m " .. out
+		end
+		if h > 0 then
+			out = h .. "h " .. out
+		end
+		return out
+	end
+
+	local function formatBytes(bytes)
+		if bytes >= 1073741824 then
+			return ("%.3g GiB"):format(bytes / 1073741824)
+		elseif bytes >= 1048576 then
+			return ("%.3g MiB"):format(bytes / 1048576)
+		elseif bytes >= 1024 then
+			return ("%.3g kiB"):format(bytes / 1024)
+		else
+			return ("%.3g B"):format(bytes)
+		end
+	end
+
+	local function trimAnsi(text, maxVisible)
+		local visible = 0
+		local inEscape = false
+
+		for ch, idx in text:gmatch("(.)()") do
+			if inEscape then
+				if ch == "m" then
+					inEscape = false
+				end
+			elseif ch == "\x1b" then
+				inEscape = true
+			else
+				visible = visible + 1
+				if visible == maxVisible then
+					return text:sub(1, idx)
+				end
+			end
+		end
+
+		return text
+	end
+
+	local leftName = system.hostname() or ("Computer " .. tostring(computer.id()))
+	local rightName = computer.label() or ("Computer " .. tostring(computer.id()))
+
+	local lines = {
+		"\x1b[96m" .. leftName .. "\x1b[0m@\x1b[96m" .. rightName,
+		("-%s"):format(("-"):rep(math.max(0, #leftName + #rightName - 1))),
+	}
+
+	local function addLine(name, value)
+		lines[#lines + 1] = "\x1b[96m" .. name .. "\x1b[0m: " .. value
+	end
+
+	addLine("OS", "CloverOS " .. tostring(system.versionString()))
+	addLine("Uptime", formatTime(math.floor(system.uptime() or 0)))
+	addLine("Runtime", "CraftOS " .. tostring(kernel.computer.version()))
+	addLine("Lua", _VERSION)
+	addLine("CC Version", tostring(kernel.computer.version()))
+	addLine("Resolution", table.concat({ term.getSize() }, "x"))
+
+	local stat = fs.stat and fs.stat("/") or nil
+	if stat then
+		addLine("Disk Space", formatBytes(stat.freeSpace) .. " / " .. formatBytes(stat.capacity))
+	end
+
+	if collectgarbage then
+		addLine("Memory", formatBytes(collectgarbage("count") * 1024))
+	end
+
+	lines[#lines + 1] = ""
+	lines[#lines + 1] = "\x1b[40m   \x1b[41m   \x1b[42m   \x1b[43m   \x1b[44m   \x1b[45m   \x1b[46m   \x1b[47m   \x1b[0m"
+	lines[#lines + 1] = "\x1b[100m   \x1b[101m   \x1b[102m   \x1b[103m   \x1b[104m   \x1b[105m   \x1b[106m   \x1b[107m   \x1b[0m"
+	lines[#lines + 1] = ""
+
+	local width = term.getSize() - 18
+	for i = 1, math.max(#logo, #lines) do
+		local right = trimAnsi(lines[i] or "", width)
+		local row = (logo[i] or "                ") .. "  " .. right
+		if i == 1 then
+			io.write(row)
+		else
+			print(row)
+		end
+	end
+end,
 }
 local commandMeta = {}
 
