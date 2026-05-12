@@ -1033,7 +1033,7 @@ function quit(bypass, method)
 		os.pullEvent = pullEvent
 		wait(1.2)
 		shell.run(PXBOOT)
-		return
+		error()
 	elseif method == "exit" then
 		if confirm(method) then
 			quit(true)
