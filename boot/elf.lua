@@ -251,7 +251,7 @@ local function readelf(data)
 			end
 		elseif sectionHeader.sh_type == 4 or sectionHeader.sh_type == 9 then -- REL/RELA
 			section.relocations = {}
-			local t = sectionHeader.sh_type == 9 and types.elf_relocation_t or types.elf_relocation_addend_t
+			local t = sectionHeader.sh_type == 4 and types.elf_relocation_addend_t or types.elf_relocation_t
 			local p, j = 1, 1
 			while p < #section.data do
 				local relData
@@ -260,7 +260,7 @@ local function readelf(data)
 					offset = relData.r_offset,
 					type = bit32.band(relData.r_info, 0xFF),
 					symbolidx = bit32.rshift(relData.r_info, 8),
-					addend = relData.r_addend,
+					addend = relData.r_addend or 0,
 				}
 				j = j + 1
 			end
@@ -286,7 +286,7 @@ local function readelf(data)
 			local getstr_sym = sectionList[v.link + 1].string
 			for _, s in ipairs(v.symbols) do
 				s.name, s.nameidx = getstr_sym(s.nameidx), nil
-				s.section, s.shndx = sectionList[s.shndx + 1], nil
+				s.section = sectionList[s.shndx + 1]
 			end
 		elseif v.type == "DYNAMIC" then
 			local getstr_dyn = sectionList[v.link + 1].string

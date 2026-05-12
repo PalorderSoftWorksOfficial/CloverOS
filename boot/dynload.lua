@@ -1,5 +1,4 @@
 local readelf = require("elf")
-
 local function symbol(modules, baseAddress, sym)
 	if not sym then
 		return 0
