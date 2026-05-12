@@ -248,10 +248,38 @@ function M.readModRM(stream)
 end
 
 function M.newReadOnlyApi(api, name)
+	if type(api) == "function" then
+		local wrapper = {}
+
+		function wrapper.new(...)
+			local obj = api(...)
+			return M.newReadOnlyApi(obj, name)
+		end
+
+		return setmetatable(wrapper, {
+			__call = function(_, ...)
+				local obj = api(...)
+				return M.newReadOnlyApi(obj, name)
+			end,
+
+			__newindex = function()
+				error(name .. " API is read-only")
+			end,
+
+			__metatable = false,
+		})
+	end
+
+	if type(api) ~= "table" then
+		error(("newReadOnlyApi expected table/function, got %s"):format(type(api)))
+	end
+
 	return setmetatable(api, {
 		__newindex = function()
 			error(name .. " API is read-only")
 		end,
+
+		__metatable = false,
 	})
 end
 
