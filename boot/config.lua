@@ -34,15 +34,33 @@ local function findKernel(root)
 
 	return nil
 end
+local function findKernelApi(root)
+	local candidates = {
+		root .. "/boot/kernel_nullboot.lua",
+		root .. "/kernel_nullboot.lua",
+		"/kernel_nullboot.lua",
+	}
 
+	for _, path in ipairs(candidates) do
+		if fs.exists(path) then
+			return path
+		end
+	end
+
+	return nil
+end
 local ROOT = findCloverRoot()
 local KERNEL = findKernel(ROOT)
-
+local KERNELAPI = findKernelApi(ROOT)
 menuentry("CloverOS")({
 	description("Boot CloverOS."),
 	chainloader(KERNEL),
 })
-
+menuentry("Load kernel API")({
+	description("Boot CloverOS."),
+	chainloader(KERNELAPI),
+	cratos,
+})
 menuentry("CraftOS")({
 	description("Boot into CraftOS."),
 	craftos,

@@ -523,7 +523,7 @@ function RISCV:step()
 			self.reg[rd] = band(a, b)
 		elseif funct7 == 0x01 then
 			if funct3 == 0x0 then
-				self.reg[rd] = to_u32(math.abs((s32(a) * s32(b)) % 0x100000000))
+				self.reg[rd] = to_u32(s32(a) * s32(b))
 			elseif funct3 == 0x1 then
 				local ra, rb = s32(a), s32(b)
 				local v = math.floor((ra * rb) / 0x100000000)

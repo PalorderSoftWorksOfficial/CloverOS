@@ -239,6 +239,5 @@ function filesystem.walk(path)
   return results
 end
 
-_G.CloverOS.filesystem = filesystem
 return filesystem
 
