@@ -451,7 +451,7 @@ local function DISK_ROOT()
 end
 local completionInfo = {}
 local aliases = {}
-
+local ShellEnv = {}
 local function getCommandDirs()
   local dirs = {}
   local seen = {}
