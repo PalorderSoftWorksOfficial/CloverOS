@@ -427,20 +427,22 @@ local function create(opts)
 	function methods:run(cycles)
 		cycles = cycles or math.huge
 		local count = 0
+
 		while not self.halt and count < cycles do
 			self:step()
 			count = count + 1
 		end
 	end
 
-	local api = create()
 	for k, v in pairs(methods) do
-		api[k] = v
+		cpu[k] = v
 	end
-	api.new = create
-	api.Memory = shared.newMemory
-	api.shared = shared
-	return shared.newReadOnlyApi(api, "X86")
+
+	cpu.new = create
+	cpu.Memory = shared.newMemory
+	cpu.shared = shared
+
+	return shared.newReadOnlyApi(cpu, "X86")
 end
 
-return create()
+return create
