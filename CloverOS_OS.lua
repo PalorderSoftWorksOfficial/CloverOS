@@ -14,6 +14,7 @@ local serialize = kernel.serialize
 local path = kernel.path
 local colors = kernel.colors
 local textutils = kernel.textutils
+local trim = kernel.text.trim
 local function readInput(prompt, hidden)
   prompt = tostring(prompt or "")
   return kernel.input.line(prompt, hidden)
