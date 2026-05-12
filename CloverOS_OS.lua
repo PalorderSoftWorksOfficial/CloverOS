@@ -359,22 +359,39 @@ local function DISK_ROOT()
 end
 local completionInfo = {}
 local aliases = {}
-local shellEnv = {}
 
+local function getCommandDirs()
+  local dirs = {}
+  local seen = {}
+
+  local function add(dir)
+    if dir and dir ~= "" and not seen[dir] then
+      seen[dir] = true
+      dirs[#dirs + 1] = dir
+    end
+  end
+
+  add("/bin")
+  add("/usr/bin")
+
+  if ROOT and ROOT ~= "" then
+    add(ROOT .. "/bin")
+    add(ROOT .. "/usr/bin")
+  end
+
+  local diskRoot = DISK_ROOT()
+  if diskRoot and diskRoot ~= "" then
+    add(diskRoot .. "/bin")
+    add(diskRoot .. "/usr/bin")
+  end
+
+  return dirs
+end
 local function listCommands()
   local commands = {}
   local seen = {}
-  local paths = {}
 
-  if ROOT and ROOT ~= "" then
-    paths[#paths + 1] = ROOT .. "/bin"
-    paths[#paths + 1] = ROOT .. "/usr/bin"
-  end
-
-  paths[#paths + 1] = "/bin"
-  paths[#paths + 1] = "/usr/bin"
-
-  for _, dir in ipairs(paths) do
+  for _, dir in ipairs(getCommandDirs()) do
     if fs.exists(dir) and fs.isDir(dir) then
       for _, file in ipairs(fs.list(dir)) do
         local full = fs.combine(dir, file)
