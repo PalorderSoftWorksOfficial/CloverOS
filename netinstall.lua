@@ -91,7 +91,7 @@ settings.set("envType", envType)
 local githubPagesBaseURL = "https://cloveros.madefor.cc/"
 local rawBaseURL = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
 local manifestURL_Pages = githubPagesBaseURL .. "files.manifest"
-local manifestURL_Raw = manifestURL_Pages
+local manifestURL_Raw = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/files.manifest"
 
 local function listMounts()
 	local mounts = {
