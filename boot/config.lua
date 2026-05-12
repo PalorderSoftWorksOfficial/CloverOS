@@ -51,9 +51,9 @@ local function findKernelApi(root)
 end
 local function findBios(root)
 	local candidates = {
-		root .. "/boot/kernel_nullboot.lua",
-		root .. "/kernel_nullboot.lua",
-		"/kernel_nullboot.lua",
+		root .. "/boot/bios.lua",
+		root .. "/bios.lua",
+		"/bios.lua",
 	}
 
 	for _, path in ipairs(candidates) do
@@ -77,7 +77,6 @@ menuentry("Load kernel API")({
 		Load the kernel without any booting
 		]]),
 	chainloader(KERNELAPI),
-	cratos,
 })
 menuentry("ACI SETUP UTILITY (BIOS)")({
 	description("Boot into BIOS"),
