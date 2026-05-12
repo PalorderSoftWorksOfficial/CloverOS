@@ -705,7 +705,44 @@ function kernel.driver.list()
 	return kernel.table.keys(kernel._drivers)
 end
 
+kernel.init = {}
+
+function kernel.init.runlevel()
+	return kernel._runlevel or 3
+end
+
+function kernel.init.setRunlevel(level)
+	kernel._runlevel = level
+	kernel.info("Runlevel set to " .. level)
+end
+
+function kernel.init.startServices()
+	local services = kernel.service.list()
+	for _, name in ipairs(services) do
+		local svc = kernel.service.get(name)
+		if type(svc) == "function" then
+			local ok, err = pcall(svc)
+			if not ok then
+				kernel.warn("Service " .. name .. " failed: " .. tostring(err))
+			else
+				kernel.info("Started service: " .. name)
+			end
+		end
+	end
+end
+
+function kernel.init.createSystemDirs()
+	local dirs = {"/home", "/var", "/tmp", "/usr/local", "/usr/local/bin", "/usr/local/sbin", "/var/log", "/var/run"}
+	for _, dir in ipairs(dirs) do
+		if not fs.exists(dir) then
+			fs.makeDir(dir)
+		end
+	end
+end
+
 function kernel.boot()
+	kernel.init.createSystemDirs()
+	kernel.init.startServices()
 	kernel._state.booted = true
 	kernel.info("Boot sequence complete")
 	return true
