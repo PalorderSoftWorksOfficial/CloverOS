@@ -739,6 +739,7 @@ boot/config.lua
 boot/cpu_loader.lua
 boot/cpu_shared.lua
 boot/kernel.lua
+boot/kernel/drivers/example.lua
 boot/kernel_nullboot.lua
 boot/pxboot.lua
 boot/riscv.lua
