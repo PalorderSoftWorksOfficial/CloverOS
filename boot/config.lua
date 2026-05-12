@@ -23,7 +23,7 @@ local function findKernel(root)
 	local candidates = {
 		root .. "/boot/kernel.lua",
 		root .. "/kernel.lua",
-		"/kernel.lua",
+		"/boot/kernel.lua",
 	}
 
 	for _, path in ipairs(candidates) do
@@ -38,7 +38,7 @@ local function findKernelApi(root)
 	local candidates = {
 		root .. "/boot/kernel_nullboot.lua",
 		root .. "/kernel_nullboot.lua",
-		"/kernel_nullboot.lua",
+		"/boot/kernel_nullboot.lua",
 	}
 
 	for _, path in ipairs(candidates) do
@@ -53,7 +53,7 @@ local function findBios(root)
 	local candidates = {
 		root .. "/boot/bios.lua",
 		root .. "/bios.lua",
-		"/bios.lua",
+		"/boot/bios.lua",
 	}
 
 	for _, path in ipairs(candidates) do
