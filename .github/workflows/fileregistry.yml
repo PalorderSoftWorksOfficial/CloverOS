@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -17,19 +17,25 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Generate files.manifest
         run: |
           BASE_DIR=$(pwd)
+
           echo "Generating files.manifest..."
           > "$BASE_DIR/files.manifest"
+
           find "$BASE_DIR" -type f \
             ! -path "$BASE_DIR/.git/*" \
             ! -path "$BASE_DIR/.github/*" \
             ! -name "*.yml" \
             ! -name "files.manifest" | sort | while read -r file; do
+
             path=$(echo "$file" | sed "s|^$BASE_DIR/||")
             echo "$path" >> "$BASE_DIR/files.manifest"
+
           done
 
       - name: Upload artifact
@@ -37,3 +43,15 @@ jobs:
         with:
           name: files-manifest
           path: files.manifest
+
+      - name: Commit and push files.manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add files.manifest
+
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+
+          git commit -m "Update files.manifest"
+          git push
