@@ -1,5 +1,5 @@
 defaultentry = "CloverOS"
-timeout = 5
+timeout = 10
 backgroundcolor = colors.black
 selectcolor = colors.orange
 titlecolor = colors.lightGray
@@ -49,17 +49,39 @@ local function findKernelApi(root)
 
 	return nil
 end
+local function findBios(root)
+	local candidates = {
+		root .. "/boot/kernel_nullboot.lua",
+		root .. "/kernel_nullboot.lua",
+		"/kernel_nullboot.lua",
+	}
+
+	for _, path in ipairs(candidates) do
+		if fs.exists(path) then
+			return path
+		end
+	end
+
+	return nil
+end
 local ROOT = findCloverRoot()
 local KERNEL = findKernel(ROOT)
 local KERNELAPI = findKernelApi(ROOT)
+local BIOS = findBios(ROOT)
 menuentry("CloverOS")({
 	description("Boot CloverOS."),
 	chainloader(KERNEL),
 })
 menuentry("Load kernel API")({
-	description("Boot CloverOS."),
+	description(
+		"Load the kernel without any booting (This feature is recommended for developing programs that use this API)"
+	),
 	chainloader(KERNELAPI),
 	cratos,
+})
+menuentry("ACI SETUP UTILITY (BIOS)")({
+	description("Boot into BIOS"),
+	chainloader(BIOS),
 })
 menuentry("CraftOS")({
 	description("Boot into CraftOS."),

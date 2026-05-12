@@ -315,23 +315,18 @@ function cmds.insmod(t)
 	else
 		path = fs.combine(shell and fs.getDir(shell.getRunningProgram()) or "pxboot", "modules/" .. t.name .. ".lua")
 	end
-	assert(
-		loadfile(
-			path,
-			nil,
-			setmetatable(
-				{
-					entries = entries,
-					bootcfg = bootcfg,
-					cmds = cmds,
-					userGlobals = userGlobals,
-					unbios = unbios,
-					config = config,
-				},
-				{ __index = _ENV }
-			)
-		)
-	)(t.args, path)
+	assert(loadfile(
+		path,
+		nil,
+		setmetatable({
+			entries = entries,
+			bootcfg = bootcfg,
+			cmds = cmds,
+			userGlobals = userGlobals,
+			unbios = unbios,
+			config = config,
+		}, { __index = _ENV })
+	))(t.args, path)
 end
 
 local function boot(entry)
@@ -370,7 +365,7 @@ end
 
 local runningDir
 config = setmetatable({
-	title = "Phoenix pxboot",
+	title = "CloverOS Boot menu",
 	titlecolor = colors.white,
 	backgroundcolor = colors.black,
 	textcolor = colors.white,
@@ -560,15 +555,15 @@ until true
 
 local function runShell()
 	term.setTextColor(colors.yellow)
-		print(os.version())
-		term.setTextColor(colors.white)
-		if settings.get("motd.enable") then
-			if shell then
-				shell.run("motd")
-			else
-				os.run({}, "/rom/programs/motd.lua")
-			end
+	print(os.version())
+	term.setTextColor(colors.white)
+	if settings.get("motd.enable") then
+		if shell then
+			shell.run("motd")
+		else
+			os.run({}, "/rom/programs/motd.lua")
 		end
+	end
 end
 
 if #entries == 0 then
@@ -707,6 +702,9 @@ while true do
 			drawScreen()
 		elseif ev[2] == keys.c then
 			runShell()
+			drawScreen()
+		elseif ev[2] == keys.e then
+			runEditor()
 			drawScreen()
 		end
 	elseif ev[1] == "terminate" then
