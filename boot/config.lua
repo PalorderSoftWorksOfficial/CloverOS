@@ -73,9 +73,9 @@ menuentry("CloverOS")({
 	chainloader(KERNEL),
 })
 menuentry("Load kernel API")({
-	description(
-		"Load the kernel without any booting (This feature is recommended for developing programs that use this API)"
-	),
+	description([[
+		Load the kernel without any booting
+		]]),
 	chainloader(KERNELAPI),
 	cratos,
 })
