@@ -991,7 +991,38 @@ function errorHandle()
     end
     ]]
 end
+local function findCloverRoot()
+	if fs.exists("/CloverOS_OS.lua") and fs.exists("/CloverOS_API.lua") then
+		return "/"
+	end
 
+	for i = 0, 99 do
+		local root = "/disk" .. (i == 0 and "" or i)
+		if fs.exists(root .. "/CloverOS_OS.lua") and fs.exists(root .. "/CloverOS_API.lua") then
+			return root
+		end
+	end
+
+	return "/"
+end
+
+local function findPXBOOT(root)
+	local candidates = {
+		root .. "/boot/pxboot.lua",
+		root .. "/pxboot.lua",
+		"boot/pxboot.lua",
+	}
+
+	for _, path in ipairs(candidates) do
+		if fs.exists(path) then
+			return path
+		end
+	end
+
+	return nil
+end
+local ROOT = findCloverRoot()
+local PXBOOT = findPXBOOT(ROOT)
 function quit(bypass, method)
 	if bypass then
 		listenBreak = true
@@ -1000,7 +1031,8 @@ function quit(bypass, method)
 		sPos(1, 1)
 		term.clear()
 		os.pullEvent = pullEvent
-		error()
+		shell.run(PXBOOT)
+		return
 	elseif method == "exit" then
 		if confirm(method) then
 			quit(true)
