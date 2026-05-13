@@ -29,12 +29,12 @@ Note: We previously had issues with the file scraper while examining the Minux s
 ## Installation
 CDN URL:
 ```lua
-https://cloveros.madefor.cc/
+https://endpoint.palorderhosting.net
 ```
 To install CloverOS, open an Advanced Computer (or a CraftOS terminal) in Minecraft and enter the following command:
 
 ```lua
-wget run https://cloveros.madefor.cc/netinstall.lua
+wget run https://endpoint.palorderhosting.net/netinstall.lua
 ```
 
 The installer will automatically download and set up CloverOS on your system, But you need to modify some configs:
