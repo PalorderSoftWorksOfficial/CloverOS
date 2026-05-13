@@ -97,6 +97,7 @@ local kernel = {
 	_startedAt = os.clock(),
 	_services = {},
 	_drivers = {},
+	_journal = {},
 	_state = {
 		booted = false,
 		shutdownRequested = false,
@@ -167,6 +168,7 @@ function kernel.log(level, ...)
 		parts[i] = tostring(parts[i])
 	end
 	local line = ("[%s] %s"):format(string.upper(tostring(level or "info")), table.concat(parts, " "))
+	kernel._journal[#kernel._journal + 1] = line
 	if print then
 		print(line)
 	else
@@ -741,6 +743,11 @@ function kernel.init.createSystemDirs()
 end
 
 function kernel.boot()
+	if kernel._state.booted then
+		kernel.debug("Boot sequence already completed")
+		return true
+	end
+
 	kernel.init.createSystemDirs()
 	kernel.init.startServices()
 	kernel._state.booted = true
@@ -758,6 +765,39 @@ function kernel.status()
 		shutdownRequested = kernel._state.shutdownRequested,
 		rebootRequested = kernel._state.rebootRequested,
 	}
+end
+
+function kernel.isBooted()
+	return kernel._state.booted
+end
+
+function kernel.isShuttingDown()
+	return kernel._state.shutdownRequested
+end
+
+function kernel.isRebooting()
+	return kernel._state.rebootRequested
+end
+
+function kernel.journal()
+	local copy = {}
+	for i, line in ipairs(kernel._journal) do
+		copy[i] = line
+	end
+	return copy
+end
+
+kernel.system = kernel.system or {}
+function kernel.system.hostname()
+	return os.getComputerLabel() or "CloverOS"
+end
+
+function kernel.system.versionString()
+	return kernel.version()
+end
+
+function kernel.system.uptime()
+	return kernel.uptime()
 end
 
 kernel.text = kernel.text or {}

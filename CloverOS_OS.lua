@@ -197,6 +197,8 @@ if not fs.exists(defaultProfile) then
     handle.close()
   end
 end
+local APT_DIR = ROOT .. "/etc/apt/packages"
+local APT_INSTALLED_FILE = ROOT .. "/etc/apt/installed"
 local AUTH_FILE = ROOT .. "/auth"
 local USERS_FILE = ROOT .. "/users"
 local currentUser = nil
@@ -429,7 +431,9 @@ local function simulateLoading()
 
   centerPrint(by + 3, "CloverOS Krnl started successfully.", colors.lime)
 
-  kernel.boot()
+  if not kernel.status().booted then
+    kernel.boot()
+  end
 
   kernel.sleep(0.9)
 end
@@ -630,6 +634,147 @@ local function loadShellProfiles()
   loadProfile(userProfile)
 end
 
+local function readPackageMetadata(pkg)
+  if not pkg or pkg == "" then
+    return nil
+  end
+  local pkgPath = fs.combine(APT_DIR, pkg)
+  local pkgFile = fs.combine(pkgPath, "package.json")
+  if not fs.exists(pkgFile) or fs.isDir(pkgFile) then
+    return nil
+  end
+  local h = fs.open(pkgFile, "r")
+  if not h then
+    return nil
+  end
+  local content = h.readAll()
+  h.close()
+  if textutils and textutils.unserializeJSON then
+    local metadata = textutils.unserializeJSON(content)
+    if type(metadata) == "table" then
+      return metadata
+    end
+  end
+  return nil
+end
+
+local function listAvailablePackages()
+  local packages = {}
+  if not fs.exists(APT_DIR) or not fs.isDir(APT_DIR) then
+    return packages
+  end
+  for _, name in ipairs(fs.list(APT_DIR)) do
+    local path = fs.combine(APT_DIR, name)
+    if fs.isDir(path) then
+      table.insert(packages, name)
+    end
+  end
+  table.sort(packages)
+  return packages
+end
+
+local function getInstalledPackages()
+  local installed = {}
+  if not fs.exists(APT_INSTALLED_FILE) then
+    return installed
+  end
+  local h = fs.open(APT_INSTALLED_FILE, "r")
+  if not h then
+    return installed
+  end
+  while true do
+    local line = h.readLine()
+    if not line then
+      break
+    end
+    line = trim(line)
+    if line ~= "" then
+      installed[#installed + 1] = line
+    end
+  end
+  h.close()
+  return installed
+end
+
+local function isPackageInstalled(pkg)
+  if not pkg or pkg == "" then
+    return false
+  end
+  local installed = {}
+  for _, name in ipairs(getInstalledPackages()) do
+    installed[name] = true
+  end
+  return installed[pkg] == true
+end
+
+local function saveInstalledPackages(installed)
+  local h = fs.open(APT_INSTALLED_FILE, "w")
+  if not h then
+    return false
+  end
+  for _, name in ipairs(installed) do
+    if name and name ~= "" then
+      h.write(name .. "\n")
+    end
+  end
+  h.close()
+  return true
+end
+
+local function installPackage(pkg)
+  local metadata = readPackageMetadata(pkg)
+  if not metadata then
+    return false, "apt: package not found: " .. tostring(pkg)
+  end
+  if not metadata.files or type(metadata.files) ~= "table" then
+    return false, "apt: invalid package metadata for " .. tostring(pkg)
+  end
+  local installDir = ROOT .. "/usr/bin"
+  if not fs.exists(installDir) then
+    fs.makeDir(installDir)
+  end
+  for _, file in ipairs(metadata.files) do
+    local src = fs.combine(fs.combine(APT_DIR, pkg), file)
+    local dst = fs.combine(installDir, file)
+    if not fs.exists(src) or fs.isDir(src) then
+      return false, "apt: package file missing: " .. tostring(file)
+    end
+    if fs.exists(dst) then
+      return false, "apt: target already exists: " .. tostring(file)
+    end
+    fs.copy(src, dst)
+  end
+  local installed = getInstalledPackages()
+  table.insert(installed, pkg)
+  saveInstalledPackages(installed)
+  return true
+end
+
+local function removePackage(pkg)
+  if not isPackageInstalled(pkg) then
+    return false, "apt: package not installed: " .. tostring(pkg)
+  end
+  local metadata = readPackageMetadata(pkg)
+  if not metadata or type(metadata.files) ~= "table" then
+    return false, "apt: invalid package metadata for " .. tostring(pkg)
+  end
+  local installDir = ROOT .. "/usr/bin"
+  for _, file in ipairs(metadata.files) do
+    local dst = fs.combine(installDir, file)
+    if fs.exists(dst) and not fs.isDir(dst) then
+      fs.delete(dst)
+    end
+  end
+  local installed = {}
+  for _, name in ipairs(getInstalledPackages()) do
+    if name ~= pkg then
+      installed[#installed + 1] = name
+    end
+  end
+  saveInstalledPackages(installed)
+  return true
+end
+
 local function startsWith(value, prefix)
   return value:sub(1, #prefix) == prefix
 end
@@ -726,6 +871,7 @@ local function shellBuiltinHelp()
   Terminal.print("  help")
   Terminal.print("  exit")
   Terminal.print("  shutdown")
+  Terminal.print("  reboot")
   Terminal.print("  installer")
   Terminal.print("  run <command>")
 
@@ -747,7 +893,7 @@ local function shellBuiltinSettings()
 end
 
 registerCompletion("help", function()
-  local items = { "exit", "shutdown", "installer", "run" }
+  local items = { "exit", "shutdown", "reboot", "installer", "run" }
   local commands = listCommands()
   for name in pairs(commands) do
     items[#items + 1] = name
@@ -897,6 +1043,7 @@ local builtins = {
     Terminal.print("  time")
     Terminal.print("  whoami")
     Terminal.print("  hostname")
+    Terminal.print("  status")
     Terminal.print("  ps")
     Terminal.print("  kill <pid>")
     Terminal.print("  chmod <mode> <file>")
@@ -927,7 +1074,7 @@ local builtins = {
     Terminal.print("  dmesg")
     Terminal.print("  journalctl")
     Terminal.print("  systemctl <action> <service>")
-    Terminal.print("  apt <command>")
+    Terminal.print("  apt <list|search|info|install|remove>")
 
     local commands = listCommands()
     local names = {}
@@ -1456,6 +1603,18 @@ local builtins = {
     end
   end,
 
+  status = function()
+    local s = kernel.status()
+    Terminal.print("Name: " .. s.name)
+    Terminal.print("Version: " .. s.version)
+    Terminal.print("Build: " .. s.build)
+    Terminal.print("Uptime: " .. tostring(kernel.date("%H:%M:%S", os.time())))
+    Terminal.print("Booted: " .. tostring(s.booted))
+    Terminal.print("Shutdown requested: " .. tostring(s.shutdownRequested))
+    Terminal.print("Reboot requested: " .. tostring(s.rebootRequested))
+    Terminal.print("User: " .. tostring(currentUser or "root"))
+  end,
+
   ps = function()
     Terminal.print("PID TTY TIME CMD")
     Terminal.print("1 ? 00:00:00 init")
@@ -1496,11 +1655,41 @@ local builtins = {
   end,
 
   find = function(dir, name)
-    if not dir then
+    if not dir or not name then
       Terminal.print("Usage: find <dir> -name <pattern>")
       return
     end
-    Terminal.print("find: operation not implemented")
+
+    local target = resolvePath(dir)
+    if not fs.exists(target) then
+      Terminal.print("No such directory: " .. tostring(dir))
+      return
+    end
+    if not fs.isDir(target) then
+      Terminal.print("Not a directory: " .. tostring(dir))
+      return
+    end
+
+    local pattern = name
+    if pattern:sub(1, 1) == [[" ]] or pattern:sub(1, 1) == "'" then
+      pattern = pattern:sub(2, -2)
+    end
+    local luaPattern = pattern:gsub("([%^%$%(%)%%%.%[%]%+%-%?])", "%%%1")
+    luaPattern = "^" .. luaPattern:gsub("\\%*", ".*") .. "$"
+
+    local function scan(path)
+      for _, entry in ipairs(fs.list(path)) do
+        local full = fs.combine(path, entry)
+        if entry:match(luaPattern) then
+          Terminal.print(full)
+        end
+        if fs.isDir(full) then
+          scan(full)
+        end
+      end
+    end
+
+    scan(target)
   end,
 
   wget = function(url)
@@ -1508,8 +1697,11 @@ local builtins = {
       Terminal.print("Usage: wget <url>")
       return
     end
-    Terminal.print("wget: downloading " .. url)
-    -- stub
+    local downloader = process.resolve("wget")
+    if downloader then
+      return process.run(downloader, url)
+    end
+    Terminal.print("wget: command not available")
   end,
 
   ping = function(host)
@@ -1517,7 +1709,11 @@ local builtins = {
       Terminal.print("Usage: ping <host>")
       return
     end
-    Terminal.print("PING " .. host .. ": not implemented")
+    local pingCmd = process.resolve("ping")
+    if pingCmd then
+      return process.run(pingCmd, host)
+    end
+    Terminal.print("ping: command not available")
   end,
 
   useradd = function(user)
@@ -1597,6 +1793,10 @@ local builtins = {
       Terminal.print("Usage: nano <file>")
       return
     end
+    local editor = process.resolve("edit")
+    if editor then
+      return process.run(editor, file)
+    end
     Terminal.print("nano: editor not available")
   end,
 
@@ -1604,6 +1804,10 @@ local builtins = {
     if not file then
       Terminal.print("Usage: vim <file>")
       return
+    end
+    local editor = process.resolve("edit")
+    if editor then
+      return process.run(editor, file)
     end
     Terminal.print("vim: editor not available")
   end,
@@ -1685,13 +1889,17 @@ local builtins = {
   end,
 
   dmesg = function()
-    Terminal.print("[0.000000] CloverOS kernel booting")
-    Terminal.print("[0.100000] Init system started")
+    for _, line in ipairs(kernel.journal()) do
+      Terminal.print(line)
+    end
   end,
 
   journalctl = function()
+    local lines = kernel.journal()
     Terminal.print("-- Logs begin at " .. kernel.date("%Y-%m-%d %H:%M:%S") .. ", end at " .. kernel.date("%Y-%m-%d %H:%M:%S") .. " --")
-    Terminal.print(kernel.date("%b %d %H:%M:%S") .. " CloverOS kernel: System started")
+    for _, line in ipairs(lines) do
+      Terminal.print(line)
+    end
   end,
 
   systemctl = function(action, service)
@@ -1699,7 +1907,115 @@ local builtins = {
       Terminal.print("Usage: systemctl <action> <service>")
       return
     end
+    action = action:lower()
+    if action == "list" then
+      Terminal.print("UNIT LOAD ACTIVE SUB DESCRIPTION")
+      Terminal.print("- no services loaded -")
+      return
+    elseif action == "status" then
+      if not service then
+        Terminal.print("Usage: systemctl status <service>")
+        return
+      end
+      Terminal.print(service .. ": service not found")
+      return
+    end
     Terminal.print("systemctl: " .. action .. " " .. (service or "") .. ": not implemented")
+  end,
+
+  apt = function(command, pkg)
+    if not command or command == "list" then
+      local installedOnly = false
+      if pkg == "--installed" or pkg == "installed" then
+        installedOnly = true
+      end
+      if installedOnly then
+        local installed = getInstalledPackages()
+        if #installed == 0 then
+          Terminal.print("No packages installed.")
+          return
+        end
+        for _, name in ipairs(installed) do
+          Terminal.print(name)
+        end
+        return
+      end
+      local names = listAvailablePackages()
+      if #names == 0 then
+        Terminal.print("No packages available.")
+        return
+      end
+      for _, name in ipairs(names) do
+        Terminal.print(name)
+      end
+      return
+    end
+    local subcmd = command:lower()
+    if subcmd == "search" then
+      if not pkg then
+        Terminal.print("Usage: apt search <term>")
+        return
+      end
+      local termLower = pkg:lower()
+      local found = false
+      for _, name in ipairs(listAvailablePackages()) do
+        local metadata = readPackageMetadata(name)
+        if metadata then
+          local desc = tostring(metadata.description or "")
+          if name:lower():find(termLower, 1, true) or desc:lower():find(termLower, 1, true) then
+            Terminal.print(name .. " - " .. desc)
+            found = true
+          end
+        end
+      end
+      if not found then
+        Terminal.print("No packages matched: " .. pkg)
+      end
+      return
+    end
+    if subcmd == "info" then
+      if not pkg then
+        Terminal.print("Usage: apt info <package>")
+        return
+      end
+      local metadata = readPackageMetadata(pkg)
+      if not metadata then
+        Terminal.print("apt: package not found: " .. pkg)
+        return
+      end
+      for k, v in pairs(metadata) do
+        Terminal.print(tostring(k) .. ": " .. tostring(v))
+      end
+      Terminal.print("Installed: " .. tostring(isPackageInstalled(pkg)))
+      return
+    end
+    if subcmd == "install" then
+      if not pkg then
+        Terminal.print("Usage: apt install <package>")
+        return
+      end
+      local ok, err = installPackage(pkg)
+      if not ok then
+        Terminal.print(err)
+      else
+        Terminal.print("Installed " .. pkg)
+      end
+      return
+    end
+    if subcmd == "remove" or subcmd == "uninstall" then
+      if not pkg then
+        Terminal.print("Usage: apt remove <package>")
+        return
+      end
+      local ok, err = removePackage(pkg)
+      if not ok then
+        Terminal.print(err)
+      else
+        Terminal.print("Removed " .. pkg)
+      end
+      return
+    end
+    Terminal.print("apt: unknown command")
   end,
   screenfetch = function()
 	local fs = kernel.fs
@@ -1981,6 +2297,10 @@ local function formatPrompt()
   prompt = prompt:gsub("%%u", user):gsub("%%h", host):gsub("%%w", cwd)
   return prompt
 end
+local function isKernelShutdownOrReboot()
+  local status = kernel.status()
+  return status.shutdownRequested or status.rebootRequested
+end
 local function runShell()
   autoRegisterCompletions()
   Terminal.clear()
@@ -2001,6 +2321,10 @@ local function runShell()
   loadShellProfiles()
 
   while true do
+    if isKernelShutdownOrReboot() then
+      return
+    end
+
     local line = readLine(formatPrompt(), history)
     local commandLine = line and line:match("^%s*(.-)%s*$") or ""
 
@@ -2075,6 +2399,35 @@ local function getCustomApps()
     end
   end
 
+  -- Add installed apt apps
+  for _, pkg in ipairs(getInstalledPackages()) do
+    local metadata = readPackageMetadata(pkg)
+    if metadata and metadata.app then
+      local pkgPath = fs.combine(APT_DIR, pkg)
+      for _, file in ipairs(metadata.files or {}) do
+        if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") then
+          local filePath = fs.combine(pkgPath, file)
+          if fs.exists(filePath) and not fs.isDir(filePath) then
+            local appName = metadata.name or pkg
+            table.insert(appList, {
+              name = appName,
+              run = function()
+                Terminal.clear()
+                local ok, err = pcall(function()
+                  process.run(filePath)
+                end)
+                if not ok then
+                  Terminal.print("App crash: " .. tostring(err))
+                  kernel.sleep(1.5)
+                end
+              end,
+            })
+          end
+        end
+      end
+    end
+  end
+
   -- Add turtle apps if turtle edition
   if settingsLoaded and editionSettings.turtle then
     local turtleAppsDir = ROOT .. "/etc/apt/packages"
@@ -2115,6 +2468,9 @@ local function fileManager()
     currentDir = "/"
   end
   while true do
+    if isKernelShutdownOrReboot() then
+      return
+    end
     Terminal.clear()
     Terminal.print("File Manager")
     Terminal.print("Current directory: " .. currentDir)
@@ -2201,6 +2557,14 @@ local function desktop()
       end,
     },
     {
+      name = "Reboot",
+      run = function()
+        Terminal.print("Rebooting...")
+        kernel.sleep(1)
+        kernel.reboot()
+      end,
+    },
+    {
       name = "Shutdown",
       run = function()
         Terminal.print("Shutting down...")
@@ -2216,6 +2580,10 @@ local function desktop()
   end
 
   while true do
+    if isKernelShutdownOrReboot() then
+      return
+    end
+
     Terminal.clear()
     Terminal.print("=== CloverOS Desktop" .. editionName .. " ===")
     Terminal.print("")
@@ -2228,7 +2596,7 @@ local function desktop()
       table.insert(allOptions, app)
     end
     Terminal.print("")
-    Terminal.print("Select a number or app name. Type 'shutdown' to power off.")
+    Terminal.print("Select a number or app name. Type 'shutdown' to power off or 'reboot' to restart.")
 
     local choice = readInput("Choice: ")
     local key = choice and choice:match("^%s*(.-)%s*$") or ""
@@ -2238,6 +2606,9 @@ local function desktop()
     key = key:lower()
     if key == "shutdown" or key == "poweroff" then
       kernel.shutdown()
+      return
+    elseif key == "reboot" then
+      kernel.reboot()
       return
     end
 
