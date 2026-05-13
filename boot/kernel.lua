@@ -2306,6 +2306,6 @@ end
 
 	h.close()
 end
-
+kernel.boot()
 local cloverOS = safeFindOS("CloverOS_OS.lua")
 shell.run(cloverOS)
