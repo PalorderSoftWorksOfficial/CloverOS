@@ -475,10 +475,11 @@ while running > 0 do
 		running = running - 1
 		startNext()
 	elseif event == "http_failure" and active[url] then
-		print("Failed: " .. active[url])
-		active[url] = nil
-		running = running - 1
-		startNext()
+    	local reason = param3 or "unknown error"
+    	print("Failed: " .. active[url] .. " | Reason: " .. tostring(reason))
+    	active[url] = nil
+    	running = running - 1
+    	startNext()
 	end
 end
 
