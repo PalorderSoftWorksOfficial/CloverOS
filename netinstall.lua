@@ -456,7 +456,7 @@ for i = 1, MAX_CONCURRENT do
 end
 
 while running > 0 do
-	local event, url, handle = os.pullEvent()
+	local event, url, data = os.pullEvent()
 
 	if event == "http_success" and active[url] then
 		local file = active[url]
@@ -464,8 +464,8 @@ while running > 0 do
 
 		ensureDir(file)
 
-		local content = handle.readAll()
-		handle.close()
+		local content = data.readAll()
+		data.close()
 
 		local f = fs.open(target, "wb")
 		f.write(content)
@@ -475,11 +475,12 @@ while running > 0 do
 		running = running - 1
 		startNext()
 	elseif event == "http_failure" and active[url] then
-    	local reason = param3 or "unknown error"
-    	print("Failed: " .. active[url] .. " | Reason: " .. tostring(reason))
-    	active[url] = nil
-    	running = running - 1
-    	startNext()
+		local reason = data or "unknown error"
+		print("Failed: " .. active[url] .. " (" .. tostring(reason) .. ")")
+
+		active[url] = nil
+		running = running - 1
+		startNext()
 	end
 end
 
