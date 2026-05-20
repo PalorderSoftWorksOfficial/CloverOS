@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global
 -- @usage apt <install|remove|list-installed|list-available|rebuild|scan|fetch|update|upgrade|search|info> <package|all>
 -- @complete 1 choice install remove list-installed list-available rebuild scan fetch update upgrade search info
 -- @complete 2 package all
@@ -9,6 +10,7 @@ local rebuild = false
 local function readJSON(path)
   if not fs.exists(path) then return nil end
   local f = fs.open(path, "r")
+  if not f then return nil end
   local content = f.readAll()
   f.close()
   local ok, data = pcall(textutils.unserializeJSON, content)
@@ -16,13 +18,24 @@ local function readJSON(path)
   return nil
 end
 
+local function ensureParentDirectory(pathname)
+  local parent = pathname:match("^(.*)/[^/]+$")
+  if parent and parent ~= "" and not fs.exists(parent) then
+    fs.makeDir(parent)
+  end
+end
+
 local function copyFile(src, dest)
   local f = fs.open(src, "rb")
+  if not f then return false end
   local content = f.readAll()
   f.close()
+  ensureParentDirectory(dest)
   local f2 = fs.open(dest, "wb")
+  if not f2 then return false end
   f2.write(content)
   f2.close()
+  return true
 end
 
 local function tableContains(tbl, val)
@@ -30,14 +43,27 @@ local function tableContains(tbl, val)
   return false
 end
 
-local DISK_ROOT = (function()
+local function findDiskRoot()
+  if fs.exists("/CloverOS_OS.lua") and fs.exists("/etc/apt") then
+    return "/"
+  end
   for i = 0, 99 do
     local d = "disk" .. (i == 0 and "" or i)
-    if fs.exists("/" .. d) then return "/" .. d end
+    local root = "/" .. d
+    if fs.exists(root .. "/CloverOS_OS.lua") and fs.exists(root .. "/etc/apt") then
+      return root
+    end
   end
-  if fs.exists("/") and fs.exists("/CloverOS_OS.lua") then return "/" end
-  return nil
-end)()
+  for i = 0, 99 do
+    local d = "disk" .. (i == 0 and "" or i)
+    if fs.exists("/" .. d) then
+      return "/" .. d
+    end
+  end
+  return "/"
+end
+
+local DISK_ROOT = findDiskRoot()
 
 if not DISK_ROOT then
   print("Error: could not detect running disk or root installation")
@@ -47,7 +73,8 @@ end
 local APT_PATH = (function()
   for i = 0, 99 do
     local d = "disk" .. (i == 0 and "" or i)
-    if fs.exists("/" .. d .. "/etc/apt") then return "/" .. d .. "/etc/apt" end
+    local path = "/" .. d .. "/etc/apt"
+    if fs.exists(path) then return path end
   end
   if fs.exists("/etc/apt") then return "/etc/apt" end
   return fs.combine(DISK_ROOT, "etc/apt")
@@ -79,7 +106,9 @@ local function copyPackageFiles(pkgPath)
       else
         dest = fs.combine(DISK_ROOT, f)
       end
-      copyFile(src, dest)
+      if not copyFile(src, dest) then
+        print("Warning: could not copy " .. src .. " to " .. dest)
+      end
     end
   end
   return true
@@ -139,14 +168,14 @@ function apt.uninstall(pkg)
     return false
   end
 
-  local targetDir
+  local targetDir = DISK_ROOT
   if packageData.binary then
     targetDir = fs.combine(DISK_ROOT, "bin")
   elseif packageData.app then
     targetDir = fs.combine(DISK_ROOT, "apps")
   end
 
-  if targetDir and packageData.files then
+  if packageData.files then
     for _, fileName in ipairs(packageData.files) do
       local filePath = fs.combine(targetDir, fileName)
       if fs.exists(filePath) then

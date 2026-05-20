@@ -96,9 +96,10 @@ local function findCloverRoot()
 
 	return nil
 end
-local function ensureDirectory(path)
-	if not fs.exists(path) then
-		fs.makeDir(path)
+local function ensureDirectory(dir)
+	local resolvedDir = path.resolve(dir)
+	if not fs.exists(resolvedDir) then
+		fs.makeDir(resolvedDir)
 	end
 end
 local ROOT = findCloverRoot()
@@ -213,10 +214,94 @@ local function saveGroups()
 	end
 end
 local defaultProfile = ROOT .. "/etc/profile"
+local osReleaseFile = ROOT .. "/etc/os-release"
+local issueFile = ROOT .. "/etc/issue"
+local motdFile = ROOT .. "/etc/motd"
+if not fs.exists(ROOT .. "/etc") then
+	fs.makeDir(ROOT .. "/etc")
+end
+if not fs.exists(ROOT .. "/usr") then
+	fs.makeDir(ROOT .. "/usr")
+end
+if not fs.exists(ROOT .. "/usr/bin") then
+	fs.makeDir(ROOT .. "/usr/bin")
+end
+if not fs.exists(ROOT .. "/usr/sbin") then
+	fs.makeDir(ROOT .. "/usr/sbin")
+end
+if not fs.exists(ROOT .. "/usr/local") then
+	fs.makeDir(ROOT .. "/usr/local")
+end
+if not fs.exists(ROOT .. "/usr/local/bin") then
+	fs.makeDir(ROOT .. "/usr/local/bin")
+end
+if not fs.exists(ROOT .. "/usr/local/sbin") then
+	fs.makeDir(ROOT .. "/usr/local/sbin")
+end
+if not fs.exists(ROOT .. "/etc/apt") then
+	fs.makeDir(ROOT .. "/etc/apt")
+end
+if not fs.exists(ROOT .. "/etc/man") then
+	fs.makeDir(ROOT .. "/etc/man")
+end
+if not fs.exists(ROOT .. "/var") then
+	fs.makeDir(ROOT .. "/var")
+end
+if not fs.exists(ROOT .. "/var/log") then
+	fs.makeDir(ROOT .. "/var/log")
+end
+if not fs.exists(ROOT .. "/home") then
+	fs.makeDir(ROOT .. "/home")
+end
+if not fs.exists(ROOT .. "/tmp") then
+	fs.makeDir(ROOT .. "/tmp")
+end
+if not fs.exists(ROOT .. "/opt") then
+	fs.makeDir(ROOT .. "/opt")
+end
 if not fs.exists(defaultProfile) then
 	local handle = fs.open(defaultProfile, "w")
 	if handle then
-		handle.write('PATH="/bin:/usr/bin"\nPS1="%u@%h:%w$ "\nMANPATH="/etc/man"\n')
+		handle.write(
+			'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"\n'
+			.. 'PS1="%u@%h:%w$ "\n'
+			.. 'MANPATH="/usr/share/man:/usr/local/share/man:/etc/man"\n'
+			.. 'LANG="en_US.UTF-8"\n'
+			.. 'TERM="xterm-256color"\n'
+			.. 'MOTD="/etc/motd"\n'
+		)
+		handle.close()
+	end
+end
+if not fs.exists(osReleaseFile) then
+	local handle = fs.open(osReleaseFile, "w")
+	if handle then
+		handle.write(
+			'NAME="CloverOS"\n'
+			.. 'VERSION="1.0 (Ubuntu-inspired)"\n'
+			.. 'ID=cloveros\n'
+			.. 'ID_LIKE=ubuntu\n'
+			.. 'PRETTY_NAME="CloverOS 1.0 (Ubuntu-inspired)"\n'
+			.. 'VERSION_CODENAME=clover\n'
+			.. 'HOME_URL="https://github.com/palordersoftworksofficial/CloverOS"\n'
+			.. 'SUPPORT_URL="https://github.com/palordersoftworksofficial/CloverOS/issues"\n'
+			.. 'BUG_REPORT_URL="https://github.com/palordersoftworksofficial/CloverOS/issues"\n'
+		)
+		handle.close()
+	end
+end
+if not fs.exists(issueFile) then
+	local handle = fs.open(issueFile, "w")
+	if handle then
+		handle.write("CloverOS 1.0 (Ubuntu-inspired) \\\\n \\l\n")
+		handle.close()
+	end
+end
+if not fs.exists(motdFile) then
+	local handle = fs.open(motdFile, "w")
+	if handle then
+		handle.write("Welcome to CloverOS, a Ubuntu-inspired operating system for CC/Tweaked.\n")
+		handle.write("Enjoy your shell environment and explore /usr/bin, /usr/local/bin, and /etc.\n")
 		handle.close()
 	end
 end
@@ -279,7 +364,11 @@ local function login()
 		Terminal.centerText(2, "CloverOS Setup", colors.white, colors.blue)
 		Terminal.print("")
 		local username = readInput("New username: ")
-		local password = readInput("New password: ", true)
+		if not username or username == "" then
+			Terminal.print("Username cannot be empty")
+			return
+		end
+		local password = readInput("New password: ", true) or ""
 		users[username] =
 			{ uid = 1000, gid = 1000, home = "/home/" .. username, shell = "/bin/sh", password = password }
 		saveUsers()
@@ -486,24 +575,50 @@ local function getCommandDirs()
 	local seen = {}
 
 	local function add(dir)
-		if dir and dir ~= "" and not seen[dir] then
-			seen[dir] = true
-			dirs[#dirs + 1] = dir
+		if not dir or dir == "" then
+			return
+		end
+		local resolved = path.resolve(dir)
+		if resolved and resolved ~= "" and not seen[resolved] then
+			seen[resolved] = true
+			dirs[#dirs + 1] = resolved
 		end
 	end
 
+	local function addPathDirs(pathEnv)
+		if not pathEnv or pathEnv == "" then
+			return
+		end
+		for p in pathEnv:gmatch("[^:]+") do
+			add(p)
+		end
+	end
+
+	addPathDirs(shellEnv.PATH or process.path() or "/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin")
 	add("/bin")
 	add("/usr/bin")
+	add("/usr/local/bin")
+	add("/usr/local/sbin")
+	add("/usr/sbin")
+	add("/sbin")
 
 	if ROOT and ROOT ~= "" then
 		add(ROOT .. "/bin")
 		add(ROOT .. "/usr/bin")
+		add(ROOT .. "/usr/local/bin")
+		add(ROOT .. "/usr/local/sbin")
+		add(ROOT .. "/usr/sbin")
+		add(ROOT .. "/sbin")
 	end
 
 	local diskRoot = DISK_ROOT()
 	if diskRoot and diskRoot ~= "" then
 		add(diskRoot .. "/bin")
 		add(diskRoot .. "/usr/bin")
+		add(diskRoot .. "/usr/local/bin")
+		add(diskRoot .. "/usr/local/sbin")
+		add(diskRoot .. "/usr/sbin")
+		add(diskRoot .. "/sbin")
 	end
 
 	return dirs
@@ -513,9 +628,12 @@ local function listCommands()
 	local seen = {}
 
 	for _, dir in ipairs(getCommandDirs()) do
-		if fs.exists(dir) and fs.isDir(dir) then
-			for _, file in ipairs(fs.list(dir)) do
-				local full = fs.combine(dir, file)
+		-- Ensure the directory path is resolved as absolute to avoid issues with relative path resolution
+		local resolvedDir = path.resolve(dir)
+		
+		if fs.exists(resolvedDir) and fs.isDir(resolvedDir) then
+			for _, file in ipairs(fs.list(resolvedDir)) do
+				local full = fs.combine(resolvedDir, file)
 
 				if fs.exists(full) and not fs.isDir(full) then
 					local isExecutable = file:match("%.[lL][uU][aA]$")
@@ -658,6 +776,15 @@ local function loadShellProfiles()
 	local home = shellEnv.HOME or ROOT or "/"
 	local userProfile = home .. "/.profile"
 	loadProfile(userProfile)
+	loadProfile("/etc/bash.bashrc") -- Load global bashrc if it exists
+	loadProfile(home .. "/.bashrc") -- Load user-specific bashrc if it exists
+end
+
+local function displayMotd()
+	local motdPath = resolvePath(shellEnv.MOTD or "/etc/motd")
+	if fs.exists(motdPath) and not fs.isDir(motdPath) then
+		printFile(motdPath)
+	end
 end
 
 local function readPackageMetadata(pkg)
@@ -665,7 +792,9 @@ local function readPackageMetadata(pkg)
 		return nil
 	end
 	local pkgPath = fs.combine(APT_DIR, pkg)
-	local pkgFile = fs.combine(pkgPath, "package.json")
+	-- Ensure the package path is resolved as absolute
+	local resolvedPkgPath = path.resolve(pkgPath)
+	local pkgFile = fs.combine(resolvedPkgPath, "package.json")
 	if not fs.exists(pkgFile) or fs.isDir(pkgFile) then
 		return nil
 	end
@@ -686,11 +815,13 @@ end
 
 local function listAvailablePackages()
 	local packages = {}
-	if not fs.exists(APT_DIR) or not fs.isDir(APT_DIR) then
+	-- Ensure the APT directory path is resolved as absolute
+	local resolvedAptDir = path.resolve(APT_DIR)
+	if not fs.exists(resolvedAptDir) or not fs.isDir(resolvedAptDir) then
 		return packages
 	end
-	for _, name in ipairs(fs.list(APT_DIR)) do
-		local path = fs.combine(APT_DIR, name)
+	for _, name in ipairs(fs.list(resolvedAptDir)) do
+		local path = fs.combine(resolvedAptDir, name)
 		if fs.isDir(path) then
 			table.insert(packages, name)
 		end
@@ -701,10 +832,12 @@ end
 
 local function getInstalledPackages()
 	local installed = {}
-	if not fs.exists(APT_INSTALLED_FILE) then
+	-- Ensure the APT installed file path is resolved as absolute
+	local resolvedInstalledFile = path.resolve(APT_INSTALLED_FILE)
+	if not fs.exists(resolvedInstalledFile) then
 		return installed
 	end
-	local h = fs.open(APT_INSTALLED_FILE, "r")
+	local h = fs.open(resolvedInstalledFile, "r")
 	if not h then
 		return installed
 	end
@@ -734,7 +867,9 @@ local function isPackageInstalled(pkg)
 end
 
 local function saveInstalledPackages(installed)
-	local h = fs.open(APT_INSTALLED_FILE, "w")
+	-- Ensure the APT installed file path is resolved as absolute
+	local resolvedInstalledFile = path.resolve(APT_INSTALLED_FILE)
+	local h = fs.open(resolvedInstalledFile, "w")
 	if not h then
 		return false
 	end
@@ -747,7 +882,27 @@ local function saveInstalledPackages(installed)
 	return true
 end
 
-local function installPackage(pkg)
+local function getPackageInstallBase(metadata)
+	if metadata.installDir and metadata.installDir ~= "" then
+		return ROOT .. "/" .. trim(metadata.installDir)
+	end
+	if metadata.binary or metadata.bin then
+		return ROOT .. "/bin"
+	end
+	if metadata.app then
+		return ROOT .. "/apps"
+	end
+	return ROOT .. "/usr/bin"
+end
+
+local function ensureParentDirectory(pathname)
+	local parent = pathname:match("^(.*)/[^/]+$")
+	if parent and parent ~= "" and not fs.exists(parent) then
+		fs.makeDir(parent)
+	end
+end
+
+local function installPackage(pkg, force)
 	local metadata = readPackageMetadata(pkg)
 	if not metadata then
 		return false, "apt: package not found: " .. tostring(pkg)
@@ -755,24 +910,38 @@ local function installPackage(pkg)
 	if not metadata.files or type(metadata.files) ~= "table" then
 		return false, "apt: invalid package metadata for " .. tostring(pkg)
 	end
-	local installDir = ROOT .. "/usr/bin"
-	if not fs.exists(installDir) then
-		fs.makeDir(installDir)
+	local installDir = getPackageInstallBase(metadata)
+	local resolvedInstallDir = path.resolve(installDir)
+	if not fs.exists(resolvedInstallDir) then
+		fs.makeDir(resolvedInstallDir)
 	end
+	local resolvedAptDir = path.resolve(APT_DIR)
 	for _, file in ipairs(metadata.files) do
-		local src = fs.combine(fs.combine(APT_DIR, pkg), file)
-		local dst = fs.combine(installDir, file)
+		local src = fs.combine(fs.combine(resolvedAptDir, pkg), file)
+		local dst = fs.combine(resolvedInstallDir, file)
 		if not fs.exists(src) or fs.isDir(src) then
 			return false, "apt: package file missing: " .. tostring(file)
 		end
+		local parent = dst:match("^(.*)/[^/]+$")
+		if parent and not fs.exists(parent) then
+			fs.makeDir(parent)
+		end
 		if fs.exists(dst) then
-			return false, "apt: target already exists: " .. tostring(file)
+			if fs.isDir(dst) then
+				return false, "apt: target is a directory: " .. tostring(file)
+			end
+			if not force then
+				return false, "apt: target already exists: " .. tostring(file)
+			end
+			fs.delete(dst)
 		end
 		fs.copy(src, dst)
 	end
 	local installed = getInstalledPackages()
-	table.insert(installed, pkg)
-	saveInstalledPackages(installed)
+	if not isPackageInstalled(pkg) then
+		table.insert(installed, pkg)
+		saveInstalledPackages(installed)
+	end
 	return true
 end
 
@@ -784,9 +953,10 @@ local function removePackage(pkg)
 	if not metadata or type(metadata.files) ~= "table" then
 		return false, "apt: invalid package metadata for " .. tostring(pkg)
 	end
-	local installDir = ROOT .. "/usr/bin"
+	local installDir = getPackageInstallBase(metadata)
+	local resolvedInstallDir = path.resolve(installDir)
 	for _, file in ipairs(metadata.files) do
-		local dst = fs.combine(installDir, file)
+		local dst = fs.combine(resolvedInstallDir, file)
 		if fs.exists(dst) and not fs.isDir(dst) then
 			fs.delete(dst)
 		end
@@ -799,6 +969,23 @@ local function removePackage(pkg)
 	end
 	saveInstalledPackages(installed)
 	return true
+end
+
+local function upgradeInstalledPackages()
+	local installed = getInstalledPackages()
+	if #installed == 0 then
+		return 0
+	end
+	local upgraded = 0
+	for _, pkg in ipairs(installed) do
+		local ok, err = installPackage(pkg, true)
+		if ok then
+			upgraded = upgraded + 1
+		elseif err then
+			Terminal.print("apt: failed to upgrade " .. pkg .. ": " .. tostring(err))
+		end
+	end
+	return upgraded
 end
 
 local function startsWith(value, prefix)
@@ -1055,6 +1242,9 @@ local builtins = {
 		Terminal.print("  env")
 		Terminal.print("  set")
 		Terminal.print("  uname [option]")
+		Terminal.print("  lsb_release -a")
+		Terminal.print("  hostnamectl")
+		Terminal.print("  service <action> <name>")
 		Terminal.print("  grep <pattern> <file> [file...]")
 		Terminal.print("  which <command>")
 		Terminal.print("  touch <file>")
@@ -1248,7 +1438,8 @@ local builtins = {
 		-- search PATH
 		local pathEnv = shellEnv.PATH or process.path() or "/bin"
 		for p in pathEnv:gmatch("[^:]+") do
-			local candidate = fs.combine(p, resolved)
+			local resolvedPath = path.resolve(p)
+			local candidate = fs.combine(resolvedPath, resolved)
 			if fs.exists(candidate) and not fs.isDir(candidate) then
 				Terminal.print(candidate)
 				return
@@ -1323,7 +1514,8 @@ local builtins = {
 		local commands = listCommands()
 		local path = commands[cmd]
 		local manPath = shellEnv.MANPATH or "/etc/man"
-		local manFile = fs.combine(manPath, cmd .. ".man")
+		local resolvedManPath = path.resolve(manPath)
+		local manFile = fs.combine(resolvedManPath, cmd .. ".man")
 		if fs.exists(manFile) and not fs.isDir(manFile) then
 			printFile(manFile)
 			return
@@ -1413,7 +1605,7 @@ local builtins = {
 				end
 				lineno = lineno + 1
 				if line:find(pattern) then
-					Terminal.print(string.format("%s:%d:%s", p, lineno, line))
+					Terminal.print(string.format("%s:%d:%s", target, lineno, line))
 				end
 			end
 			h.close()
@@ -1439,6 +1631,63 @@ local builtins = {
 			Terminal.print(version)
 		else
 			Terminal.print(sysname)
+		end
+	end,
+
+	lsb_release = function(option)
+		local pretty = "CloverOS 1.0 (Ubuntu-inspired)"
+		local description = "CloverOS Ubuntu-inspired operating system"
+		local release = "1.0"
+		local codename = "clover"
+		local id = "cloveros"
+		if option == "-a" then
+			Terminal.print("Distributor ID:\t" .. id)
+			Terminal.print("Description:\t" .. description)
+			Terminal.print("Release:\t" .. release)
+			Terminal.print("Codename:\t" .. codename)
+		elseif option == "-d" then
+			Terminal.print(description)
+		elseif option == "-r" then
+			Terminal.print(release)
+		elseif option == "-c" then
+			Terminal.print(codename)
+		elseif option == "-i" then
+			Terminal.print(id)
+		else
+			Terminal.print("Usage: lsb_release [-a|-d|-r|-c|-i]")
+		end
+	end,
+
+	hostnamectl = function(action, target)
+		if not action then
+			Terminal.print("   Static hostname: " .. (shellEnv.HOSTNAME or "CloverOS"))
+			Terminal.print("         Icon name: computer")
+			Terminal.print("           Chassis: n/a")
+			Terminal.print("        Machine ID: " .. (shellEnv.MACHINE_ID or "0000000000000000"))
+			Terminal.print("           Boot ID: " .. (shellEnv.BOOT_ID or "00000000000000000000"))
+			Terminal.print("  Operating System: CloverOS 1.0 (Ubuntu-inspired)")
+			Terminal.print("            Kernel: CloverOS shell")
+			Terminal.print("      Architecture: cc")
+			return
+		end
+		action = action:lower()
+		if action == "set-hostname" and target then
+			shellEnv.HOSTNAME = target
+			Terminal.print("Hostname set to " .. target)
+		else
+			Terminal.print("hostnamectl: unknown action")
+		end
+	end,
+
+	service = function(action, name)
+		if not action then
+			Terminal.print("Usage: service <action> <name>")
+			return
+		end
+		if action == "status" and name then
+			builtins.systemctl("status", name)
+		else
+			Terminal.print("service: " .. action .. " " .. tostring(name or "") .. ": not implemented")
 		end
 	end,
 
@@ -1731,7 +1980,8 @@ local builtins = {
 		end
 		local downloader = process.resolve("wget")
 		if downloader then
-			return process.run(downloader, url)
+			local resolvedDownloader = path.resolve(downloader)
+			return process.run(resolvedDownloader, url)
 		end
 		Terminal.print("wget: command not available")
 	end,
@@ -1743,7 +1993,8 @@ local builtins = {
 		end
 		local pingCmd = process.resolve("ping")
 		if pingCmd then
-			return process.run(pingCmd, host)
+			local resolvedPingCmd = path.resolve(pingCmd)
+			return process.run(resolvedPingCmd, host)
 		end
 		Terminal.print("ping: command not available")
 	end,
@@ -1784,7 +2035,7 @@ local builtins = {
 			return
 		end
 		Terminal.print("Changing password for " .. user)
-		local newpass = readInput("New password: ", true)
+		local newpass = readInput("New password: ", true) or ""
 		users[user].password = newpass
 		saveUsers()
 		Terminal.print("passwd: password updated successfully")
@@ -1811,12 +2062,25 @@ local builtins = {
 			Terminal.print("Usage: sudo <command>")
 			return
 		end
-		-- for simplicity, just run as root
 		local cmd = table.remove(args, 1)
-		if builtins[cmd] then
-			builtins[cmd](table.unpack(args))
+		local resolved = resolveAlias(cmd)
+		if builtins[resolved] then
+			local ok, err = pcall(builtins[resolved], table.unpack(args))
+			shellEnv["?"] = ok and "0" or "1"
+			if not ok then
+				Terminal.print("Error: " .. tostring(err))
+			end
 		else
-			Terminal.print("sudo: " .. cmd .. ": command not found")
+			local commands = listCommands()
+			if commands[resolved] then
+				local ok, err = pcall(process.run, commands[resolved], table.unpack(args))
+				shellEnv["?"] = ok and "0" or "1"
+				if not ok then
+					Terminal.print("Error: " .. tostring(err))
+				end
+			else
+				Terminal.print("sudo: " .. cmd .. ": command not found")
+			end
 		end
 	end,
 
@@ -1827,7 +2091,8 @@ local builtins = {
 		end
 		local editor = process.resolve("edit")
 		if editor then
-			return process.run(editor, file)
+			local resolvedEditor = path.resolve(editor)
+			return process.run(resolvedEditor, file)
 		end
 		Terminal.print("nano: editor not available")
 	end,
@@ -1839,7 +2104,8 @@ local builtins = {
 		end
 		local editor = process.resolve("edit")
 		if editor then
-			return process.run(editor, file)
+			local resolvedEditor = path.resolve(editor)
+			return process.run(resolvedEditor, file)
 		end
 		Terminal.print("vim: editor not available")
 	end,
@@ -1955,7 +2221,13 @@ local builtins = {
 				Terminal.print("Usage: systemctl status <service>")
 				return
 			end
-			Terminal.print(service .. ": service not found")
+			Terminal.print("● " .. service .. ".service - loaded active running")
+			Terminal.print("     Loaded: loaded (/lib/systemd/system/" .. service .. ".service; enabled; vendor preset: enabled)")
+			Terminal.print("     Active: active (running) since " .. kernel.date("%Y-%m-%d %H:%M:%S") .. "; 1min ago")
+			Terminal.print("   Main PID: 1 (init)")
+			Terminal.print("      Tasks: 1 (limit: 512)")
+			Terminal.print("     Memory: 0.0MB")
+			Terminal.print("        CPU: 0.00s")
 			return
 		end
 		Terminal.print("systemctl: " .. action .. " " .. (service or "") .. ": not implemented")
@@ -2025,6 +2297,21 @@ local builtins = {
 				Terminal.print(tostring(k) .. ": " .. tostring(v))
 			end
 			Terminal.print("Installed: " .. tostring(isPackageInstalled(pkg)))
+			return
+		end
+		if subcmd == "update" then
+			Terminal.print("Reading package lists... Done")
+			local names = listAvailablePackages()
+			Terminal.print("Packages available: " .. tostring(#names))
+			return
+		end
+		if subcmd == "upgrade" then
+			local upgraded = upgradeInstalledPackages()
+			if upgraded == 0 then
+				Terminal.print("0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.")
+			else
+				Terminal.print(tostring(upgraded) .. " package(s) upgraded.")
+			end
 			return
 		end
 		if subcmd == "install" then
@@ -2333,6 +2620,13 @@ local function formatPrompt()
 			cwd = "/"
 		end
 	end
+	local home = shellEnv.HOME or ROOT or "/"
+	if home ~= "/" and cwd:sub(1, #home) == home then
+		cwd = "~" .. cwd:sub(#home + 1)
+		if cwd == "~" then
+			cwd = "~"
+		end
+	end
 	local prompt = shellEnv.PS1 or "%u@%h:%w$ "
 	prompt = prompt:gsub("%%u", user):gsub("%%h", host):gsub("%%w", cwd)
 	return prompt
@@ -2344,21 +2638,26 @@ end
 local function runShell()
 	autoRegisterCompletions()
 	Terminal.clear()
-	Terminal.print("Welcome to CloverOS Shell. Type help for available commands.")
+	Terminal.print("Welcome to CloverOS Ubuntu-style Shell. Type help for available commands.")
 
 	local history = {}
 
 	-- initialize basic shell environment
-	shellEnv.PATH = process.path() or "/bin"
-	shellEnv.USER = "root"
-	shellEnv.HOME = ROOT or "/"
+	local defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	shellEnv.PATH = process.path() or defaultPath
+	if shellEnv.PATH == "" then
+		shellEnv.PATH = defaultPath
+	end
+	shellEnv.USER = currentUser or "root"
+	shellEnv.HOME = (currentUser and users[currentUser] and users[currentUser].home) or ROOT or "/"
 	shellEnv.SHELL = "/bin/sh"
 	shellEnv.HOSTNAME = "CloverOS"
-	shellEnv.MANPATH = "/etc/man"
+	shellEnv.MANPATH = "/usr/share/man:/usr/local/share/man:/etc/man"
 	shellEnv.PS1 = "%u@%h:%w$ "
 	shellEnv.PWD = process.dir()
 	shellEnv["?"] = "0"
 	loadShellProfiles()
+	displayMotd()
 
 	while true do
 		if isKernelShutdownOrReboot() then
@@ -2416,10 +2715,12 @@ local function getCustomApps()
 	local appList = {}
 	local appDirs = { ROOT .. "/apps", "/apps" }
 	for _, dir in ipairs(appDirs) do
-		if fs.exists(dir) and fs.isDir(dir) then
-			for _, file in ipairs(fs.list(dir)) do
+		-- Ensure the directory path is resolved as absolute
+		local resolvedDir = path.resolve(dir)
+		if fs.exists(resolvedDir) and fs.isDir(resolvedDir) then
+			for _, file in ipairs(fs.list(resolvedDir)) do
 				if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") or file:match("%.[dD][lL][lL]$") then
-					local filePath = fs.combine(dir, file)
+					local filePath = fs.combine(resolvedDir, file)
 					local appName = file:gsub("%..+$", "")
 					table.insert(appList, {
 						name = appName,
@@ -2444,9 +2745,11 @@ local function getCustomApps()
 		local metadata = readPackageMetadata(pkg)
 		if metadata and metadata.app then
 			local pkgPath = fs.combine(APT_DIR, pkg)
+			-- Ensure the package path is resolved as absolute
+			local resolvedPkgPath = path.resolve(pkgPath)
 			for _, file in ipairs(metadata.files or {}) do
 				if file:match("%.[lL][uU][aA]$") or file:match("%.[eE][xX][eE]$") then
-					local filePath = fs.combine(pkgPath, file)
+					local filePath = fs.combine(resolvedPkgPath, file)
 					if fs.exists(filePath) and not fs.isDir(filePath) then
 						local appName = metadata.name or pkg
 						table.insert(appList, {
@@ -2471,9 +2774,11 @@ local function getCustomApps()
 	-- Add turtle apps if turtle edition
 	if settingsLoaded and editionSettings.turtle then
 		local turtleAppsDir = ROOT .. "/etc/apt/packages"
-		if fs.exists(turtleAppsDir) and fs.isDir(turtleAppsDir) then
-			for _, subdir in ipairs(fs.list(turtleAppsDir)) do
-				local subpath = fs.combine(turtleAppsDir, subdir)
+		-- Ensure the turtle apps directory path is resolved as absolute
+		local resolvedTurtleAppsDir = path.resolve(turtleAppsDir)
+		if fs.exists(resolvedTurtleAppsDir) and fs.isDir(resolvedTurtleAppsDir) then
+			for _, subdir in ipairs(fs.list(resolvedTurtleAppsDir)) do
+				local subpath = fs.combine(resolvedTurtleAppsDir, subdir)
 				if fs.isDir(subpath) then
 					for _, file in ipairs(fs.list(subpath)) do
 						if file:match("%.[eE][xX][eE]$") then

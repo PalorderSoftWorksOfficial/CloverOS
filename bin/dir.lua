@@ -1,5 +1,11 @@
+---@diagnostic disable: undefined-global, undefined-field
 local args = {...}
-local path = args[1] or "."
+local argPath = args[1] or "."
+local path = argPath
+if argPath:match("^disk%d*$") then
+    path = "/" .. argPath
+end
+path = shell.resolve(path)
 
 local function listDir(p)
     if not fs.exists(p) then
@@ -38,8 +44,5 @@ local function listDir(p)
     term.setTextColor(colors.white)
 end
 
-if path:match("^disk%d*$") then
-    listDir("/" .. path)
-else
-    listDir(path)
-end
+listDir(path)
+

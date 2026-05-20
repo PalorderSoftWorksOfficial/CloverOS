@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, undefined-field
 term.clear()
 term.setCursorPos(1,1)
 print("=== CloverOS Boot Disk Wizard ===")
@@ -20,5 +21,5 @@ for _, d in ipairs(disks) do
 end
 if not found then return end
 if fs.exists("/"..diskside.."/startup") then return end
-shell.run("wget https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua /"..diskside.."/startup")
-shell.run("label set "..diskside.." CloverOSinstall")
+shell.run("wget", "https://palordersoftworksofficial.github.io/CloverOS/netinstall.lua", "/"..diskside.."/startup")
+shell.run("label", "set", diskside, "CloverOSinstall")
