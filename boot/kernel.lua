@@ -169,6 +169,10 @@ function kernel.log(level, ...)
 	end
 	local line = ("[%s] %s"):format(string.upper(tostring(level or "info")), table.concat(parts, " "))
 	kernel._journal[#kernel._journal + 1] = line
+	-- Also emit to registered console driver if available
+	if kernel._console and type(kernel._console.write) == "function" then
+		pcall(kernel._console.write, line)
+	end
 	if print then
 		print(line)
 	else
@@ -705,6 +709,81 @@ end
 
 function kernel.driver.list()
 	return kernel.table.keys(kernel._drivers)
+end
+
+-- Driver registration helpers
+kernel._console = nil
+kernel._block_devices = {}
+kernel._netifs = {}
+kernel._gpios = {}
+kernel._time_source = nil
+
+function kernel.register_console(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._console = driver
+	kernel.info("Console registered: " .. driver.id)
+	return true
+end
+
+function kernel.console_write(...)
+	if kernel._console and type(kernel._console.write) == "function" then
+		return kernel._console.write(...)
+	end
+	-- fallback to term / print
+	local parts = { ... }
+	for i = 1, #parts do parts[i] = tostring(parts[i]) end
+	write(table.concat(parts, " "))
+	return true
+end
+
+function kernel.register_block_device(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._block_devices[driver.id] = driver
+	kernel.info("Block device registered: " .. driver.id)
+	return true
+end
+
+function kernel.block_list()
+	return kernel.table.keys(kernel._block_devices)
+end
+
+function kernel.register_netif(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._netifs[driver.id] = driver
+	kernel.info("Net interface registered: " .. driver.id)
+	return true
+end
+
+function kernel.net_list()
+	return kernel.table.keys(kernel._netifs)
+end
+
+function kernel.register_gpio(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._gpios[driver.id] = driver
+	kernel.info("GPIO driver registered: " .. driver.id)
+	return true
+end
+
+function kernel.gpio_list()
+	return kernel.table.keys(kernel._gpios)
+end
+
+function kernel.register_time_source(driver)
+	if type(driver) ~= "table" then
+		return nil, "invalid driver"
+	end
+	kernel._time_source = driver
+	kernel.info("Time source registered")
+	return true
 end
 
 kernel.init = {}
@@ -2314,6 +2393,18 @@ local function loadDrivers(dir)
 end
 
 loadDrivers(driverRoot)
+
+-- Diagnostic: list registered drivers and subsystems
+pcall(function()
+	local dlist = kernel.driver.list()
+	kernel.info("Drivers loaded: " .. table.concat(dlist, ", "))
+	local b = kernel.block_list()
+	kernel.info("Block devices: " .. (b and table.concat(b, ", ") or "none"))
+	local n = kernel.net_list()
+	kernel.info("Net interfaces: " .. (n and table.concat(n, ", ") or "none"))
+	local g = kernel.gpio_list()
+	kernel.info("GPIO drivers: " .. (g and table.concat(g, ", ") or "none"))
+end)
 
 local startupPath = "/startup.lua"
 

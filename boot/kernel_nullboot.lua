@@ -707,6 +707,80 @@ function kernel.driver.list()
 	return kernel.table.keys(kernel._drivers)
 end
 
+-- Driver registration helpers (nullboot)
+kernel._console = nil
+kernel._block_devices = {}
+kernel._netifs = {}
+kernel._gpios = {}
+kernel._time_source = nil
+
+function kernel.register_console(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._console = driver
+	kernel.info("Console registered: " .. driver.id)
+	return true
+end
+
+function kernel.console_write(...)
+	if kernel._console and type(kernel._console.write) == "function" then
+		return kernel._console.write(...)
+	end
+	local parts = { ... }
+	for i = 1, #parts do parts[i] = tostring(parts[i]) end
+	write(table.concat(parts, " "))
+	return true
+end
+
+function kernel.register_block_device(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._block_devices[driver.id] = driver
+	kernel.info("Block device registered: " .. driver.id)
+	return true
+end
+
+function kernel.block_list()
+	return kernel.table.keys(kernel._block_devices)
+end
+
+function kernel.register_netif(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._netifs[driver.id] = driver
+	kernel.info("Net interface registered: " .. driver.id)
+	return true
+end
+
+function kernel.net_list()
+	return kernel.table.keys(kernel._netifs)
+end
+
+function kernel.register_gpio(driver)
+	if type(driver) ~= "table" or type(driver.id) ~= "string" then
+		return nil, "invalid driver"
+	end
+	kernel._gpios[driver.id] = driver
+	kernel.info("GPIO driver registered: " .. driver.id)
+	return true
+end
+
+function kernel.gpio_list()
+	return kernel.table.keys(kernel._gpios)
+end
+
+function kernel.register_time_source(driver)
+	if type(driver) ~= "table" then
+		return nil, "invalid driver"
+	end
+	kernel._time_source = driver
+	kernel.info("Time source registered")
+	return true
+end
+
 kernel.init = {}
 
 function kernel.init.runlevel()
