@@ -1,0 +1,1 @@
+local a=require"system.network"local b=require"ftp"return function(c)local d=a.parseURI(c)local e=b.client(d.host,d.port or 21)local f,g=e:open(d.path,"rb")if not f then e:close()return nil,g end;local h=f.readAll()f.close()e:close()return h end

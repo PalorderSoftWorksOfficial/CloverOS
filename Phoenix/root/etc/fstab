@@ -1,0 +1,3 @@
+tmpfs /tmp tmpfs defaults,auto 0 0
+tmpfs /var/log tmpfs defaults,auto 0 0
+/rom /rom craftos defaults,auto 0 0

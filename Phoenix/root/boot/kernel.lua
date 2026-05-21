@@ -1,0 +1,13256 @@
+if _ENV ~= _G then
+	error(
+		"Phoenix must be run in the global environment, with a bootloader such as pxboot or UnBIOS. It cannot be run as a normal program."
+	)
+end
+PHOENIX_VERSION = "0.0.9"
+PHOENIX_BUILD = "PRERELEASE NONFREE Mon Sep 15 23:39:00 2025"
+systemStartTime = os.epoch("utc")
+args = {
+	init = "/sbin/init.lua",
+	root = "/root",
+	rootfstype = "craftos",
+	preemptive = true,
+	quantum = 20000,
+	splitkernpath = "/boot/kernel.lua.d",
+	loglevel = 1,
+	console = "tty1",
+	traceback = true,
+}
+syscalls = {}
+processes =
+	{ [0] = { name = "kernel", id = 0, user = "root", dir = "/", root = "/", env = _G, vars = {}, dependents = {} } }
+KERNEL = processes[0]
+modules = {}
+eventHooks = {}
+shutdownHooks = {}
+debugHooks = setmetatable({}, { __mode = "k" })
+kSyscallYield = {}
+kSyscallComplete = {}
+process = {}
+filesystem = {}
+terminal = {}
+syslog = {}
+hardware = {}
+if discord then
+	discord("Phoenix", "Booting Phoenix " .. PHOENIX_VERSION)
+end
+expect = {}
+local a =
+	{ ["nil"] = true, boolean = true, number = true, string = true, table = true, ["function"] = true, userdata = true, thread = true }
+local function b(c)
+	return type(c) == "table" and (getmetatable(c) or {}).__call or type(c) == "function"
+end
+local function d(e, g, ...)
+	local h = type(g)
+	local i
+	if h == "table" then
+		local j = getmetatable(g)
+		if j then
+			i = j.__name
+		end
+	end
+	local args = table.pack(...)
+	for k, l in ipairs(args) do
+		if a[l] then
+			if h == l then
+				return g
+			end
+		elseif i == l then
+			return g
+		elseif b(l) and l(g) then
+			return g
+		end
+	end
+	local info = debug.getinfo(2, "n")
+	if info and info.name and info.name ~= "" then
+		e = e .. " to '" .. info.name .. "'"
+	end
+	local m
+	if #args == 1 and b(args[1]) then
+		local k, n = args[1](g)
+		error(e .. " (" .. n .. ")", 3)
+	else
+		for o, c in ipairs(args) do
+			args[o] = tostring(c)
+		end
+		if args.n == 1 then
+			m = args[1]
+		elseif args.n == 2 then
+			m = args[1] .. " or " .. args[2]
+		else
+			m = table.concat(args, ", ", 1, args.n - 1) .. ", or " .. args[args.n]
+		end
+		error(e .. " (expected " .. m .. ", got " .. h .. ")", 3)
+	end
+end
+function expect.expect(p, g, ...)
+	return d("bad argument #" .. p, g, ...)
+end
+function expect.field(q, r, ...)
+	local s, t = pcall(string.format, "%q", r)
+	if not s then
+		t = tostring(r)
+	end
+	return d("bad field " .. t, q[r], ...)
+end
+function expect.range(u, v, w)
+	expect.expect(1, u, "number")
+	expect.expect(2, v, "number", "nil")
+	expect.expect(3, w, "number", "nil")
+	if w and v and w < v then
+		error("bad argument #3 (min must be less than or equal to max)", 2)
+	end
+	if u ~= u or u < (v or -math.huge) or u > (w or math.huge) then
+		error(
+			("number outside of range (expected %s to be within %s and %s)"):format(u, v or -math.huge, w or math.huge),
+			3
+		)
+	end
+	return u
+end
+setmetatable(expect, {
+	__call = function(self, ...)
+		return expect.expect(...)
+	end,
+})
+local x = {
+	["and"] = true,
+	["break"] = true,
+	["do"] = true,
+	["else"] = true,
+	["elseif"] = true,
+	["end"] = true,
+	["false"] = true,
+	["for"] = true,
+	["function"] = true,
+	["goto"] = true,
+	["if"] = true,
+	["in"] = true,
+	["local"] = true,
+	["nil"] = true,
+	["not"] = true,
+	["or"] = true,
+	["repeat"] = true,
+	["return"] = true,
+	["then"] = true,
+	["true"] = true,
+	["until"] = true,
+	["while"] = true,
+}
+local function y(z, A, B, C)
+	if A[z] then
+		error("Cannot serialize recursive value", 0)
+	end
+	local D = type(z)
+	if D == "table" then
+		if not next(z) then
+			return "{}"
+		end
+		A[z] = true
+		local E = B.minified and "{" or "{\n"
+		local u = {}
+		for o, c in ipairs(z) do
+			if not B.minified then
+				E = E .. ("    "):rep(C)
+			end
+			u[o] = true
+			E = E .. y(c, A, B, C + 1) .. (B.minified and "," or ",\n")
+		end
+		for F, c in pairs(z) do
+			if not u[F] then
+				if not B.minified then
+					E = E .. ("    "):rep(C)
+				end
+				if type(F) == "string" and F:match("^[A-Za-z_][A-Za-z0-9_]*$") and not x[F] then
+					E = E .. F
+				else
+					E = E .. "[" .. y(F, A, B, C + 1) .. "]"
+				end
+				E = E .. (B.minified and "=" or " = ") .. y(c, A, B, C + 1) .. (B.minified and "," or ",\n")
+			end
+		end
+		if B.minified then
+			E = E:gsub(",$", "")
+		else
+			E = E .. ("    "):rep(C - 1)
+		end
+		A[z] = nil
+		return E .. "}"
+	elseif D == "nil" or D == "number" or D == "boolean" or D == "string" then
+		return ("%q"):format(z):gsub("\\\n", "\\n"):gsub("\\?[%z\1-\31\127-\255]", function(G)
+			return ("\\%03d"):format(string.byte(G))
+		end)
+	else
+		error("Cannot serialize type " .. D, 0)
+	end
+end
+function serialize(z, B)
+	expect(2, B, "table", "nil")
+	return y(z, {}, B or {}, 1)
+end
+function unserialize(t)
+	expect(1, t, "string")
+	return assert(load("return " .. t, "=unserialize", "t", {}))()
+end
+do
+	local H = fs.open("/rom/apis/keys.lua", "r")
+	local I = setmetatable({
+		dofile = function()
+			return expect
+		end,
+	}, { __index = _G })
+	if _VERSION < "Lua 5.2" then
+		I._ENV = I
+	end
+	local J
+	if loadstring and setfenv then
+		J = loadstring(H.readAll(), "@/rom/apis/keys.lua")
+		setfenv(J, I)
+	else
+		J = load(H.readAll(), "@/rom/apis/keys.lua", "t", I)
+	end
+	H.close()
+	J()
+	keys = {}
+	for F, c in pairs(I) do
+		keys[F] = c
+	end
+end
+local K = load
+if not pcall(load, "return", "=test", "t", {}) then
+	local L, M, expect, setfenv = load, loadstring, expect, setfenv
+	function load(N, O, P, I)
+		expect(1, N, "string", "function")
+		expect(2, O, "string", "nil")
+		expect(3, P, "string", "nil")
+		expect(4, I, "table", "nil")
+		if type(N) == "string" then
+			if N:sub(1, 4) == "\27Lua" then
+				if P == nil or P:find("b") then
+					local J, n = M(N, O)
+					if J and I then
+						setfenv(J, I)
+					end
+					return J, n
+				else
+					return nil, "attempt to load a binary chunk (mode is '" .. (P or "bt") .. "')"
+				end
+			else
+				if P == nil or P:find("t") then
+					local J, n = M(N, O)
+					if J and I then
+						setfenv(J, I)
+					end
+					return J, n
+				else
+					return nil, "attempt to load a text chunk (mode is '" .. (P or "bt") .. "')"
+				end
+			end
+		else
+			local J, n = L(N, O)
+			if J then
+				setfenv(J, I)
+			end
+			return J, n
+		end
+	end
+end
+loadstring = nil
+if bit then
+	if not bit32 then
+		local bit = bit
+		bit32 = { bnot = bit.bnot, lshift = bit.blshift, rshift = bit.blogic_rshift, arshift = bit.brshift }
+		function bit32.band(Q, R, ...)
+			expect(1, Q, "number")
+			expect(2, R, "number", "nil")
+			if not R then
+				return Q
+			end
+			return bit32.band(bit.band(Q, R), ...)
+		end
+		function bit32.bor(Q, R, ...)
+			expect(1, Q, "number")
+			expect(2, R, "number", "nil")
+			if not R then
+				return Q
+			end
+			return bit32.bor(bit.bor(Q, R), ...)
+		end
+		function bit32.bxor(Q, R, ...)
+			expect(1, Q, "number")
+			expect(2, R, "number", "nil")
+			if not R then
+				return Q
+			end
+			return bit32.bxor(bit.bxor(Q, R), ...)
+		end
+		function bit32.btest(...)
+			return bit32.band(...) ~= 0
+		end
+		function bit32.extract(S, T, U)
+			expect(1, S, "number")
+			expect(2, T, "number")
+			expect(3, U, "number", "nil")(expect.range or function() end)(T, 0, 31)(expect.range or function() end)(
+				T + U - 1,
+				0,
+				31
+			)
+			U = U or 1
+			local E = 0
+			for o = T + U - 1, T, -1 do
+				E = E * 2 + bit.band(S, 2 ^ o) / 2 ^ o
+			end
+			return E
+		end
+		function bit32.replace(S, c, T, U)
+			expect(1, S, "number")
+			expect(2, c, "number")
+			expect(3, T, "number")
+			expect(4, U, "number", "nil")(expect.range or function() end)(T, 0, 31)(expect.range or function() end)(
+				T + U - 1,
+				0,
+				31
+			)
+			U = U or 1
+			local V = 2 ^ U - 1
+			return bit.bor(bit.band(S, bit.bnot(bit.blshift(V, T))), bit.blshift(bit.band(c, V), T))
+		end
+		function bit32.lrotate(Q, W)
+			return bit.bor(bit.blshift(Q, W), bit.blogic_rshift(Q, 32 - W))
+		end
+		function bit32.rrotate(Q, W)
+			return bit.bor(bit.blogic_rshift(Q, W), bit.blshift(Q, 32 - W))
+		end
+	end
+	bit = nil
+end
+if _VERSION == "Lua 5.1" and load("::a:: goto a") then
+	_VERSION = "Lua 5.2"
+	if load("return 1 >> 2 & 3") then
+		_VERSION = "Lua 5.3"
+		if load("local <const> a = 2") then
+			_VERSION = "Lua 5.4"
+		end
+	end
+end
+if _VERSION == "Lua 5.1" then
+	if not table.pack then
+		table.pack = function(...)
+			local X = { ... }
+			X.n = select("#", ...)
+			return X
+		end
+	end
+	if not table.unpack then
+		table.unpack, unpack = unpack, nil
+	end
+	local k, c = xpcall(function(Y)
+		return Y
+	end, function() end, true)
+	if not c then
+		local Z = xpcall
+		xpcall = function(f, _, ...)
+			if select("#", ...) > 0 then
+				local args = table.pack(...)
+				return Z(function()
+					return f(table.unpack(args, 1, args.n))
+				end, _)
+			else
+				return Z(f, _)
+			end
+		end
+	end
+end
+if tonumber(_HOST:match("ComputerCraft 1.(%d+)")) < 95 then
+	local a0 = fs.combine
+	function fs.combine(a1, ...)
+		if ... ~= nil then
+			return a0(a1, fs.combine(...))
+		else
+			return a1
+		end
+	end
+end
+if not string.pack then
+	local expect = expect.expect
+	local a2 = { BIG_ENDIAN = 1, LITTLE_ENDIAN = 2 }
+	local a3 = { b = 1, B = 1, h = 1, H = 1, l = 1, L = 1, j = 1, J = 1, T = 1 }
+	local a4 = { b = 1, B = 1, x = 1, h = 2, H = 2, f = 4, j = 4, J = 4, l = 8, L = 8, T = 8, d = 8, n = 8 }
+	local function a5(S)
+		if S % 1 >= 0.5 then
+			return math.ceil(S)
+		else
+			return math.floor(S)
+		end
+	end
+	local function a6(f)
+		if f == 0 then
+			return 0
+		elseif f == -0 then
+			return 0x80000000
+		elseif f == math.huge then
+			return 0x7F800000
+		elseif f == -math.huge then
+			return 0xFF800000
+		end
+		local Y, a7 = math.frexp(f)
+		if a7 > 127 or a7 < -126 then
+			error("number out of range", 3)
+		end
+		a7, Y = a7 + 126, a5((math.abs(Y) - 0.5) * 0x1000000)
+		if Y > 0x7FFFFF then
+			a7 = a7 + 1
+		end
+		return bit32.bor(f < 0 and 0x80000000 or 0, bit32.lshift(bit32.band(a7, 0xFF), 23), bit32.band(Y, 0x7FFFFF))
+	end
+	local function a8(f)
+		if f == 0 then
+			return 0, 0
+		elseif f == -0 then
+			return 0x80000000, 0
+		elseif f == math.huge then
+			return 0x7FF00000, 0
+		elseif f == -math.huge then
+			return 0xFFF00000, 0
+		end
+		local Y, a7 = math.frexp(f)
+		if a7 > 1023 or a7 < -1022 then
+			error("number out of range", 3)
+		end
+		a7, Y = a7 + 1022, a5((math.abs(Y) - 0.5) * 0x20000000000000)
+		if Y > 0xFFFFFFFFFFFFF then
+			a7 = a7 + 1
+		end
+		return bit32.bor(
+			f < 0 and 0x80000000 or 0,
+			bit32.lshift(bit32.band(a7, 0x7FF), 20),
+			bit32.band(Y / 0x100000000, 0xFFFFF)
+		),
+			bit32.band(Y, 0xFFFFFFFF)
+	end
+	local function a9(aa)
+		if aa == 0 then
+			return 0
+		elseif aa == 0x80000000 then
+			return -0
+		elseif aa == 0x7F800000 then
+			return math.huge
+		elseif aa == 0xFF800000 then
+			return -math.huge
+		end
+		local Y, a7 = bit32.band(aa, 0x7FFFFF), bit32.band(bit32.rshift(aa, 23), 0xFF)
+		a7, Y = a7 - 126, Y / 0x1000000 + 0.5
+		local S = math.ldexp(Y, a7)
+		return bit32.btest(aa, 0x80000000) and -S or S
+	end
+	local function ab(ac, ad)
+		if ac == 0 and ad == 0 then
+			return 0
+		elseif ac == 0x80000000 and ad == 0 then
+			return -0
+		elseif ac == 0x7FF00000 and ad == 0 then
+			return math.huge
+		elseif ac == 0xFFF00000 and ad == 0 then
+			return -math.huge
+		end
+		local Y, a7 =
+			bit32.band(ac, 0xFFFFF) * 0x100000000 + bit32.band(ad, 0xFFFFFFFF), bit32.band(bit32.rshift(ac, 20), 0x7FF)
+		a7, Y = a7 - 1022, Y / 0x20000000000000 + 0.5
+		local S = math.ldexp(Y, a7)
+		return bit32.btest(ac, 0x80000000) and -S or S
+	end
+	local function ae(u, af, ag, ah, ai, aj, ak)
+		local al = 0
+		if ah % math.min(af, ai) ~= 0 and ai > 1 then
+			local o = 0
+			while ah % math.min(af, ai) ~= 0 and o < ai do
+				ag[ah] = 0
+				ah = ah + 1
+				al = al + 1
+				o = o + 1
+			end
+		end
+		if aj == a2.BIG_ENDIAN then
+			local am = 0
+			if af > 8 then
+				for o = 0, af - 9 do
+					ag[ah + o] = ak and u >= 2 ^ (af * 8 - 1) ~= 0 and 0xFF or 0
+					am = am + 1
+					al = al + 1
+				end
+			end
+			for o = am, af - 1 do
+				ag[ah + o] = bit32.band(bit32.rshift(u, (af - o - 1) * 8), 0xFF)
+				al = al + 1
+			end
+		else
+			for o = 0, math.min(af, 8) - 1 do
+				ag[ah + o] = u / 2 ^ (o * 8) % 256
+				al = al + 1
+			end
+			for o = 8, af - 1 do
+				ag[ah + o] = ak and u >= 2 ^ (af * 8 - 1) ~= 0 and 0xFF or 0
+				al = al + 1
+			end
+		end
+		return al
+	end
+	local function an(t, ah, af, aj, ai, ak)
+		local ao, ap = 0, 0
+		if ah % math.min(af, ai) ~= 0 and ai > 1 then
+			for o = 0, ai - 1 do
+				if ah % math.min(af, ai) == 0 then
+					break
+				end
+				ah = ah + 1
+				ap = ap + 1
+			end
+		end
+		for o = 0, af - 1 do
+			ao = ao + t:byte(ah + o) * 2 ^ ((aj == a2.BIG_ENDIAN and af - o - 1 or o) * 8)
+			ap = ap + 1
+		end
+		if ak and ao >= 2 ^ (af * 8 - 1) then
+			ao = ao - 2 ^ (af * 8)
+		end
+		return ao, ap
+	end
+	local function aq(ar, ai)
+		local as = a4[ar] or 0
+		if ai > 1 and as % ai ~= 0 then
+			as = as + ai - as % ai
+		end
+		return as
+	end
+	function string.pack(...)
+		local at = expect(1, ..., "string")
+		local aj = a2.LITTLE_ENDIAN
+		local ai = 1
+		local au = 1
+		local av = 2
+		local ag = {}
+		local o = 1
+		while o <= #at do
+			local G = at:sub(o, o)
+			o = o + 1
+			if G == "=" or G == "<" then
+				aj = a2.LITTLE_ENDIAN
+			elseif G == ">" then
+				aj = a2.BIG_ENDIAN
+			elseif G == "!" then
+				local af = -1
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = math.max(af, 0) * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 or af == 0 then
+					error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+				elseif af == -1 then
+					ai = 4
+				else
+					ai = af
+				end
+			elseif a3[G] then
+				local u = expect(av, select(av, ...), "number")
+				av = av + 1
+				if
+					u >= math.pow(2, aq(G, 0) * 8 - (G:match("%l") and 1 or 0))
+					or u < (G:match("%l") and -math.pow(2, aq(G, 0) * 8 - 1) or 0)
+				then
+					error(string.format("bad argument #%d to 'pack' (integer overflow)", av - 1), 2)
+				end
+				au = au + ae(u, aq(G, 0), ag, au, ai, aj, false)
+			elseif G:lower() == "i" then
+				local ak = G == "i"
+				local af = -1
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = math.max(af, 0) * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 or af == 0 then
+					error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+				elseif ai > 1 and (af ~= 1 and af ~= 2 and af ~= 4 and af ~= 8 and af ~= 16) then
+					error("bad argument #1 to 'pack' (format asks for alignment not power of 2)", 2)
+				elseif af == -1 then
+					af = 4
+				end
+				local u = expect(av, select(av, ...), "number")
+				av = av + 1
+				if
+					u >= math.pow(2, af * 8 - (G:match("%l") and 1 or 0))
+					or u < (G:match("%l") and -math.pow(2, af * 8 - 1) or 0)
+				then
+					error(string.format("bad argument #%d to 'pack' (integer overflow)", av - 1), 2)
+				end
+				au = au + ae(u, af, ag, au, ai, aj, ak)
+			elseif G == "f" then
+				local f = expect(av, select(av, ...), "number")
+				av = av + 1
+				local aa = a6(f)
+				if au % math.min(4, ai) ~= 0 and ai > 1 then
+					for aw = 0, ai - 1 do
+						if au % math.min(4, ai) == 0 then
+							break
+						end
+						ag[au] = 0
+						au = au + 1
+					end
+				end
+				for aw = 0, 3 do
+					ag[au + (aj == a2.BIG_ENDIAN and 3 - aw or aw)] = bit32.band(bit32.rshift(aa, aw * 8), 0xFF)
+				end
+				au = au + 4
+			elseif G == "d" or G == "n" then
+				local f = expect(av, select(av, ...), "number")
+				av = av + 1
+				local ac, ad = a8(f)
+				if au % math.min(8, ai) ~= 0 and ai > 1 then
+					for aw = 0, ai - 1 do
+						if au % math.min(8, ai) == 0 then
+							break
+						end
+						ag[au] = 0
+						au = au + 1
+					end
+				end
+				for aw = 0, 3 do
+					ag[au + (aj == a2.BIG_ENDIAN and 7 - aw or aw)] = bit32.band(bit32.rshift(ad, aw * 8), 0xFF)
+				end
+				for aw = 4, 7 do
+					ag[au + (aj == a2.BIG_ENDIAN and 7 - aw or aw)] = bit32.band(bit32.rshift(ac, (aw - 4) * 8), 0xFF)
+				end
+				au = au + 8
+			elseif G == "c" then
+				local af = 0
+				if o > #at or not at:sub(o, o):match("%d") then
+					error("missing size for format option 'c'", 2)
+				end
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if au + af < au or au + af > 0xFFFFFFFF then
+					error("bad argument #1 to 'pack' (format result too large)", 2)
+				end
+				local t = expect(av, select(av, ...), "string")
+				av = av + 1
+				if #t > af then
+					error(string.format("bad argument #%d to 'pack' (string longer than given size)", av - 1), 2)
+				end
+				if af > 0 then
+					for aw = 0, af - 1 do
+						ag[au + aw] = t:byte(aw + 1) or 0
+					end
+					au = au + af
+				end
+			elseif G == "z" then
+				local t = expect(av, select(av, ...), "string")
+				av = av + 1
+				for ax in t:gmatch(".") do
+					if ax == "\0" then
+						error(string.format("bad argument #%d to 'pack' (string contains zeros)", av - 1), 2)
+					end
+				end
+				for aw = 0, #t - 1 do
+					ag[au + aw] = t:byte(aw + 1)
+				end
+				ag[au + #t] = 0
+				au = au + #t + 1
+			elseif G == "s" then
+				local af = 0
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 then
+					error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+				elseif af == 0 then
+					af = 4
+				end
+				local t = expect(av, select(av, ...), "string")
+				av = av + 1
+				if #t >= math.pow(2, af * 8) then
+					error(
+						string.format("bad argument #%d to 'pack' (string length does not fit in given size)", av - 1),
+						2
+					)
+				end
+				ae(#t, af, ag, au, 1, aj, false)
+				for aw = af, #t + af - 1 do
+					ag[au + aw] = t:byte(aw - af + 1) or 0
+				end
+				au = au + #t + af
+			elseif G == "x" then
+				ag[au] = 0
+				au = au + 1
+			elseif G == "X" then
+				if o >= #at then
+					error("invalid next option for option 'X'", 2)
+				end
+				local af = 0
+				local G = at:sub(o, o)
+				o = o + 1
+				if G:lower() == "i" then
+					while o <= #at and at:sub(o, o):match("%d") do
+						if af >= 0xFFFFFFFF / 10 then
+							error("bad argument #1 to 'pack' (invalid format)", 2)
+						end
+						af = af * 10 + tonumber(at:sub(o, o))
+						o = o + 1
+					end
+					if af > 16 or af == 0 then
+						error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+					end
+				else
+					af = aq(G, 0)
+				end
+				if af < 1 then
+					error("invalid next option for option 'X'", 2)
+				end
+				if au % math.min(af, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(af, ai) == 0 then
+							break
+						end
+						ag[au] = 0
+						au = au + 1
+					end
+				end
+			elseif G ~= " " then
+				error(string.format("invalid format option '%s'", G), 2)
+			end
+		end
+		return string.char(table.unpack(ag))
+	end
+	function string.packsize(at)
+		local au = 0
+		local ai = 1
+		local o = 1
+		while o <= #at do
+			local G = at:sub(o, o)
+			o = o + 1
+			if G == "!" then
+				local af = 0
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 then
+					error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+				elseif af == 0 then
+					ai = 4
+				else
+					ai = af
+				end
+			elseif a3[G] then
+				local af = aq(G, 0)
+				if au % math.min(af, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(af, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+				au = au + af
+			elseif G:lower() == "i" then
+				local af = 0
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 then
+					error(string.format("integral size (%d) out of limits [1,16]", af))
+				elseif ai > 1 and (af ~= 1 and af ~= 2 and af ~= 4 and af ~= 8 and af ~= 16) then
+					error("bad argument #1 to 'pack' (format asks for alignment not power of 2)", 2)
+				elseif af == 0 then
+					af = 4
+				end
+				if au % math.min(af, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(af, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+				au = au + af
+			elseif G == "f" then
+				if au % math.min(4, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(4, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+				au = au + 4
+			elseif G == "d" or G == "n" then
+				if au % math.min(8, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(8, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+				au = au + 8
+			elseif G == "c" then
+				local af = 0
+				if o > #at or not at:sub(o, o):match("%d") then
+					error("missing size for format option 'c'", 2)
+				end
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if au + af < au or au + af > 0x7FFFFFFF then
+					error("bad argument #1 to 'packsize' (format result too large)", 2)
+				end
+				au = au + af
+			elseif G == "x" then
+				au = au + 1
+			elseif G == "X" then
+				if o >= #at then
+					error("invalid next option for option 'X'", 2)
+				end
+				local af = 0
+				local G = at:sub(o, o)
+				o = o + 1
+				if G:lower() == "i" then
+					while o <= #at and at:sub(o, o):match("%d") do
+						if af >= 0xFFFFFFFF / 10 then
+							error("bad argument #1 to 'pack' (invalid format)", 2)
+						end
+						af = af * 10 + tonumber(at:sub(o, o))
+						o = o + 1
+					end
+					if af > 16 or af == 0 then
+						error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+					end
+				else
+					af = aq(G, 0)
+				end
+				if af < 1 then
+					error("invalid next option for option 'X'", 2)
+				end
+				if au % math.min(af, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(af, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+			elseif G == "s" or G == "z" then
+				error("bad argument #1 to 'packsize' (variable-length format)", 2)
+			elseif G ~= " " and G ~= "<" and G ~= ">" and G ~= "=" then
+				error(string.format("invalid format option '%s'", G), 2)
+			end
+		end
+		return au
+	end
+	function string.unpack(at, t, au)
+		expect(1, at, "string")
+		expect(2, t, "string")
+		expect(3, au, "number", "nil")
+		if au then
+			if au < 0 then
+				au = #t + au
+			elseif au == 0 then
+				error("bad argument #3 to 'unpack' (initial position out of string)", 2)
+			end
+			if au > #t or au < 0 then
+				error("bad argument #3 to 'unpack' (initial position out of string)", 2)
+			end
+		else
+			au = 1
+		end
+		local aj = a2.LITTLE_ENDIAN
+		local ai = 1
+		local as = {}
+		local o = 1
+		while o <= #at do
+			local G = at:sub(o, o)
+			o = o + 1
+			if G == "<" or G == "=" then
+				aj = a2.LITTLE_ENDIAN
+			elseif G == ">" then
+				aj = a2.BIG_ENDIAN
+			elseif G == "!" then
+				local af = 0
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 then
+					error(string.format("integral size (%d) out of limits [1,16]", af))
+				elseif af == 0 then
+					ai = 4
+				else
+					ai = af
+				end
+			elseif a3[G] then
+				if au + aq(G, 0) > #t + 1 then
+					error("data string too short", 2)
+				end
+				local E, ay = an(t, au, aq(G, 0), aj, ai, G:match("%l") ~= nil)
+				as[#as + 1] = E
+				au = au + ay
+			elseif G:lower() == "i" then
+				local ak = G == "i"
+				local af = 0
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 then
+					error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+				elseif af > 8 then
+					error(string.format("%d-byte integer does not fit into Lua Integer", af), 2)
+				elseif af == 0 then
+					af = 4
+				end
+				if au + af > #t + 1 then
+					error("data string too short", 2)
+				end
+				local E, ay = an(t, au, af, aj, ai, ak)
+				as[#as + 1] = E
+				au = au + ay
+			elseif G == "f" then
+				if au % math.min(4, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(4, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+				if au + 4 > #t + 1 then
+					error("data string too short", 2)
+				end
+				local E = an(t, au, 4, aj, ai, false)
+				as[#as + 1] = a9(E)
+				au = au + 4
+			elseif G == "d" or G == "n" then
+				if au % math.min(8, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(8, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+				if au + 8 > #t + 1 then
+					error("data string too short", 2)
+				end
+				local ac, ad = 0, 0
+				for aw = 0, 3 do
+					ac = bit32.bor(ac, bit32.lshift(t:byte(au + aw), (aj == a2.BIG_ENDIAN and 3 - aw or aw) * 8))
+				end
+				for aw = 0, 3 do
+					ad = bit32.bor(ad, bit32.lshift(t:byte(au + aw + 4), (aj == a2.BIG_ENDIAN and 3 - aw or aw) * 8))
+				end
+				if aj == a2.LITTLE_ENDIAN then
+					ac, ad = ad, ac
+				end
+				as[#as + 1] = ab(ac, ad)
+				au = au + 8
+			elseif G == "c" then
+				local af = 0
+				if o > #at or not at:sub(o, o):match("%d") then
+					error("missing size for format option 'c'", 2)
+				end
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)")
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if au + af > #t + 1 then
+					error("data string too short", 2)
+				end
+				as[#as + 1] = t:sub(au, au + af - 1)
+				au = au + af
+			elseif G == "z" then
+				local af = 0
+				while t:byte(au + af) ~= 0 do
+					af = af + 1
+					if au + af > #t then
+						error("unfinished string for format 'z'", 2)
+					end
+				end
+				as[#as + 1] = t:sub(au, au + af - 1)
+				au = au + af + 1
+			elseif G == "s" then
+				local af = 0
+				while o <= #at and at:sub(o, o):match("%d") do
+					if af >= 0xFFFFFFFF / 10 then
+						error("bad argument #1 to 'pack' (invalid format)", 2)
+					end
+					af = af * 10 + tonumber(at:sub(o, o))
+					o = o + 1
+				end
+				if af > 16 then
+					error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+				elseif af == 0 then
+					af = 4
+				end
+				if au + af > #t + 1 then
+					error("data string too short", 2)
+				end
+				local u, az = an(t, au, af, aj, ai, false)
+				au = au + az
+				if au + u > #t + 1 then
+					error("data string too short", 2)
+				end
+				as[#as + 1] = t:sub(au, au + u - 1)
+				au = au + u
+			elseif G == "x" then
+				au = au + 1
+			elseif G == "X" then
+				if o >= #at then
+					error("invalid next option for option 'X'", 2)
+				end
+				local af = 0
+				local G = at:sub(o, o)
+				o = o + 1
+				if G:lower() == "i" then
+					while o <= #at and at:sub(o, o):match("%d") do
+						if af >= 0xFFFFFFFF / 10 then
+							error("bad argument #1 to 'pack' (invalid format)", 2)
+						end
+						af = af * 10 + tonumber(at:sub(o, o))
+						o = o + 1
+					end
+					if af > 16 or af == 0 then
+						error(string.format("integral size (%d) out of limits [1,16]", af), 2)
+					elseif af == -1 then
+						af = 4
+					end
+				else
+					af = aq(G, 0)
+				end
+				if af < 1 then
+					error("invalid next option for option 'X'", 2)
+				end
+				if au % math.min(af, ai) ~= 0 and ai > 1 then
+					for aw = 1, ai do
+						if au % math.min(af, ai) == 0 then
+							break
+						end
+						au = au + 1
+					end
+				end
+			elseif G ~= " " then
+				error(string.format("invalid format option '%s'", G), 2)
+			end
+		end
+		as[#as + 1] = au
+		return table.unpack(as)
+	end
+end
+function panic(aA)
+	term.setBackgroundColor(32768)
+	term.setTextColor(16384)
+	term.setCursorBlink(false)
+	local Q, R = term.getCursorPos()
+	Q = 1
+	local aB, aC = term.getSize()
+	aA = "panic: " .. (aA or "unknown")
+	for aD in aA:gmatch("%S+") do
+		if Q + #aD >= aB then
+			Q, R = 1, R + 1
+			if R > aC then
+				term.scroll(1)
+				R = R - 1
+			end
+		end
+		term.setCursorPos(Q, R)
+		if Q == 1 then
+			term.clearLine()
+		end
+		term.write(aD .. " ")
+		Q = Q + #aD + 1
+	end
+	Q, R = 1, R + 1
+	if R > aC then
+		term.scroll(1)
+		R = R - 1
+	end
+	if debug then
+		local aE = debug.traceback(nil, 2)
+		for aF in aE:gmatch("[^\n]+") do
+			term.setCursorPos(1, R)
+			term.write(aF)
+			R = R + 1
+			if R > aC then
+				term.scroll(1)
+				R = R - 1
+			end
+		end
+	end
+	term.setCursorPos(1, R)
+	term.setTextColor(2)
+	term.write("panic: We are hanging here...")
+	mainThread = nil
+	if _HEADLESS then
+		os.shutdown(1)
+	end
+	while true do
+		coroutine.yield()
+	end
+end
+function do_syscall(aG, ...)
+	local E = table.pack(coroutine.yield("syscall", aG, ...))
+	if E[1] then
+		return table.unpack(E, 2, E.n)
+	else
+		error(E[2], 3)
+	end
+end
+function deepcopy(aH)
+	if type(aH) == "table" then
+		local as = setmetatable({}, deepcopy(getmetatable(aH)))
+		for F, c in pairs(aH) do
+			as[deepcopy(F)] = deepcopy(c)
+		end
+		return as
+	else
+		return aH
+	end
+end
+function split(t, aI)
+	local X = {}
+	for aJ in t:gmatch("[^" .. (aI or "%s") .. "]+") do
+		X[#X + 1] = aJ
+	end
+	return X
+end
+local aK = pcall(os.epoch, "nano") and function()
+	return os.epoch("nano") / 1000000
+end or (ccemux and function()
+	return ccemux.nanoTime() / 1000000
+end or function()
+	return os.epoch("utc")
+end)
+local aL
+function getCurrentThread()
+	return aL
+end
+local aM = { n = 0 }
+function executeThread(process, aN, aO, aP, aQ)
+	local args
+	if aN.paused then
+		return false, aQ
+	end
+	if aN.status == "starting" then
+		args = aN.args
+	elseif aN.status == "syscall" then
+		args = table.pack(table.unpack(aN.syscall_return, 3, aN.syscall_return.n))
+	elseif aN.status == "preempt" then
+		args = aM
+	elseif aN.status == "suspended" then
+		args = { aO[1], {} }
+		for F, c in pairs(aO[2]) do
+			args[2][F] = c
+		end
+	elseif aN.status == "paused" then
+		return false, aQ
+	end
+	if aN.status ~= "dead" and (not aN.filter or aN.filter(process, aN, aO)) then
+		local aR = aP
+		aP = false
+		aN.filter = nil
+		local aS
+		if aN.yielding then
+			aS = {
+				n = aN.syscall_return.n,
+				true,
+				"syscall",
+				aN.yielding,
+				table.unpack(aN.syscall_return, 4, aN.syscall_return.n),
+			}
+			aN.yielding = nil
+		else
+			assert(process.globalMetatables, "Process " .. process.id .. " has no global metatables")
+			aL = aN
+			local aT = globalMetatables
+			globalMetatables = process.globalMetatables
+			updateGlobalMetatables()
+			local aU = aK()
+			aS = table.pack(coroutine.resume(aN.coro, table.unpack(args, 1, args.n)))
+			process.cputime = process.cputime + (aK() - aU) / 1000
+			globalMetatables = aT
+			updateGlobalMetatables()
+			aL = nil
+		end
+		if aS[2] == "secure_syscall" then
+			aS[2] = "syscall"
+		elseif aS[2] == "secure_event" then
+			aS[2] = nil
+		end
+		if aS[2] == "syscall" then
+			aN.status = "syscall"
+			local aV = aQ
+			aQ = false
+			if aS[3] and syscalls[aS[3]] then
+				local aU = aK()
+				aN.syscall_return =
+					table.pack(coroutine.resume(aN.syscall, aS[3], process, aN, table.unpack(aS, 4, aS.n)))
+				process.systime = process.systime + (aK() - aU) / 1000
+				if aN.syscall_return[2] == kSyscallComplete then
+					if not aN.syscall_return[3] and type(aN.syscall_return[4]) == "string" then
+						syslog.log(
+							{ level = "debug", category = "Syscall Failure", process = 0, module = aS[3] },
+							aN.syscall_return[4]
+						)
+						aN.syscall_return[4] = aN.syscall_return[4]:gsub("kernel:%d+: ", "")
+					end
+					if aN.syscall_return[4] == kSyscallYield then
+						aN.yielding = aN.syscall_return[5]
+						aQ = aV
+					end
+				else
+					aN.yielding = aS[3]
+				end
+			else
+				aN.syscall_return = { false, "No such syscall", n = 2 }
+			end
+		elseif aS[2] == "preempt" then
+			aN.status = "preempt"
+			aQ = false
+		elseif coroutine.status(aN.coro) == "dead" then
+			aN.status = "dead"
+			aN.return_value = aS[2]
+			if aS[1] then
+				process.lastReturnValue =
+					{ pid = process.id, thread = aN.id, value = aS[2], n = aS.n - 1, table.unpack(aS, 2, aS.n) }
+			else
+				process.lastReturnValue =
+					{ pid = process.id, thread = aN.id, error = aS[2], traceback = debug.traceback(aN.coro) }
+			end
+			if not aS[1] then
+				aN.did_error = true
+				syslog.log(
+					{
+						level = _G.args.traceback and "error" or "debug",
+						process = process.id,
+						thread = aN.id,
+						category = "Application Error",
+						traceback = true,
+					},
+					debug.traceback(aN.coro, aS[2])
+				)
+				if aS[2] and process.stderr and process.stderr.isTTY then
+					terminal.write(process.stderr, aS[2] .. "\n")
+				end
+			end
+			process.threads[aN.id] = nil
+			aP = aR
+		else
+			aN.status = "suspended"
+			aQ = aQ and #process.eventQueue == 0
+		end
+	end
+	return aP, aQ
+end
+mainThread = coroutine.running()
+function userModeCallback(process, aW, ...)
+	local aX = syscalls.newthread(process, nil, aW, ...)
+	local aN = process.threads[aX]
+	aN.name = "<user mode callback>"
+	while aN.status ~= "dead" do
+		if coroutine.running() == mainThread then
+			error("userModeCallback not called from a yieldable context", 2)
+		end
+		coroutine.yield()
+	end
+	return not aN.did_error, aN.return_value
+end
+function make_ENV(I)
+	if type(I) ~= "table" or _VERSION ~= "Lua 5.1" then
+		return I
+	end
+	repeat
+		local j = getmetatable(I)
+		if j and j.__env then
+			I = j.__env
+		end
+	until not j or not j.__env
+	local X = setmetatable({}, {
+		__index = function(self, aY)
+			if self == I then
+				I = getmetatable(self).__env
+			end
+			if aY == "_ENV" then
+				return I
+			else
+				return I[aY]
+			end
+		end,
+		__newindex = function(self, aY, z)
+			if self == I then
+				I = getmetatable(self).__env
+			end
+			if aY == "_ENV" then
+				I = z
+			else
+				I[aY] = z
+			end
+		end,
+		__pairs = function(self)
+			if self == I then
+				I = getmetatable(self).__env
+			end
+			return next, I
+		end,
+		__len = function(self)
+			if self == I then
+				I = getmetatable(self).__env
+			end
+			return #I
+		end,
+		__env = I,
+	})
+	return X
+end
+for k, c in ipairs({ ... }) do
+	local r, g = c:match("^([^=]+)=(.+)$")
+	if r and g then
+		if type(args[r]) == "boolean" then
+			args[r] = g:lower() == "true" or g == "1"
+		elseif type(args[r]) == "number" then
+			args[r] = tonumber(g)
+		else
+			args[r] = g
+		end
+	elseif r == "silent" then
+		args.loglevel = 5
+	elseif r == "quiet" then
+		args.loglevel = 3
+	end
+end
+if _HEADLESS then
+	args.headless = true
+end
+local function aZ(a_)
+	local E
+	if _CC_VERSION then
+		E = a_ <= _CC_VERSION
+	elseif not _HOST then
+		E = a_ <= os.version():gsub("CraftOS ", "")
+	elseif _HOST:match("ComputerCraft 1%.1%d+") ~= a_:match("1%.1%d+") then
+		a_ = a_:gsub("(1%.)([02-9])", "%10%2")
+		local b0 = _HOST:gsub("(ComputerCraft 1%.)([02-9])", "%10%2")
+		E = a_ <= b0:match("ComputerCraft ([0-9%.]+)")
+	else
+		E = a_ <= _HOST:match("ComputerCraft ([0-9%.]+)")
+	end
+	return E
+end
+if not aZ("1.87.0") then
+	panic("Phoenix requires ComputerCraft 1.87.0 or later. Please upgrade your version of ComputerCraft.")
+end
+if jit and args.preemptive then
+	panic(
+		"Phoenix does not support preemption when running under LuaJIT. Please set preemptive to false in the kernel arguments."
+	)
+end
+if not debug and args.preemptive then
+	panic(
+		"Phoenix does not support preemption without the debug API. Please set preemptive to false in the kernel arguments."
+	)
+end
+if args.preemptive then
+	PHOENIX_BUILD = PHOENIX_BUILD .. " PREEMPT"
+end
+if not getfenv then
+	if not debug then
+		panic("Phoenix requires the debug API when running under Lua 5.2 and later.")
+	end
+	function getfenv(J)
+		local o = 1
+		while true do
+			local O, z = debug.getupvalue(J, o)
+			if O == "_ENV" then
+				return z
+			elseif not O then
+				break
+			end
+			o = o + 1
+		end
+	end
+	function setfenv(J, I)
+		local o = 1
+		while true do
+			local O = debug.getupvalue(J, o)
+			if O == "_ENV" then
+				debug.upvaluejoin(J, o, function()
+					return I
+				end, 1)
+				break
+			elseif not O then
+				break
+			end
+			o = o + 1
+		end
+		return J
+	end
+elseif getfenv(function() end) == _ENV then
+	local getfenv, b1, I = getfenv, debug.getfenv, _ENV
+	function _G.getfenv(b2)
+		local a7 = getfenv(b2)
+		if a7 == I then
+			a7 = nil
+			local o = 1
+			if type(b2) == "number" then
+				b2 = debug.getinfo(b2).func
+			end
+			while true do
+				local O, z = debug.getupvalue(b2, o)
+				if O == "_ENV" and z ~= I then
+					return z
+				elseif not O then
+					break
+				end
+				o = o + 1
+			end
+		end
+		return a7
+	end
+	function debug.getfenv(b2)
+		local a7 = b1(b2)
+		if a7 == I then
+			a7 = nil
+			local o = 1
+			if type(b2) == "number" then
+				b2 = debug.getinfo(b2).func
+			end
+			while true do
+				local O, z = debug.getupvalue(b2, o)
+				if O == "_ENV" and z ~= I then
+					return z
+				elseif not O then
+					break
+				end
+				o = o + 1
+			end
+		end
+		return a7
+	end
+end
+globalMetatables = {
+	["nil"] = {},
+	["boolean"] = {},
+	["number"] = {},
+	["string"] = { __index = string },
+	["function"] = {},
+	["thread"] = { __index = coroutine, __call = coroutine.resume },
+	["userdata"] = {},
+}
+local b3, b4 = debug.getmetatable, debug.setmetatable
+function updateGlobalMetatables()
+	b4(nil, globalMetatables["nil"])
+	b4(false, globalMetatables["boolean"])
+	b4(0, globalMetatables["number"])
+	b4("", globalMetatables["string"])
+	b4(assert, globalMetatables["function"])
+	b4(coroutine.running(), globalMetatables["thread"])
+	if debug.upvalueid then
+		b4(debug.upvalueid(executeThread, 1), globalMetatables["userdata"])
+	end
+end
+local type = type
+function debug.getmetatable(z)
+	if type(z) == "table" then
+		return b3(z)
+	else
+		return globalMetatables[type(z)]
+	end
+end
+function debug.setmetatable(z, aH)
+	expect(2, aH, "table")
+	if type(z) == "table" then
+		return b4(z, aH)
+	else
+		globalMetatables[type(z)] = aH
+	end
+end
+do
+	local b5
+	local b6, b7, b1, b8, b9, ba, bb, bc, bd =
+		getfenv,
+		setfenv,
+		debug.getfenv,
+		debug.getlocal,
+		debug.getupvalue,
+		debug.setfenv,
+		debug.setlocal,
+		debug.setupvalue,
+		debug.upvaluejoin
+	local error, be, bf, select, setmetatable, type, tonumber =
+		error, debug.getinfo, coroutine.running, select, setmetatable, type, tonumber
+	local bg
+	local function keys(X, c, ...)
+		if c then
+			X[c] = true
+		end
+		if select("#", ...) > 0 then
+			return keys(X, ...)
+		else
+			return X
+		end
+	end
+	local function bh(c, ...)
+		if select("#", ...) > 0 then
+			return bg[c or ""] or c, bh(...)
+		else
+			return bg[c or ""] or c
+		end
+	end
+	local function bi(S)
+		S = bit32.band(tonumber(S), 0xFFFFFFFF)
+		if bit32.btest(S, 0x80000000) then
+			S = S - 0x100000000
+		end
+		return S
+	end
+	function debug.getinfo(aN, aW, bj)
+		if type(aN) ~= "thread" then
+			bj, aW, aN = aW, aN, bf()
+		end
+		local as
+		if tonumber(aW) then
+			as = be(aN, aW + 1, bj)
+		else
+			as = be(aN, aW, bj)
+		end
+		if as and as.func then
+			as.func = bg[as.func] or as.func
+		end
+		return as
+	end
+	function debug.getlocal(aN, C, bk)
+		if bk == nil then
+			bk, C, aN = C, aN, bf()
+		end
+		local F, c
+		if type(C) == "function" then
+			local bl = be(2, "f")
+			if b5[C] and not (bl and b5[C][bl.func]) then
+				return nil
+			end
+			F, c = bh(b8(C, bk))
+		elseif tonumber(C) then
+			local info = be(aN, C + 1, "f")
+			local bl = be(2, "f")
+			if info and b5[info.func] and not (bl and b5[info.func][bl.func]) then
+				return nil
+			end
+			F, c = bh(b8(aN, C + 1, bk))
+		else
+			F, c = bh(b8(aN, C, bk))
+		end
+		return F, c
+	end
+	function debug.getupvalue(aW, bm)
+		if type(aW) == "function" then
+			local bl = be(2, "f")
+			if b5[aW] and not (bl and b5[aW][bl.func]) then
+				return nil
+			end
+		end
+		local F, c = bh(b9(aW, bm))
+		return F, c
+	end
+	function debug.setlocal(aN, C, bk, g)
+		if bk == nil then
+			bk, C, aN = C, aN, bf()
+		end
+		if tonumber(C) then
+			local info = be(aN, C + 1, "f")
+			local bl = be(2, "f")
+			if info and b5[info.func] and not (bl and b5[info.func][bl.func]) then
+				error("attempt to set local of protected function", 2)
+			end
+			bb(aN, C + 1, bk, g)
+		else
+			bb(aN, C, bk, g)
+		end
+	end
+	function debug.setupvalue(aW, bm, g)
+		if type(aW) == "function" then
+			local bl = be(2, "f")
+			if b5[aW] and not (bl and b5[aW][bl.func]) then
+				error("attempt to set upvalue of protected function", 2)
+			end
+		end
+		bc(aW, bm, g)
+	end
+	function _G.getfenv(f)
+		local c
+		if f == nil then
+			c = b6(2)
+		elseif tonumber(f) and bi(f) > 0 then
+			local info = be(f + 1, "f")
+			local bl = be(2, "f")
+			if info and b5[info.func] and not (bl and b5[info.func][bl.func]) then
+				return nil
+			end
+			c = b6(f + 1)
+		elseif type(f) == "function" then
+			local bl = be(2, "f")
+			if b5[f] and not (bl and b5[f][bl.func]) then
+				return nil
+			end
+			c = b6(f)
+		else
+			c = b6(f)
+		end
+		return c
+	end
+	function _G.setfenv(f, aH)
+		if tonumber(f) and bi(f) > 0 then
+			local info = be(f + 1, "f")
+			local bl = be(2, "f")
+			if info and b5[info.func] and not (bl and b5[info.func][bl.func]) then
+				error("attempt to set environment of protected function", 2)
+			end
+			b7(f + 1, aH)
+		elseif type(f) == "function" then
+			local bl = be(2, "f")
+			if b5[f] and not (bl and b5[f][bl.func]) then
+				error("attempt to set environment of protected function", 2)
+			end
+		end
+		b7(f, aH)
+	end
+	if b1 then
+		function debug.getfenv(b2)
+			if type(b2) == "function" then
+				local bl = be(2, "f")
+				if b5[b2] and not (bl and b5[b2][bl.func]) then
+					return nil
+				end
+			end
+			local c = b1(b2)
+			return c
+		end
+		function debug.setfenv(b2, aH)
+			if type(b2) == "function" then
+				local bl = be(2, "f")
+				if b5[b2] and not (bl and b5[b2][bl.func]) then
+					error("attempt to set environment of protected function", 2)
+				end
+			end
+			ba(b2, aH)
+		end
+	end
+	if bd then
+		function debug.upvaluejoin(bn, bo, bp, bq)
+			if type(bn) == "function" and type(bp) == "function" then
+				local bl = be(2, "f")
+				if b5[bn] and not (bl and b5[bn][bl.func]) then
+					error("attempt to get upvalue of protected function", 2)
+				end
+				if b5[bp] and not (bl and b5[bp][bl.func]) then
+					error("attempt to set upvalue of protected function", 2)
+				end
+			end
+			bd(bn, bo, bp, bq)
+		end
+	end
+	function debug.protect(aW)
+		if type(aW) ~= "function" then
+			error("bad argument #1 (expected function, got " .. type(aW) .. ")", 2)
+		end
+		if b5[aW] then
+			error("attempt to protect a protected function", 2)
+		end
+		b5[aW] = keys(setmetatable({}, { __mode = "k" }))
+	end
+	bg = {
+		[b8] = debug.getlocal,
+		[bb] = debug.setlocal,
+		[b9] = debug.getupvalue,
+		[bc] = debug.setupvalue,
+		[be] = debug.getinfo,
+		[bh] = function() end,
+		[K] = function() end,
+	}
+	if debug.upvaluejoin then
+		bg[bd] = debug.upvaluejoin
+	end
+	if debug.getfenv then
+		bg[b1] = debug.getfenv
+	end
+	if debug.setfenv then
+		bg[ba] = debug.setfenv
+	end
+	if _G.getfenv then
+		bg[b6] = _G.getfenv
+	end
+	if _G.setfenv then
+		bg[b7] = _G.setfenv
+	end
+	b5 = keys(
+		setmetatable({}, { __mode = "k" }),
+		getfenv,
+		setfenv,
+		debug.getfenv,
+		debug.setfenv,
+		debug.getlocal,
+		debug.setlocal,
+		debug.getupvalue,
+		debug.setupvalue,
+		debug.upvaluejoin,
+		debug.getinfo,
+		bh,
+		debug.protect
+	)
+	for F, c in pairs(b5) do
+		b5[F] = {}
+	end
+end
+debug.protect(_G.load)
+if _G.load ~= K then
+	debug.protect(K)
+end
+debug.protect(debug.getmetatable)
+debug.protect(debug.setmetatable)
+mounts = {}
+fifos = {}
+fsevents = {}
+filesystems = {
+	craftos = {
+		meta = {
+			meta = {
+				type = "directory",
+				owner = "root",
+				permissions = { root = { read = true, write = true, execute = true } },
+				worldPermissions = { read = true, write = false, execute = true },
+				setuser = false,
+			},
+			contents = {},
+		},
+		metapath = "/meta.ltn",
+		lastDispatch = 0,
+	},
+	tmpfs = {},
+	drivefs = {},
+	tablefs = {},
+	bind = {},
+}
+local function br(process, bs)
+	local a1 = fs.combine(process.root, bs:sub(1, 1) == "/" and "" or process.dir, bs)
+	if "/" .. a1 .. "/" ~= process.root and a1:find(process.root:sub(2), 1, true) ~= 1 then
+		error(bs .. ": No such file or directory", 4)
+	end
+	return a1
+end
+local function bt(process, bs, bu)
+	local bv = split(br(process, bs), "/\\")
+	if #bv == 0 then
+		if bu then
+			return mounts[""], bs, ""
+		end
+		return mounts[""][1], bs, ""
+	end
+	local bw
+	for F in pairs(mounts) do
+		local s = true
+		for o, G in ipairs(split(F, "/\\")) do
+			if bv[o] ~= G then
+				s = false
+				break
+			end
+		end
+		if s and (not bw or #F > #bw) then
+			bw = F
+		end
+	end
+	if not bw then
+		panic("Could not find mount for path " .. bs .. ". Where is root?")
+	end
+	local bx = split(bw, "/\\")
+	local a1 = #bv >= #bx + 1 and fs.combine(table.unpack(bv, #bx + 1, #bv)) or ""
+	local mounts = mounts[bw]
+	if bu then
+		return mounts, a1, bw
+	end
+	local by = mounts[1]
+	if #mounts > 1 then
+		for k, c in ipairs(mounts) do
+			local s, E = pcall(c.stat, c, process, a1, true)
+			if s and E then
+				by = c
+				break
+			end
+		end
+	end
+	return by, a1, bw
+end
+function filesystem.readhandle(process, bz, bA)
+	if bz == "" then
+		local bB = false
+		local function bC()
+			if bB then
+				return nil
+			end
+			bB = true
+			return ""
+		end
+		local bD = { readLine = bC, readAll = bC, read = bC, close = function() end }
+		if bA then
+			function bD.seek()
+				bB = false
+			end
+			function bD.read(S)
+				if not S then
+					return nil
+				end
+				return bC()
+			end
+		end
+		return bD
+	end
+	local au = 1
+	local bE = false
+	local X = {
+		readLine = function(bF)
+			if bE then
+				error("attempt to use a closed file", 2)
+			end
+			if au > #bz then
+				return nil
+			end
+			local bG
+			bG, au = bz:match("([^\n]*" .. (bF and "\n?)" or ")\n?") .. "()", au)
+			return bG
+		end,
+		readAll = function()
+			if bE then
+				error("attempt to use a closed file", 2)
+			end
+			if au > #bz then
+				return nil
+			end
+			local bG = bz:sub(au)
+			au = #bG + 1
+			return bG
+		end,
+		read = function(S)
+			if bE then
+				error("attempt to use a closed file", 2)
+			end
+			if S ~= nil and type(S) ~= "number" then
+				error("bad argument #1 (expected number, got " .. type(S) .. ")", 2)
+			end
+			S = S or 1
+			if au > #bz then
+				return nil
+			end
+			local bG = bz:sub(au, au + S - 1)
+			au = au + S
+			return bG
+		end,
+		close = function()
+			if bE then
+				error("attempt to use a closed file", 2)
+			end
+			bE = true
+		end,
+	}
+	if bA then
+		X.read = function(S)
+			if bE then
+				error("attempt to use a closed file", 2)
+			end
+			if S ~= nil and type(S) ~= "number" then
+				error("bad argument #1 (expected number, got " .. type(S) .. ")", 2)
+			end
+			if au > #bz then
+				return nil
+			end
+			if S then
+				local bG = bz:sub(au, au + S - 1)
+				au = au + S
+				return bG
+			else
+				local bG = bz:byte(au)
+				au = au + 1
+				return bG
+			end
+		end
+		X.seek = function(bH, ah)
+			if bH ~= nil and type(bH) ~= "string" then
+				error("bad argument #1 (expected string, got " .. type(bH) .. ")", 2)
+			end
+			if ah ~= nil and type(ah) ~= "number" then
+				error("bad argument #2 (expected number, got " .. type(ah) .. ")", 2)
+			end
+			bH = bH or "cur"
+			ah = ah or 0
+			if bE then
+				error("attempt to use closed file", 2)
+			end
+			if bH == "set" then
+				au = ah + 1
+			elseif bH == "cur" then
+				au = au + ah
+			elseif bH == "end" then
+				au = math.max(#bz - ah, 1)
+			else
+				error("Invalid whence", 2)
+			end
+			return au - 1
+		end
+	else
+		bz = bz:gsub("[\x80-\xFF]+", function(bI)
+			local bJ = ""
+			if
+				not pcall(function()
+					for k, bK in utf8.codes(bI) do
+						bJ = bJ .. (bK < 256 and string.char(bK) or "?")
+					end
+				end)
+			then
+				return bI
+			end
+			return bJ
+		end)
+	end
+	for k, c in pairs(X) do
+		setfenv(c, process.env)
+		debug.protect(c)
+	end
+	return setmetatable(X, { __name = "file" })
+end
+function filesystem.writehandle(process, bL, bA)
+	setfenv(bL, process.env)
+	local function bM(X)
+		for k, c in pairs(X) do
+			setfenv(c, process.env)
+			debug.protect(c)
+		end
+		return setmetatable(X, { __name = "file" })
+	end
+	local bE = false
+	if bA then
+		local au = 1
+		local bN = ""
+		local bO = ""
+		return bM({
+			write = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if type(bG) == "number" then
+					bN, au = bN:sub(1, au - 1) .. string.char(bG) .. bN:sub(au + 1), au + 1
+					if bO then
+						bO = bO .. string.char(bG)
+					end
+				elseif type(bG) == "string" then
+					bN, au = bN:sub(1, au - 1) .. bG .. bN:sub(au + #bG), au + #bG
+					if bO then
+						bO = bO .. bG
+					end
+				else
+					error("bad argument #1 (expected string or number, got " .. type(bG) .. ")", 2)
+				end
+			end,
+			writeLine = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if type(bG) == "number" then
+					bN, au = bN:sub(1, au - 1) .. string.char(bG) .. "\n" .. bN:sub(au + 2), au + 2
+					if bO then
+						bO = bO .. string.char(bG) .. "\n"
+					end
+				elseif type(bG) == "string" then
+					bN, au = bN:sub(1, au - 1) .. bG .. "\n" .. bN:sub(au + #bG + 1), au + #bG + 1
+					if bO then
+						bO = bO .. bG .. "\n"
+					end
+				else
+					error("bad argument #1 (expected string or number, got " .. type(bG) .. ")", 2)
+				end
+			end,
+			seek = function(bH, ah)
+				if bH ~= nil and type(bH) ~= "string" then
+					error("bad argument #1 (expected string, got " .. type(bH) .. ")", 2)
+				end
+				if ah ~= nil and type(ah) ~= "number" then
+					error("bad argument #2 (expected number, got " .. type(ah) .. ")", 2)
+				end
+				bH = bH or "cur"
+				ah = ah or 0
+				if bE then
+					error("attempt to use closed file", 2)
+				end
+				local bP = au
+				if bH == "set" then
+					au = ah + 1
+				elseif bH == "cur" then
+					au = au + ah
+				elseif bH == "end" then
+					au = math.max(#bN - ah, 1)
+				else
+					error("Invalid whence", 2)
+				end
+				if bP ~= au then
+					bO = nil
+				end
+				return au - 1
+			end,
+			flush = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if bO then
+					bL(bO, false)
+				else
+					bL(bN, true)
+				end
+				bO = ""
+			end,
+			close = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bE = true
+				if bO then
+					bL(bO, false)
+				else
+					bL(bN, true)
+				end
+				bO = ""
+			end,
+		})
+	else
+		local bN = ""
+		return bM({
+			write = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bN = bN .. tostring(bG)
+			end,
+			writeLine = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bN = bN .. tostring(bG) .. "\n"
+			end,
+			flush = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bL(bN, false)
+				bN = ""
+			end,
+			close = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bL(bN, false)
+				bN = ""
+				bE = true
+			end,
+		})
+	end
+end
+function filesystem.fifohandle(process, bQ, P)
+	local bE = false
+	local function bM(X)
+		for k, c in pairs(X) do
+			setfenv(c, process.env)
+			debug.protect(c)
+		end
+		return setmetatable(X, { __name = "file" })
+	end
+	if P == "r" then
+		return bM({
+			readLine = function(bF)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if #bQ.data == 0 then
+					return nil
+				end
+				local bG
+				bG, bQ.data = bQ.data:match("([^\n]*" .. (bF and "\n?)" or ")\n?") .. "(.*)")
+				return bG
+			end,
+			readAll = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if #bQ.data == 0 then
+					return nil
+				end
+				local bG = bQ.data
+				bQ.data = ""
+				return bG
+			end,
+			read = function(S)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if S ~= nil and type(S) ~= "number" then
+					error("bad argument #1 (expected number, got " .. type(S) .. ")", 2)
+				end
+				S = S or 1
+				if #bQ.data == 0 then
+					return nil
+				end
+				local bG = bQ.data:sub(1, S)
+				bQ.data = bQ.data:sub(S + 1)
+				return bG
+			end,
+			close = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bE = true
+			end,
+		})
+	elseif P == "w" or P == "a" then
+		local bN = bQ.data
+		return bM({
+			write = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bN = bN .. tostring(bG)
+			end,
+			writeLine = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bN = bN .. tostring(bG) .. "\n"
+			end,
+			flush = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bQ.data = bN
+			end,
+			close = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bQ.data = bN
+				bE = true
+			end,
+		})
+	elseif P == "rb" then
+		return bM({
+			readLine = function(bF)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if #bQ.data == 0 then
+					return nil
+				end
+				local bG
+				bG, bQ.data = bQ.data:match("([^\n]*" .. (bF and "\n?)" or ")\n?") .. "(.*)")
+				return bG
+			end,
+			readAll = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if #bQ.data == 0 then
+					return nil
+				end
+				local bG = bQ.data
+				bQ.data = ""
+				return bG
+			end,
+			read = function(S)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if S ~= nil and type(S) ~= "number" then
+					error("bad argument #1 (expected number, got " .. type(S) .. ")", 2)
+				end
+				if #bQ.data == 0 then
+					return nil
+				end
+				if S then
+					local bG = bQ.data:sub(1, S)
+					bQ.data = bQ.data:sub(S + 1)
+					return bG
+				else
+					local bG = bQ.data:byte()
+					bQ.data = bQ.data:sub(2)
+					return bG
+				end
+			end,
+			seek = function(bH, ah)
+				if bH ~= nil and type(bH) ~= "string" then
+					error("bad argument #1 (expected string, got " .. type(bH) .. ")", 2)
+				end
+				if ah ~= nil and type(ah) ~= "number" then
+					error("bad argument #2 (expected number, got " .. type(ah) .. ")", 2)
+				end
+				if bE then
+					error("attempt to use closed file", 2)
+				end
+				return 0
+			end,
+			close = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bE = true
+			end,
+		})
+	elseif P == "wb" or P == "ab" then
+		local bN = bQ.data
+		return bM({
+			write = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if type(bG) == "number" then
+					bN = bN .. string.char(bG)
+				elseif type(bG) == "string" then
+					bN = bN .. bG
+				else
+					error("bad argument #1 (expected string or number, got " .. type(bG) .. ")", 2)
+				end
+			end,
+			writeLine = function(bG)
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				if type(bG) == "number" then
+					bN = bN .. string.char(bG) .. "\n"
+				elseif type(bG) == "string" then
+					bN = bN .. bG .. "\n"
+				else
+					error("bad argument #1 (expected string or number, got " .. type(bG) .. ")", 2)
+				end
+			end,
+			seek = function(bH, ah)
+				if bH ~= nil and type(bH) ~= "string" then
+					error("bad argument #1 (expected string, got " .. type(bH) .. ")", 2)
+				end
+				if ah ~= nil and type(ah) ~= "number" then
+					error("bad argument #2 (expected number, got " .. type(ah) .. ")", 2)
+				end
+				if bE then
+					error("attempt to use closed file", 2)
+				end
+				return #bQ.data + #bN
+			end,
+			flush = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bQ.data = bN
+			end,
+			close = function()
+				if bE then
+					error("attempt to use a closed file", 2)
+				end
+				bQ.data = bN
+				bE = true
+			end,
+		})
+	else
+		return nil, "Invalid mode"
+	end
+end
+filesystem.openfifo = filesystem.fifohandle
+do
+	local H = fs.open("/meta.ltn", "r")
+	if H then
+		filesystems.craftos.meta = unserialize(H.readAll()) or filesystems.craftos.meta
+		filesystems.craftos.lastDispatch = os.epoch("utc")
+		H.close()
+	end
+end
+shutdownHooks[#shutdownHooks + 1] = function()
+	syslog.log("Syncing filesystem")
+	local H = fs.open(filesystems.craftos.metapath, "w")
+	if H then
+		H.write(serialize(filesystems.craftos.meta, { compact = true }))
+		H.close()
+	end
+end
+if args.fsmeta then
+	local H = fs.open(args.fsmeta, "r")
+	if H then
+		local bR = unserialize(H.readAll())
+		H.close()
+		if bR then
+			local function bS(bT, bU)
+				for F, c in pairs(bT) do
+					if bU[F] and type(bU[F]) == "table" and type(c) == "table" then
+						bS(c, bU[F])
+					else
+						bU[F] = c
+					end
+				end
+			end
+			bS(bR, filesystems.craftos.meta)
+		end
+	end
+end
+function filesystems.craftos:getmeta(bV, bs, bW)
+	local A = {}
+	local X = self.meta
+	local bx = split(bs, "/\\")
+	for o, a1 in ipairs(bx) do
+		if a1 == ".." then
+			X = table.remove(A)
+			if not X then
+				return nil
+			end
+		elseif not a1:match("^%.*$") then
+			if not X then
+				return nil
+			elseif X.meta.type ~= "directory" then
+				error("Not a directory", 2)
+			elseif X.meta.permissions[bV] then
+				if not X.meta.permissions[bV].execute then
+					error("Permission denied", 2)
+				end
+			elseif not X.meta.worldPermissions.execute then
+				error("Permission denied", 2)
+			end
+			A[#A + 1] = X
+			X = X.contents[a1]
+			if X and X.meta.type == "link" and not bW then
+				local bX = filesystem.combine(X.meta.link, table.unpack(bx, o + 1))
+				if fs.combine(bX) == fs.combine(bs) then
+					error("Loop in link", 2)
+				end
+				error({ link = true, path = bX, orig = bs })
+			end
+		end
+	end
+	return X and X.meta
+end
+function filesystems.craftos:setmeta(bV, bs, bR, bW)
+	local A = {}
+	local X = self.meta
+	local O
+	local bx = split(bs, "/\\")
+	for o, a1 in ipairs(bx) do
+		if a1 == ".." then
+			X = table.remove(A)
+			if not X then
+				error("Not a directory", 2)
+			end
+		elseif not a1:match("^%.*$") then
+			if X.meta.type ~= "directory" then
+				error("Not a directory", 2)
+			elseif X.meta.permissions[bV] then
+				if not X.meta.permissions[bV].execute then
+					error("Permission denied", 2)
+				end
+			elseif not X.meta.worldPermissions.execute then
+				error("Permission denied", 2)
+			end
+			if not X.contents[a1] then
+				X.contents[a1] = {
+					meta = {
+						type = "directory",
+						owner = X.meta.owner or "root",
+						permissions = { root = { read = true, write = true, execute = true } },
+						worldPermissions = { read = true, write = false, execute = true },
+						setuser = false,
+					},
+					contents = {},
+				}
+			end
+			A[#A + 1] = X
+			X = X.contents[a1]
+			O = a1
+			if X and X.meta.type == "link" and not bW then
+				local bX = filesystem.combine(X.meta.link, table.unpack(bx, o + 1))
+				if fs.combine(bX) == fs.combine(bs) then
+					error("Loop in link", 2)
+				end
+				error({ link = true, path = bX, orig = bs })
+			end
+		end
+	end
+	if bR ~= nil then
+		X.meta = {
+			type = bR.type,
+			owner = bR.owner,
+			permissions = deepcopy(bR.permissions),
+			worldPermissions = deepcopy(bR.worldPermissions),
+			setuser = bR.setuser,
+			link = bR.link,
+		}
+		if bR.type ~= "directory" then
+			X.contents = nil
+		end
+	else
+		A[#A].contents[O] = nil
+	end
+	if os.epoch("utc") - self.lastDispatch > 1000 then
+		local H = assert(fs.open(self.metapath, "w"))
+		H.write(serialize(self.meta, { compact = true }))
+		H.close()
+		self.lastDispatch = os.epoch("utc")
+	end
+end
+function filesystems.craftos:new(process, bs, bY)
+	expect.field(bY, "ro", "boolean", "nil")
+	if process.user ~= "root" then
+		error("Could not mount " .. bs .. ": Permission denied", 3)
+	elseif not fs.isDir(bs) then
+		error("Could not mount " .. bs .. ": No such directory", 3)
+	end
+	return setmetatable({ path = bs, readOnly = bY.ro }, { __index = self })
+end
+function filesystems.craftos:open(process, bs, P)
+	local s, bZ = pcall(self.stat, self, process, bs)
+	if not s then
+		if type(bZ) == "table" then
+			error(bZ)
+		end
+		return nil, bZ
+	elseif not bZ then
+		if P:sub(1, 1) == "w" or P:sub(1, 1) == "a" then
+			if self.readOnly then
+				return nil, "Read-only filesystem"
+			end
+			local b_, c0 = pcall(self.stat, self, process, fs.getDir(bs))
+			if not b_ or not c0 then
+				if type(c0) == "table" then
+					error(c0)
+				end
+				local c1, n = pcall(self.mkdir, self, process, fs.getDir(bs))
+				if not c1 then
+					if type(n) == "table" then
+						error(n)
+					end
+					return nil, n:gsub("kernel:%d: ", "")
+				end
+				c0 = self:stat(process, fs.getDir(bs))
+				if not c0 then
+					return nil, "Could not stat " .. fs.getDir(bs)
+				end
+			end
+			if process.user ~= "root" then
+				local c2 = c0.permissions[process.user] or c0.worldPermissions
+				if not c2.write then
+					return nil, "Permission denied"
+				end
+			end
+			local bR = {
+				type = "file",
+				owner = process.user,
+				permissions = deepcopy(c0.permissions),
+				worldPermissions = deepcopy(c0.worldPermissions),
+				setuser = false,
+			}
+			if c0.owner then
+				local X = bR.permissions[c0.owner]
+				bR.permissions[c0.owner] = nil
+				bR.permissions[process.user] = X
+			end
+			self:setmeta(process.user, fs.combine(self.path, bs), bR)
+			local H, n = fs.open(fs.combine(self.path, bs), P)
+			if not H then
+				return H, n
+			end
+			return setmetatable(H, { __name = "file" })
+		else
+			return nil, "File not found"
+		end
+	elseif bZ.type == "directory" then
+		return nil, "Is a directory"
+	end
+	local c2 = bZ.permissions[process.user] or bZ.worldPermissions
+	if
+		process.user ~= "root" and (
+			P:sub(1, 1) == "r" and not c2.read or (P:sub(1, 1) == "w" or P:sub(1, 1) == "a") and not c2.write
+		)
+	then
+		return nil, "Permission denied"
+	end
+	if bZ.type == "fifo" then
+		local bR = self:getmeta(process.user, fs.combine(self.path, bs))
+		local c3 = fifos[bR]
+		if not c3 then
+			c3 = { data = "" }
+			fifos[bR] = c3
+		end
+		return filesystem.fifohandle(process, c3, P)
+	end
+	local H, n = fs.open(fs.combine(self.path, bs), P)
+	if not H then
+		return nil, n
+	end
+	return setmetatable(H, { __name = "file" })
+end
+function filesystems.craftos:list(process, bs)
+	local bZ = self:stat(process, bs)
+	if not bZ or bZ.type ~= "directory" then
+		error(bs .. ": Not a directory", 2)
+	end
+	if process.user ~= "root" then
+		local c2 = bZ.permissions[process.user] or bZ.worldPermissions
+		if not c2.read then
+			error(bs .. ": Permission denied", 2)
+		end
+	end
+	return fs.list(fs.combine(self.path, bs))
+end
+function filesystems.craftos:stat(process, bs, bW)
+	local a1 = fs.combine(self.path, bs)
+	if a1:find(self.path:gsub("^/", ""):gsub("/$", ""), 1, false) ~= 1 then
+		return nil
+	end
+	local s, c4 = pcall(fs.attributes, a1)
+	if not s or not c4 then
+		return nil
+	end
+	c4.type = c4.isDir and "directory" or "file"
+	c4.special = {}
+	c4.isDir = nil
+	if not c4.modified then
+		c4.modified = c4.modification
+	end
+	c4.modification = nil
+	c4.capacity = fs.getCapacity(a1) or 0
+	c4.freeSpace = fs.getFreeSpace(a1)
+	local c5 = c4.isReadOnly
+	c4.isReadOnly = nil
+	local bR = self:getmeta(process.user, fs.combine(self.path, bs), bW)
+	if bR then
+		c4.owner = bR.owner
+		c4.permissions = deepcopy(bR.permissions)
+		c4.worldPermissions = deepcopy(bR.worldPermissions)
+		c4.type = bR.type or c4.type
+		c4.setuser = bR.setuser
+		c4.link = bR.link
+	else
+		c4.owner = "root"
+		c4.permissions = { root = { read = true, write = true, execute = true } }
+		c4.worldPermissions = { read = true, write = false, execute = true }
+		c4.setuser = false
+	end
+	if c5 then
+		c4.worldPermissions.write = false
+		for k, c in pairs(c4.permissions) do
+			c.write = false
+		end
+	end
+	return c4
+end
+function filesystems.craftos:remove(process, bs)
+	if self.readOnly then
+		error(bs .. ": Read-only filesystem", 2)
+	end
+	local bZ = self:stat(process, bs, true)
+	if not bZ then
+		return
+	end
+	local function c6(a1)
+		local bI = self:stat(process, a1, true)
+		local c2 = bI.permissions[process.user] or bI.worldPermissions
+		if process.user ~= "root" and not c2.write then
+			error(a1 .. ": Permission denied", 3)
+		end
+		if bI.type == "directory" then
+			if process.user ~= "root" and not c2.read then
+				error(a1 .. ": Permission denied", 3)
+			end
+			for k, c in ipairs(fs.list(fs.combine(self.path, a1))) do
+				c6(fs.combine(a1, c))
+			end
+		end
+	end
+	c6(bs)
+	fs.delete(fs.combine(self.path, bs))
+	self:setmeta(process.user, fs.combine(self.path, bs), nil, true)
+end
+function filesystems.craftos:rename(process, c7, c8)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local c9 = self:stat(process, c7, true)
+	local ca = self:stat(process, c8, true)
+	if not c9 then
+		error(c7 .. ": No such file or directory", 2)
+	elseif ca then
+		error(c8 .. ": " .. ca.type:gsub("%w", string.upper, 1) .. " already exists", 2)
+	end
+	ca = self:stat(process, fs.getDir(c8))
+	if not ca then
+		self:mkdir(process, fs.getDir(c8))
+		ca = self:stat(process, fs.getDir(c8))
+	end
+	if process.user ~= "root" then
+		local c2 = ca.permissions[process.user] or ca.worldPermissions
+		if not c2.write then
+			error(c8 .. ": Permission denied", 2)
+		end
+	end
+	fs.move(fs.combine(self.path, c7), fs.combine(self.path, c8))
+	self:setmeta(
+		process.user,
+		fs.combine(self.path, c8),
+		self:getmeta(process.user, fs.combine(self.path, c7), true),
+		true
+	)
+	self:setmeta(process.user, fs.combine(self.path, c7), nil, true)
+end
+function filesystems.craftos:mkdir(process, bs)
+	if self.readOnly then
+		error(bs .. ": Read-only filesystem", 2)
+	end
+	local bZ = self:stat(process, bs)
+	if bZ then
+		if bZ.type == "directory" then
+			return
+		else
+			error(bs .. ": File already exists", 2)
+		end
+	end
+	local bx = split(bs, "/\\")
+	local o = #bx
+	repeat
+		o = o - 1
+		bZ = self:stat(process, table.concat(bx, "/", 1, o))
+		if bZ then
+			if bZ.type == "directory" then
+				break
+			else
+				error(bs .. ": File already exists", 2)
+			end
+		end
+	until bZ or o <= 0
+	if not bZ then
+		if bs:match("^/") then
+			bZ = assert(self:stat(process, "/"))
+		else
+			bZ = assert(filesystem.stat(process, process.dir))
+		end
+	end
+	if process.user ~= "root" then
+		local c2 = bZ.permissions[process.user] or bZ.worldPermissions
+		if not c2.write then
+			error(bs .. ": Permission denied", 2)
+		end
+	end
+	local bR = {
+		type = "directory",
+		owner = process.user,
+		permissions = deepcopy(bZ.permissions),
+		worldPermissions = deepcopy(bZ.worldPermissions),
+	}
+	if bZ.owner then
+		local X = bR.permissions[bZ.owner]
+		bR.permissions[bZ.owner] = nil
+		bR.permissions[process.user] = X
+	end
+	o = o + 1
+	while o <= #bx do
+		self:setmeta(process.user, fs.combine(self.path, table.concat(bx, "/", 1, o)), deepcopy(bR))
+		o = o + 1
+	end
+	fs.makeDir(fs.combine(self.path, bs))
+end
+function filesystems.craftos:link(process, bs, cb)
+	local bZ = self:stat(process, bs, true)
+	if bZ then
+		error(bs .. ": File exists", 2)
+	end
+	self:setmeta(process.user, fs.combine(self.path, bs), nil, true)
+	assert(self:open(process, bs, "w")).close()
+	local bR = self:getmeta(process.user, fs.combine(self.path, bs), true)
+	bR.type, bR.link = "link", cb
+	self:setmeta(process.user, fs.combine(self.path, bs), bR, true)
+end
+function filesystems.craftos:mkfifo(process, bs)
+	local bZ = self:stat(process, bs)
+	if bZ then
+		error(bs .. ": File exists", 2)
+	end
+	assert(self:open(process, bs, "w")).close()
+	local bR = self:getmeta(process.user, fs.combine(self.path, bs), true)
+	bR.type = "fifo"
+	self:setmeta(process.user, fs.combine(self.path, bs), bR, true)
+end
+function filesystems.craftos:chmod(process, bs, bV, P)
+	if self.readOnly then
+		error(bs .. ": Read-only filesystem", 2)
+	end
+	local bZ = self:stat(process, bs, true)
+	if not bZ then
+		error(bs .. ": No such file or directory", 2)
+	end
+	if not bZ.owner or process.user ~= "root" and process.user ~= bZ.owner then
+		error(bs .. ": Permission denied", 2)
+	end
+	local c2
+	if bV == nil then
+		c2 = bZ.worldPermissions
+	else
+		c2 = bZ.permissions[bV]
+		if not c2 then
+			c2 = deepcopy(bZ.worldPermissions)
+			bZ.permissions[bV] = c2
+		end
+	end
+	if type(P) == "string" then
+		if P:match("^[%+%-=][rwxs]+$") then
+			local Y = P:sub(1, 1)
+			local X = {}
+			for G in P:gmatch("[rwxs]") do
+				if G == "r" then
+					X.read = true
+				elseif G == "w" then
+					X.write = true
+				elseif G == "s" then
+					X.setuser = true
+				else
+					X.execute = true
+				end
+			end
+			if Y == "+" then
+				if X.read then
+					c2.read = true
+				end
+				if X.write then
+					c2.write = true
+				end
+				if X.execute then
+					c2.execute = true
+				end
+				if X.setuser then
+					bZ.setuser = true
+				end
+			elseif Y == "-" then
+				if X.read then
+					c2.read = false
+				end
+				if X.write then
+					c2.write = false
+				end
+				if X.execute then
+					c2.execute = false
+				end
+				if X.setuser then
+					bZ.setuser = false
+				end
+			else
+				c2.read = X.read or false
+				c2.write = X.write or false
+				c2.execute = X.execute or false
+				bZ.setuser = X.setuser or false
+			end
+		else
+			c2.read = P:sub(1, 1) ~= "-"
+			c2.write = P:sub(2, 2) ~= "-"
+			c2.execute = P:sub(3, 3) ~= "-"
+			bZ.setuser = P:sub(3, 3) == "s"
+		end
+	elseif type(P) == "number" then
+		bZ.setuser = bit32.btest(P, 8)
+		c2.read = bit32.btest(P, 4)
+		c2.write = bit32.btest(P, 2)
+		c2.execute = bit32.btest(P, 1)
+	else
+		if P.read ~= nil then
+			c2.read = P.read
+		end
+		if P.write ~= nil then
+			c2.write = P.write
+		end
+		if P.execute ~= nil then
+			c2.execute = P.execute
+		end
+		if P.setuser ~= nil then
+			bZ.setuser = P.setuser
+		end
+	end
+	self:setmeta(process.user, fs.combine(self.path, bs), deepcopy(bZ), true)
+end
+function filesystems.craftos:chown(process, bs, cc)
+	if self.readOnly then
+		error(bs .. ": Read-only filesystem", 2)
+	end
+	local bZ = self:stat(process, bs, true)
+	if not bZ then
+		error(bs .. ": No such file or directory", 2)
+	end
+	if not bZ.owner or process.user ~= "root" and process.user ~= bZ.owner then
+		error(bs .. ": Permission denied", 2)
+	end
+	bZ.owner = cc
+	bZ.setuser = false
+	self:setmeta(process.user, fs.combine(self.path, bs), deepcopy(bZ), true)
+end
+function filesystems.craftos:info()
+	return "craftos", self.path, { ro = self.readOnly }
+end
+function filesystems.tmpfs:getpath(bV, bs, bW)
+	local X = self
+	local bx = split(bs, "/\\")
+	for o, a1 in ipairs(bx) do
+		if not X then
+			return nil
+		elseif X.type ~= "directory" then
+			error("Not a directory", 2)
+		elseif X.permissions[bV] then
+			if not X.permissions[bV].execute then
+				error("Permission denied", 2)
+			end
+		elseif not X.worldPermissions.execute then
+			error("Permission denied", 2)
+		end
+		X = X.contents[a1]
+		if X and X.type == "link" and not (bW and o == #bx) then
+			error({ link = true, path = filesystem.combine(X.link, table.unpack(bx, o + 1)), orig = bs })
+		end
+	end
+	return X
+end
+function filesystems.tmpfs:setpath(bV, bs, bz, bW)
+	local X = self
+	local a7 = split(bs, "/\\")
+	local cd = a7[#a7]
+	a7[#a7] = nil
+	for o, a1 in ipairs(a7) do
+		if X.type ~= "directory" then
+			error("Not a directory", 2)
+		elseif X.permissions[bV] then
+			if not X.permissions[bV].execute then
+				error("Permission denied", 2)
+			end
+		elseif not X.worldPermissions.execute then
+			error("Permission denied", 2)
+		end
+		if not X.contents[a1] then
+			X.contents[a1] = {
+				type = "directory",
+				owner = X.owner,
+				permissions = deepcopy(X.permissions),
+				worldPermissions = deepcopy(X.worldPermissions),
+				setuser = false,
+				created = os.epoch("utc"),
+				modified = os.epoch("utc"),
+				contents = {},
+			}
+		end
+		X = X.contents[a1]
+		if X and X.type == "link" then
+			error({ link = true, path = filesystem.combine(X.link, table.unpack(a7, o + 1)), orig = bs })
+		end
+	end
+	if X.type ~= "directory" then
+		error("Not a directory", 2)
+	elseif bV ~= "root" then
+		if X.permissions[bV] then
+			if not X.permissions[bV].execute then
+				error("Permission denied", 2)
+			end
+		elseif not X.worldPermissions.execute then
+			error("Permission denied", 2)
+		end
+	end
+	if not bW and X.contents[cd] and X.contents[cd].type == "link" then
+		error({ link = true, path = X.contents[cd].link, orig = bs })
+	end
+	X.contents[cd] = bz
+end
+function filesystems.tmpfs:new(process, bT, bY)
+	return setmetatable(
+		{
+			type = "directory",
+			owner = process.user,
+			permissions = { [process.user] = { read = true, write = true, execute = true } },
+			worldPermissions = { read = true, write = false, execute = true },
+			setuser = false,
+			created = os.epoch("utc"),
+			modified = os.epoch("utc"),
+			contents = {},
+		},
+		{ __index = self }
+	)
+end
+function filesystems.tmpfs:_open_internal(process, bs, P)
+	local ce = os.epoch
+	local bz = self:getpath(process.user, bs)
+	if not bz then
+		return nil, "No such file"
+	end
+	if P == "r" or P == "rb" then
+		return filesystem.readhandle(process, bz.data, P == "rb")
+	elseif P == "w" or P == "wb" then
+		bz.data = ""
+		bz.modified = ce("utc")
+		return filesystem.writehandle(process, function(bN, cf)
+			if cf then
+				bz.data = bN
+			else
+				bz.data = bz.data .. bN
+			end
+			bz.modified = ce("utc")
+			if self.__flush then
+				self:__flush()
+			end
+		end, P == "wb")
+	elseif P == "a" or P == "ab" then
+		local cg = bz.data
+		return filesystem.writehandle(process, function(bN, cf)
+			if cf then
+				bz.data = cg .. bN
+			else
+				bz.data = bz.data .. bN
+			end
+			bz.modified = ce("utc")
+			if self.__flush then
+				self:__flush()
+			end
+		end, P == "ab")
+	else
+		return nil, "Invalid mode"
+	end
+end
+function filesystems.tmpfs:open(process, bs, P)
+	if self.readOnly and (P:sub(1, 1) == "w" or P:sub(1, 1) == "a") then
+		return nil, "Read-only filesystem"
+	end
+	local s, bZ = pcall(self.stat, self, process, bs)
+	if not s then
+		if type(bZ) == "table" then
+			error(bZ)
+		end
+		return nil, bZ
+	elseif not bZ then
+		if P:sub(1, 1) == "w" or P:sub(1, 1) == "a" then
+			local b_, c0 = pcall(self.stat, self, process, fs.getDir(bs))
+			if not b_ or not c0 then
+				if type(c0) == "table" then
+					error(c0)
+				end
+				local c1, n = pcall(self.mkdir, self, process, fs.getDir(bs))
+				if not c1 then
+					if type(n) == "table" then
+						error(n)
+					end
+					return nil, n:gsub("kernel:%d: ", "")
+				end
+				c0 = self:stat(process, fs.getDir(bs))
+			end
+			if process.user ~= "root" then
+				local c2 = c0.permissions[process.user] or c0.worldPermissions
+				if not c2.write then
+					return nil, "Permission denied"
+				end
+			end
+			local bR = {
+				type = "file",
+				owner = process.user,
+				permissions = deepcopy(c0.permissions),
+				worldPermissions = deepcopy(c0.worldPermissions),
+				setuser = false,
+				created = os.epoch("utc"),
+				modified = os.epoch("utc"),
+				data = "",
+			}
+			local X = bR.permissions[c0.owner]
+			bR.permissions[c0.owner] = nil
+			bR.permissions[process.user] = X
+			self:setpath(process.user, bs, bR)
+			return self:_open_internal(process, bs, P)
+		else
+			return nil, "File not found"
+		end
+	elseif bZ.type == "directory" then
+		return nil, "Is a directory"
+	end
+	if process.user ~= "root" then
+		local c2 = bZ.permissions[process.user] or bZ.worldPermissions
+		if P:sub(1, 1) == "r" and not c2.read or (P:sub(1, 1) == "w" or P:sub(1, 1) == "a") and not c2.write then
+			return nil, "Permission denied"
+		end
+	end
+	if bZ.type == "fifo" then
+		local bR = self:getpath(process.user, bs)
+		local c3 = fifos[bR]
+		if not c3 then
+			c3 = { data = "" }
+			fifos[bR] = c3
+		end
+		return filesystem.fifohandle(process, c3, P)
+	end
+	return self:_open_internal(process, bs, P)
+end
+function filesystems.tmpfs:list(process, bs)
+	local bz = self:getpath(process.user, bs)
+	if not bz or bz.type ~= "directory" then
+		error(bs .. ": Not a directory", 2)
+	end
+	if process.user ~= "root" then
+		local c2 = bz.permissions[process.user] or bz.worldPermissions
+		if not c2.read then
+			error(bs .. ": Permission denied", 2)
+		end
+	end
+	local as = {}
+	for F in pairs(bz.contents) do
+		as[#as + 1] = F
+	end
+	table.sort(as)
+	return as
+end
+function filesystems.tmpfs:stat(process, bs, bW)
+	local bz = self:getpath(process.user, bs, bW)
+	if not bz then
+		return nil
+	end
+	return {
+		size = bz.type == "file" and #bz.data or (bz.type == "directory" and #bz.contents or 0),
+		type = bz.type,
+		created = bz.created,
+		modified = bz.modified,
+		owner = bz.owner,
+		permissions = deepcopy(bz.permissions),
+		worldPermissions = deepcopy(bz.worldPermissions),
+		setuser = bz.setuser,
+		capacity = math.huge,
+		freeSpace = math.huge,
+		link = rawget(bz, "link"),
+		special = {},
+	}
+end
+function filesystems.tmpfs:remove(process, bs)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local ch = self:getpath(process.user, fs.getDir(bs))
+	local O = fs.getName(bs)
+	if not ch or ch.type ~= "directory" or not ch.contents[O] then
+		return
+	end
+	if process.user ~= "root" and not (ch.permissions[process.user] or ch.worldPermissions).write then
+		error(bs .. ": Permission denied", 2)
+	end
+	local bz = ch.contents[O]
+	if process.user ~= "root" and not (bz.permissions[process.user] or bz.worldPermissions).write then
+		error(bs .. ": Permission denied", 2)
+	end
+	local function c6(bI)
+		local c2 = bI.permissions[process.user] or bI.worldPermissions
+		if process.user ~= "root" and not c2.write then
+			error(bs .. ": Permission denied", 3)
+		end
+		if bI.type == "directory" then
+			if process.user ~= "root" and not c2.read then
+				error(bs .. ": Permission denied", 3)
+			end
+			for k, c in pairs(bI.contents) do
+				c6(c)
+			end
+		end
+	end
+	c6(bz)
+	ch.contents[O] = nil
+	ch.modified = os.epoch("utc")
+end
+function filesystems.tmpfs:rename(process, c7, c8)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local ci = self:getpath(process.user, fs.getDir(c7))
+	local cj = fs.getName(c7)
+	if not ci or ci.type ~= "directory" or not ci.contents[cj] then
+		error(c7 .. ": No such file or directory", 2)
+	end
+	if process.user ~= "root" and not (ci.permissions[process.user] or ci.worldPermissions).write then
+		error(c7 .. ": Permission denied", 2)
+	end
+	local ck = ci.contents[cj]
+	if process.user ~= "root" and not (ck.permissions[process.user] or ck.worldPermissions).write then
+		error(c7 .. ": Permission denied", 2)
+	end
+	local cl = self:getpath(process.user, fs.getDir(c8))
+	local cm = fs.getName(c8)
+	if not cl or cl.type ~= "directory" then
+		error(c8 .. ": No such file or directory", 2)
+	end
+	if process.user ~= "root" and not (cl.permissions[process.user] or cl.worldPermissions).write then
+		error(c8 .. ": Permission denied", 2)
+	end
+	local cn = cl.contents[cm]
+	if cn then
+		error(c8 .. ": File already exists", 2)
+	end
+	cl.contents[cm], ci.contents[cj] = ck, nil
+	local co = os.epoch("utc")
+	ci.modified, cl.modified = co, co
+end
+function filesystems.tmpfs:mkdir(process, bs)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local X = self
+	for k, a1 in ipairs(split(bs, "/\\")) do
+		local c2 = X.permissions[process.user] or X.worldPermissions
+		if X.type ~= "directory" then
+			error(bs .. ": File exists", 2)
+		elseif process.user ~= "root" and not c2.execute then
+			error(bs .. ": Permission denied", 2)
+		end
+		if not X.contents[a1] then
+			if process.user ~= "root" and not c2.write then
+				error(bs .. ": Permission denied", 2)
+			end
+			X.contents[a1] = {
+				type = "directory",
+				owner = X.owner,
+				permissions = deepcopy(X.permissions),
+				worldPermissions = deepcopy(X.worldPermissions),
+				created = os.epoch("utc"),
+				modified = os.epoch("utc"),
+				contents = {},
+			}
+			X.modified = os.epoch("utc")
+		end
+		X = X.contents[a1]
+	end
+end
+function filesystems.tmpfs:link(process, bs, cb)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local bZ = self:stat(process, bs)
+	if bZ then
+		error(bs .. ": File exists", 2)
+	end
+	local b_, c0 = pcall(self.stat, self, process, fs.getDir(bs))
+	if not b_ or not c0 then
+		if type(c0) == "table" then
+			error(c0)
+		end
+		local c1, n = pcall(self.mkdir, self, process, fs.getDir(bs))
+		if not c1 then
+			if type(n) == "table" then
+				error(n)
+			end
+			return nil, type(n) == "string" and n:gsub("kernel:%d: ", "") or n
+		end
+		c0 = self:stat(process, fs.getDir(bs))
+	end
+	self:setpath(
+		process.user,
+		bs,
+		{
+			type = "link",
+			owner = process.user,
+			permissions = deepcopy(c0.permissions),
+			worldPermissions = deepcopy(c0.worldPermissions),
+			setuser = false,
+			created = os.epoch("utc"),
+			modified = os.epoch("utc"),
+			path = cb,
+		},
+		true
+	)
+end
+function filesystems.tmpfs:mkfifo(process, bs)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local bZ = self:stat(process, bs)
+	if bZ then
+		error(bs .. ": File exists", 2)
+	end
+	local b_, c0 = pcall(self.stat, self, process, fs.getDir(bs))
+	if not b_ or not c0 then
+		if type(c0) == "table" then
+			error(c0)
+		end
+		local c1, n = pcall(self.mkdir, self, process, fs.getDir(bs))
+		if not c1 then
+			if type(n) == "table" then
+				error(n)
+			end
+			return nil, type(n) == "string" and n:gsub("kernel:%d: ", "") or n
+		end
+		c0 = self:stat(process, fs.getDir(bs))
+	end
+	self:setpath(
+		process.user,
+		bs,
+		{
+			type = "fifo",
+			owner = process.user,
+			permissions = deepcopy(c0.permissions),
+			worldPermissions = deepcopy(c0.worldPermissions),
+			setuser = false,
+			created = os.epoch("utc"),
+			modified = os.epoch("utc"),
+		},
+		true
+	)
+end
+function filesystems.tmpfs:chmod(process, bs, bV, P)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local bZ = self:getpath(process.user, bs, true)
+	if not bZ then
+		error(bs .. ": No such file or directory", 2)
+	end
+	if not bZ.owner or process.user ~= "root" and process.user ~= bZ.owner then
+		error(bs .. ": Permission denied", 2)
+	end
+	local c2
+	if bV == nil then
+		c2 = bZ.worldPermissions
+	else
+		c2 = bZ.permissions[bV]
+		if not c2 then
+			c2 = deepcopy(bZ.worldPermissions)
+			bZ.permissions[bV] = c2
+		end
+	end
+	if type(P) == "string" then
+		if P:match("^[%+%-=][rwxs]+$") then
+			local Y = P:sub(1, 1)
+			local X = {}
+			for G in P:gmatch("[rwxs]") do
+				if G == "r" then
+					X.read = true
+				elseif G == "w" then
+					X.write = true
+				elseif G == "s" then
+					X.setuser = true
+				else
+					X.execute = true
+				end
+			end
+			if Y == "+" then
+				if X.read then
+					c2.read = true
+				end
+				if X.write then
+					c2.write = true
+				end
+				if X.execute then
+					c2.execute = true
+				end
+				if X.setuser then
+					bZ.setuser = true
+				end
+			elseif Y == "-" then
+				if X.read then
+					c2.read = false
+				end
+				if X.write then
+					c2.write = false
+				end
+				if X.execute then
+					c2.execute = false
+				end
+				if X.setuser then
+					bZ.setuser = false
+				end
+			else
+				c2.read = X.read or false
+				c2.write = X.write or false
+				c2.execute = X.execute or false
+				bZ.setuser = X.setuser or false
+			end
+		else
+			c2.read = P:sub(1, 1) ~= "-"
+			c2.write = P:sub(2, 2) ~= "-"
+			c2.execute = P:sub(3, 3) ~= "-"
+			bZ.setuser = P:sub(3, 3) == "s"
+		end
+	elseif type(P) == "number" then
+		bZ.setuser = bit32.btest(P, 8)
+		c2.read = bit32.btest(P, 4)
+		c2.write = bit32.btest(P, 2)
+		c2.execute = bit32.btest(P, 1)
+	else
+		if P.read ~= nil then
+			c2.read = P.read
+		end
+		if P.write ~= nil then
+			c2.write = P.write
+		end
+		if P.execute ~= nil then
+			c2.execute = P.execute
+		end
+		if P.setuser ~= nil then
+			bZ.setuser = P.setuser
+		end
+	end
+end
+function filesystems.tmpfs:chown(process, bs, cc)
+	if self.readOnly then
+		error("Read-only filesystem", 2)
+	end
+	local bZ = self:getpath(process.user, bs, true)
+	if not bZ then
+		error(bs .. ": No such file or directory", 2)
+	end
+	if not bZ.owner or process.user ~= "root" and process.user ~= bZ.owner then
+		error(bs .. ": Permission denied", 2)
+	end
+	bZ.owner = cc
+	bZ.setuser = false
+end
+function filesystems.tmpfs:info()
+	return "tmpfs", "memory", { ro = self.readOnly }
+end
+setmetatable(filesystems.drivefs, { __index = filesystems.craftos })
+function filesystems.drivefs:stat(process, bs)
+	local E, n = filesystems.craftos.stat(self, process, bs)
+	if bs == "" and E == nil then
+		return {
+			size = 0,
+			type = "directory",
+			created = 0,
+			modified = 0,
+			owner = self.owner,
+			capacity = 0,
+			freeSpace = 0,
+			permissions = { [self.owner] = { read = false, write = true, execute = false } },
+			worldPermissions = { read = false, write = false, execute = false },
+			setuser = false,
+		}
+	end
+	return E, n
+end
+function filesystems.drivefs:new(process, bT, bY)
+	local cp = hardware.get(bT)
+	if not cp then
+		error("Could not find drive at " .. bT)
+	end
+	local bs = hardware.call(process, cp, "getMountPath")
+	local fs = filesystems.craftos:new(process, bs, bY)
+	fs.drive = cp.uuid
+	fs.owner = process.user
+	fs.meta = {
+		meta = {
+			type = "directory",
+			owner = "root",
+			permissions = { root = { read = true, write = true, execute = true } },
+			worldPermissions = { read = true, write = false, execute = true },
+			setuser = false,
+		},
+		contents = {},
+	}
+	fs.metapath = fs.combine(bs, ".meta.ltn")
+	local H = fs.open(fs.metapath, "r")
+	if H then
+		fs.meta = unserialize(H.readAll()) or fs.meta
+		H.close()
+	end
+	return setmetatable(fs, { __index = self })
+end
+function filesystems.drivefs:info()
+	return "drivefs", self.drive, { ro = self.readOnly }
+end
+setmetatable(filesystems.tablefs, { __index = filesystems.tmpfs })
+function filesystems.tablefs:new(process, bT, bY)
+	local X
+	local H, n
+	if process ~= KERNEL and mounts[""] then
+		H, n = filesystem.open(process, bT, "r")
+	else
+		H, n = fs.open(bT, "r")
+	end
+	if H then
+		local bz = H.readAll() or ""
+		H.close()
+		local s, E = pcall(unserialize, bz)
+		if not s then
+			error("Could not mount " .. bT .. ": " .. E, 3)
+		elseif type(E) ~= "table" or E.type ~= "directory" or type(E.contents) ~= "table" then
+			error("Could not mount " .. bT .. ": Invalid table file", 3)
+		end
+		X = E
+	else
+		if not (bY.rw and not bY.ro) then
+			error("Could not mount " .. bT .. ": " .. n, 3)
+		end
+		X = {
+			type = "directory",
+			owner = process.user,
+			permissions = { [process.user] = { read = true, write = true, execute = true } },
+			worldPermissions = { read = true, write = false, execute = true },
+			setuser = false,
+			created = os.epoch("utc"),
+			modified = os.epoch("utc"),
+			contents = {},
+		}
+	end
+	X.src = bT
+	X.readOnly = bY.ro
+	if bY.rw and not bY.ro then
+		function X:__flush()
+			local f, bI = self.__flush, self.src
+			self.__flush, self.src = nil
+			local s, E = pcall(serialize, self)
+			self.__flush, self.src = f, bI
+			if not s then
+				error(E)
+			end
+			local H, n = filesystem.open(process, bT, "w")
+			if not H then
+				syslog.log({ level = 4 }, "Could not save mount to " .. bT .. ": " .. n)
+				return
+			end
+			H.write(E)
+			H.close()
+		end
+	end
+	return setmetatable(X, { __index = self })
+end
+function filesystems.tablefs:info()
+	return "tablefs", self.src, { rw = self.__flush ~= nil, ro = self.readOnly }
+end
+function filesystems.bind:new(process, bs, bY)
+	local bZ, n = filesystem.stat(process, bs)
+	if not bZ then
+		error("Could not bind " .. bs .. ": " .. n, 3)
+	elseif bZ.type ~= "directory" then
+		error("Could not bind " .. bs .. ": Not a directory", 3)
+	end
+	return setmetatable({ path = bs }, { __index = self })
+end
+function filesystems.bind:open(process, bs, P)
+	return filesystem.open(process, fs.combine(self.path, bs), P)
+end
+function filesystems.bind:list(process, bs)
+	return filesystem.list(process, fs.combine(self.path, bs))
+end
+function filesystems.bind:stat(process, bs, bW)
+	return filesystem.stat(process, fs.combine(self.path, bs), bW)
+end
+function filesystems.bind:remove(process, bs)
+	return filesystem.remove(process, fs.combine(self.path, bs))
+end
+function filesystems.bind:rename(process, c7, c8)
+	return filesystem.rename(process, fs.combine(self.path, c7), fs.combine(self.path, c8))
+end
+function filesystems.bind:mkdir(process, bs)
+	return filesystem.mkdir(process, fs.combine(self.path, bs))
+end
+function filesystems.bind:link(process, bs, cb)
+	return filesystem.link(process, fs.combine(self.path, bs), cb)
+end
+function filesystems.bind:mkfifo(process, bs)
+	return filesystem.mkfifo(process, fs.combine(self.path, bs))
+end
+function filesystems.bind:chmod(process, bs, bV, P)
+	return filesystem.chmod(process, fs.combine(self.path, bs), bV, P)
+end
+function filesystems.bind:chown(process, bs, cc)
+	return filesystem.chown(process, fs.combine(self.path, bs), cc)
+end
+function filesystems.bind:info()
+	return "bind", self.path, {}
+end
+local function cq(process, bs, cr, cs)
+	local ct = br(process, bs)
+	if cs then
+		if ct == "" then
+			ct = nil
+		else
+			ct = fs.getDir(ct)
+		end
+	end
+	if ct and fsevents[ct] then
+		for k, c in pairs(fsevents[ct]) do
+			local cu = ct
+			if cu:find(c.root, 1, true) == 1 then
+				cu = cu:sub(#c.root + 1)
+			end
+			c.eventQueue[#c.eventQueue + 1] =
+				{ "fsevent", { path = cu, event = cr, name = cs and fs.getName(ct) or nil, process = process.id } }
+			wakeup(c)
+		end
+	end
+end
+function filesystem.open(process, bs, P)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	expect(2, P, "string")
+	if not P:match("^[rwa]b?$") then
+		error("Invalid mode", 0)
+	end
+	for k = 1, 1000 do
+		local s, by, a1 = pcall(bt, process, bs)
+		if not s then
+			return nil, by
+		end
+		local E = table.pack(pcall(by.open, by, process, a1, P))
+		if E[1] then
+			if E[2] and P ~= "r" and P ~= "rb" then
+				cq(process, bs, "open", false)
+				cq(process, bs, "open_child", true)
+			end
+			return table.unpack(E, 2, E.n)
+		elseif type(E[2]) ~= "table" or type(E[2].path) ~= "string" then
+			error(E[2], 2)
+		end
+		bs = E[2].path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+local function cv(process, bs, cw)
+	local as = {}
+	local mounts, a1 = bt(process, bs, true)
+	for k, by in ipairs(mounts) do
+		local s, E = pcall(by.list, by, process, a1)
+		if not s then
+			if type(E) ~= "table" or type(E.path) ~= "string" then
+				if #mounts == 1 and cw then
+					error(E, 2)
+				else
+					E = {}
+				end
+			else
+				E = cv(process, E.path, false)
+			end
+		end
+		for k, c in ipairs(E) do
+			as[#as + 1] = c
+		end
+	end
+	return as
+end
+function filesystem.list(process, bs)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	local as = cv(process, bs, true)
+	table.sort(as)
+	local o = 2
+	while o <= #as do
+		if as[o] == as[o - 1] then
+			table.remove(as, o)
+		else
+			o = o + 1
+		end
+	end
+	return as
+end
+function filesystem.stat(process, bs, bW)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	for k = 1, 1000 do
+		local s, by, a1, cx = pcall(bt, process, bs)
+		if not s then
+			return nil, by
+		end
+		local cy, E, n = pcall(by.stat, by, process, a1, bW)
+		if cy then
+			if E then
+				E.mountpoint = "/" .. cx
+			end
+			return E, n
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		bs = E.path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.remove(process, bs)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	for k = 1, 1000 do
+		local by, a1 = bt(process, bs)
+		local s, E = pcall(by.remove, by, process, a1)
+		if s then
+			cq(process, bs, "remove", false)
+			cq(process, bs, "remove_child", true)
+			return
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		bs = E.path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.rename(process, c7, c8)
+	expect(0, process, "table")
+	expect(1, c7, "string")
+	expect(2, c8, "string")
+	for k = 1, 1000 do
+		local cz, cA = bt(process, c7)
+		local cB, cC = bt(process, c8)
+		if cz ~= cB then
+			error("Attempt to rename file across two filesystems", 0)
+		end
+		local s, E = pcall(cz.rename, cz, process, cA, cC)
+		if s then
+			cq(process, c7, "rename_from", false)
+			cq(process, c7, "rename_from_child", true)
+			cq(process, c8, "rename_to", false)
+			cq(process, c8, "rename_to_child", true)
+			return
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		if E.orig == c7 then
+			c7 = E.path
+		else
+			c8 = E.path
+		end
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.mkdir(process, bs)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	for k = 1, 1000 do
+		local by, a1 = bt(process, bs)
+		local s, E = pcall(by.mkdir, by, process, a1)
+		if s then
+			cq(process, bs, "mkdir", false)
+			cq(process, bs, "mkdir_child", true)
+			return
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		bs = E.path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.link(process, bs, cb)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	expect(2, cb, "string")
+	if fs.combine(bs) == fs.combine(cb) then
+		error("Cannot link file to itself", 2)
+	end
+	syslog.debug("Creating link", bs, " => ", cb)
+	for k = 1, 1000 do
+		local by, a1 = bt(process, bs)
+		if not by.link then
+			error("Filesystem does not support links", 2)
+		end
+		local s, E = pcall(by.link, by, process, a1, cb)
+		if s then
+			cq(process, bs, "link", false)
+			cq(process, bs, "link_child", true)
+			return
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		bs = E.path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.mkfifo(process, bs)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	for k = 1, 1000 do
+		local by, a1 = bt(process, bs)
+		if not by.mkfifo then
+			error("Filesystem does not support FIFOs", 2)
+		end
+		local s, E = pcall(by.mkfifo, by, process, a1)
+		if s then
+			cq(process, bs, "mkfifo", false)
+			cq(process, bs, "mkfifo_child", true)
+			return
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		bs = E.path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.chmod(process, bs, bV, P)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	expect(2, bV, "string", "nil")
+	expect(3, P, "number", "string", "table")
+	if type(P) == "string" and not P:match("^[%+%-=][rwxs]+$") and not P:match("^[r%-][w%-][xs%-]$") then
+		error("bad argument #3 (invalid mode)", 2)
+	elseif type(P) == "table" then
+		expect.field(P, "read", "boolean", "nil")
+		expect.field(P, "write", "boolean", "nil")
+		expect.field(P, "execute", "boolean", "nil")
+	end
+	for k = 1, 1000 do
+		local by, a1 = bt(process, bs)
+		local s, E = pcall(by.chmod, by, process, a1, bV, P)
+		if s then
+			return
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		bs = E.path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.chown(process, bs, bV)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	expect(2, bV, "string")
+	for k = 1, 1000 do
+		local by, a1 = bt(process, bs)
+		local s, E = pcall(by.chown, by, process, a1, bV)
+		if s then
+			return
+		elseif type(E) ~= "table" or type(E.path) ~= "string" then
+			error(E, 2)
+		end
+		bs = E.path
+	end
+	error("Too many levels of symbolic links", 2)
+end
+function filesystem.chroot(process, bs)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	if process.user ~= "root" then
+		error("Could not change root: Permission denied", 2)
+	end
+	local cD = "/" .. fs.combine(process.root, bs) .. "/"
+	if cD == "//" then
+		cD = "/"
+	end
+	if cD:find(process.root, 1, true) ~= 1 then
+		error("Could not change root: No such file or directory", 2)
+	end
+	local bI = filesystem.stat(process, "/" .. bs)
+	if not bI then
+		error(bs .. ": No such directory", 2)
+	end
+	if bI.type ~= "directory" then
+		error(bs .. ": Not a directory", 2)
+	end
+	process.root = cD
+end
+function filesystem.mount(process, type, bT, bU, bY)
+	expect(0, process, "table")
+	expect(1, type, "string")
+	expect(2, bT, "string")
+	expect(3, bU, "string")
+	expect(4, bY, "table", "nil")
+	if not filesystems[type] then
+		error("No such filesystem '" .. type .. "'", 2)
+	end
+	local a1 = br(process, bU)
+	if a1 == "" then
+		if process.user ~= "root" then
+			error("Could not mount to " .. bU .. ": Permission denied", 2)
+		end
+		if mounts[a1] and not (bY and bY.overlay) then
+			error("Could not mount to " .. bU .. ": Mount already exists (use overlay to mount over)")
+		end
+		if not mounts[a1] and (bY and bY.overlay) then
+			error("Could not mount to " .. bU .. ": No base mount exists for overlay")
+		end
+	else
+		local bZ = filesystem.stat(process, bU)
+		if not bZ then
+			error("Could not mount to " .. bU .. ": No such directory", 2)
+		end
+		if bZ.type ~= "directory" then
+			error("Could not mount to " .. bU .. ": Not a directory", 2)
+		end
+		if process.user ~= "root" and not (bZ.permissions[process.user] or bZ.worldPermissions).write then
+			error("Could not mount to " .. bU .. ": Permission denied", 2)
+		end
+		if mounts[a1] and not (bY and bY.overlay) then
+			error("Could not mount to " .. bU .. ": Mount already exists (use overlay to mount over)")
+		end
+		if not mounts[a1] and (bY and bY.overlay) then
+			error("Could not mount to " .. bU .. ": No base mount exists for overlay")
+		end
+	end
+	local by = filesystems[type]:new(process, bT, bY or {})
+	if bY and bY.overlay then
+		mounts[a1][#mounts[a1] + 1] = by
+	else
+		mounts[a1] = { by }
+	end
+end
+function filesystem.unmount(process, bs)
+	expect(0, process, "table")
+	expect(1, bs, "string")
+	bs = br(process, bs)
+	if not mounts[bs] then
+		error(bs .. ": No such mount", 2)
+	end
+	local cd = #mounts[bs]
+	local bZ = mounts[bs][cd]:stat(process, "")
+	if not bZ then
+		error(
+			"Internal error in unmount: could not get stat for root! Please report this to the maintainer of the target filesystem.",
+			2
+		)
+	elseif process.user ~= "root" and not (bZ.permissions[process.user] or bZ.worldPermissions).write then
+		error(bs .. ": Permission denied", 2)
+	end
+	if mounts[bs][cd].unmount then
+		mounts[bs][cd]:unmount(process)
+	end
+	mounts[bs][cd] = nil
+	if cd == 1 then
+		mounts[bs] = nil
+	end
+end
+function filesystem.mountlist(process)
+	expect(0, process, "table")
+	local as = {}
+	for F, c in pairs(mounts) do
+		if "/" .. F .. "/" == process.root or F:find(process.root:sub(2), 1, true) == 1 then
+			for k, by in ipairs(c) do
+				local type, bs, bY = by:info()
+				as[#as + 1] = { path = "/" .. F, type = type, source = bs, options = bY }
+			end
+		end
+	end
+	return as
+end
+function filesystem.combine(cE, ...)
+	expect(1, cE, "string")
+	local t = fs.combine(cE, ...)
+	if cE:match("^/") then
+		t = "/" .. t
+	end
+	return t
+end
+function syscalls.open(process, aN, ...)
+	return filesystem.open(process, ...)
+end
+function syscalls.list(process, aN, ...)
+	return filesystem.list(process, ...)
+end
+function syscalls.stat(process, aN, ...)
+	return filesystem.stat(process, ...)
+end
+function syscalls.remove(process, aN, ...)
+	return filesystem.remove(process, ...)
+end
+function syscalls.rename(process, aN, ...)
+	return filesystem.rename(process, ...)
+end
+function syscalls.mkdir(process, aN, ...)
+	return filesystem.mkdir(process, ...)
+end
+function syscalls.link(process, aN, ...)
+	return filesystem.link(process, ...)
+end
+function syscalls.mkfifo(process, aN, ...)
+	return filesystem.mkfifo(process, ...)
+end
+function syscalls.chmod(process, aN, ...)
+	return filesystem.chmod(process, ...)
+end
+function syscalls.chown(process, aN, ...)
+	return filesystem.chown(process, ...)
+end
+function syscalls.chroot(process, aN, ...)
+	return filesystem.chroot(process, ...)
+end
+function syscalls.mount(process, aN, ...)
+	return filesystem.mount(process, ...)
+end
+function syscalls.unmount(process, aN, ...)
+	return filesystem.unmount(process, ...)
+end
+function syscalls.mountlist(process, aN, ...)
+	return filesystem.mountlist(process, ...)
+end
+function syscalls.combine(process, aN, ...)
+	return filesystem.combine(...)
+end
+function syscalls.loadCraftOSAPI(process, aN, cF)
+	expect(1, cF, "string")
+	local I
+	I = setmetatable({
+		dofile = function(bs)
+			local H, n = fs.open(bs, "rb")
+			if not H then
+				error("Could not open module: " .. n, 0)
+			end
+			local J, n = load(H.readAll(), "@" .. bs, nil, I)
+			H.close()
+			if not J then
+				error("Could not load module: " .. n, 0)
+			end
+			return J()
+		end,
+		require = function(O)
+			return I.dofile("rom/modules/main/" .. O:gsub("%.", "/") .. ".lua")
+		end,
+	}, { __index = process.env })
+	I._ENV = I
+	if cF:sub(1, 3) == "cc." then
+		local bs = fs.combine("rom/modules/main", cF:gsub("%.", "/") .. ".lua")
+		if not bs:match("^/?rom/modules/main/") then
+			error("Invalid module path", 0)
+		end
+		return I.dofile(bs)
+	else
+		if not cF:match("^[a-z]+$") then
+			error("Invalid API name", 0)
+		end
+		local bs = fs.combine("rom/apis", cF .. ".lua")
+		local H, n = fs.open(bs, "rb")
+		if not H then
+			error("Could not open module: " .. n, 0)
+		end
+		local J, n = load(H.readAll(), "@" .. bs, nil, I)
+		H.close()
+		if not J then
+			error("Could not load module: " .. n, 0)
+		end
+		J()
+		local X = {}
+		for F, c in pairs(I) do
+			if F ~= "dofile" and F ~= "require" and F ~= "_ENV" then
+				X[F] = c
+			end
+		end
+		return X
+	end
+end
+function syscalls.fsevent(process, aN, bs, cG)
+	expect(1, bs, "string")
+	expect(2, cG, "boolean", "nil")
+	if cG == nil then
+		cG = true
+	end
+	bs = br(process, bs)
+	syslog.debug("Registering fsevents for", bs)
+	fsevents[bs] = fsevents[bs] or setmetatable({}, { __mode = "v" })
+	fsevents[bs][#fsevents[bs] + 1] = cG and process or nil
+end
+xpcall(function()
+	if args.initrd then
+		if args.initrd:match("^_G%..") then
+			local cw = _G[args.initrd:match("^_G%.(.+)")]
+			if type(cw) ~= "table" then
+				error("Requested root filesystem in global '" .. args.initrd .. "' is not a table")
+			end
+			cw.src = args.initrd
+			mounts[""] = { setmetatable(cw, { __index = filesystems.tablefs }) }
+		else
+			mounts[""] = { filesystems.tablefs:new(KERNEL, args.initrd, {}) }
+		end
+	else
+		local bY = {}
+		if args.rootflags then
+			for Y in args.rootflags:gmatch("[^,]+") do
+				local F, c = Y:match("^([^=]+)=(.*)$")
+				if F and c then
+					if c == "true" then
+						bY[F] = true
+					elseif c == "false" then
+						bY[F] = false
+					else
+						bY[F] = tonumber(c) or c
+					end
+				else
+					bY[Y] = true
+				end
+			end
+		end
+		mounts[""] = { filesystems[args.rootfstype]:new(KERNEL, args.root, bY) }
+	end
+end, panic)
+local do_syscall = do_syscall
+local expect = expect
+local function cH(cI, cJ, cK, cL)
+	local cM =
+		{ bit32.extract(cJ, 0, 16), bit32.extract(cJ, 16, 16), bit32.extract(cI, 0, 16), bit32.extract(cI, 16, 16) }
+	local ax =
+		{ bit32.extract(cL, 0, 16), bit32.extract(cL, 16, 16), bit32.extract(cK, 0, 16), bit32.extract(cK, 16, 16) }
+	local bO = { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 } }
+	for cN = 1, 4 do
+		for cO = 1, 4 do
+			local S = cM[cO] * ax[cN] + bO[cN][cO]
+			bO[cN][cO + 1], bO[cN][cO] = bit32.rshift(S, 16), bit32.band(S, 0xFFFF)
+		end
+	end
+	local cP = { 0, 0, 0, 0, 0, 0, 0, 0 }
+	for cQ = 1, 8 do
+		for cR = 1, 4 do
+			cP[cQ] = cP[cQ] + (bO[cR][cQ - cR + 1] or 0)
+		end
+		cP[cQ + 1], cP[cQ] = bit32.rshift(cP[cQ], 16), bit32.band(cP[cQ], 0xFFFF)
+	end
+	return cP[3] + cP[4] * 0x10000, cP[1] + cP[2] * 0x10000
+end
+local function cS(ax, cI, cJ)
+	return cI + math.floor((cJ + ax) / 0x100000000), bit32.band(cJ + ax, 0xFFFFFFFF)
+end
+function makeRandom()
+	local cT, cU = 0, 0
+	local function next(cV)
+		cT, cU = cS(0xB, cH(cT, cU, 0x5, 0xDEECE66D))
+		cT = bit32.band(cT, 0xFFFF)
+		return math.floor(cT / 2 ^ (16 - cV)) + math.floor(cU / 2 ^ (48 - cV))
+	end
+	local function cW(v, w)
+		expect(1, v, "number", "nil")
+		expect(2, w, "number", "nil")
+		if v then
+			expect.range(v, 0, 0x7FFFFFFF)
+			if not w then
+				v, w = 0, v
+			else
+				expect.range(w, 0, 0x7FFFFFFF)
+			end
+			local cX = w - v + 1
+			local cY
+			if math.log(cX, 2) % 1 == 0 then
+				cY = math.floor(cX * next(31) / 0x80000000)
+			else
+				local cV
+				repeat
+					cV = next(31)
+					cY = cV % cX
+				until cV - cY + cX - 1 >= 0
+			end
+			return cY + v
+		else
+			return (next(26) * 0x8000000 + next(27)) / 0x20000000000000
+		end
+	end
+	local function cZ(c_)
+		expect(1, c_, "number")
+		cT, cU =
+			bit32.band(bit32.bxor(0x5, math.floor(c_ / 0x100000000)), 0xFFFF), bit32.bxor(0xDEECE66D, math.floor(c_))
+	end
+	cZ(os.epoch("utc") * tonumber(tostring(next):match("%x+") or "1", 16))
+	return cW, cZ
+end
+do
+	math.random, math.randomseed = makeRandom()
+end
+function createLuaLib(process)
+	local d0 = {}
+	for k, c in ipairs({
+		"assert",
+		"error",
+		"getmetatable",
+		"ipairs",
+		"next",
+		"pairs",
+		"pcall",
+		"rawequal",
+		"rawget",
+		"rawset",
+		"select",
+		"setmetatable",
+		"tonumber",
+		"tostring",
+		"type",
+		"_VERSION",
+		"xpcall",
+		"collectgarbage",
+	}) do
+		d0[c] = _G[c]
+	end
+	function d0.dofile(bs)
+		if bs ~= nil and type(bs) ~= "string" then
+			error("bad argument #1 (expected string, got " .. type(bs) .. ")", 2)
+		end
+		local J, n = loadfile(bs or io.stdin:read("*a"))
+		if not J then
+			error(n, 2)
+		end
+		return J()
+	end
+	do
+		local load, getfenv, setfenv, make_ENV = load, getfenv, setfenv, make_ENV
+		if _VERSION == "Lua 5.1" then
+			function d0.load(N, O, P, I)
+				return load(N, O, P, make_ENV(I or process.env))
+			end
+			function d0.getfenv(f)
+				local c
+				if f == nil then
+					c = getfenv(2)
+				elseif tonumber(f) and tonumber(f) > 0 then
+					c = getfenv(f + 1)
+				elseif type(f) == "function" then
+					c = getfenv(f)
+				else
+					c = getfenv(f)
+				end
+				local j = getmetatable(f)
+				if j and j.__env then
+					return j.__env
+				else
+					return c
+				end
+			end
+			function d0.setfenv(f, a7)
+				return setfenv(f, make_ENV(a7))
+			end
+		else
+			d0.load, d0.getfenv, d0.setfenv =
+				function(N, O, P, I)
+					return load(N, O, P, I or process.env)
+				end, getfenv, setfenv
+		end
+	end
+	function d0.loadfile(bs, P, I)
+		if I == nil and type(P) == "table" then
+			I, P = P, nil
+		end
+		if bs == nil then
+			bs = io.stdin:read("*a")
+		end
+		if type(bs) ~= "string" then
+			error("bad argument #1 (expected string, got " .. type(bs) .. ")", 2)
+		end
+		if P ~= nil and type(P) ~= "string" then
+			error("bad argument #2 (expected string, got " .. type(P) .. ")", 2)
+		end
+		if I ~= nil and type(I) ~= "table" then
+			error("bad argument #3 (expected table, got " .. type(I) .. ")", 2)
+		end
+		local H, n = do_syscall("open", bs, "rb")
+		if not H then
+			error(n, 2)
+		end
+		local bz = H.readAll()
+		H.close()
+		return load(bz, "@" .. bs, P, I)
+	end
+	function d0.print(...)
+		local args = table.pack(...)
+		if args.n == 0 then
+			args = { "", n = 1 }
+		end
+		args[args.n] = tostring(args[args.n]) .. "\n"
+		return do_syscall("write", table.unpack(args, 1, args.n))
+	end
+	d0.coroutine = deepcopy(coroutine)
+	d0.string = deepcopy(string)
+	d0.table = deepcopy(table)
+	d0.math = deepcopy(math)
+	d0.bit32 = deepcopy(bit32)
+	d0.utf8 = deepcopy(utf8)
+	d0.math.random, d0.math.randomseed = makeRandom()
+	local d1 = ""
+	local d2 = setmetatable({
+		close = function() end,
+		lines = function(self, ...)
+			local args = table.pack(...)
+			return function()
+				return self:read(table.unpack(args, 1, args.n))
+			end
+		end,
+		read = function(self, at, ...)
+			local bI, a7
+			at = at or "*l"
+			if type(at) == "number" then
+				while #d1 < at do
+					d1 = d1 .. do_syscall("read", at)
+				end
+			elseif type(at) == "string" then
+				at = at:gsub("^%*", "")
+				if at == "n" then
+					while not d1:find("%d") do
+						local bJ = do_syscall("readline")
+						if bJ == nil then
+							break
+						end
+						d1 = d1 .. bJ .. "\n"
+					end
+				elseif at == "a" then
+					while true do
+						local bJ = do_syscall("readline")
+						if bJ == nil then
+							break
+						end
+						d1 = d1 .. bJ .. "\n"
+					end
+				elseif at == "l" or at == "L" then
+					local bJ = do_syscall("readline")
+					if bJ == nil then
+						return nil
+					end
+					d1 = d1 .. bJ .. "\n"
+				else
+					error("bad argument (invalid format '" .. at .. "')", 2)
+				end
+			else
+				error("bad argument (expected string or number, got " .. type(at), 2)
+			end
+			if type(at) == "number" then
+				bI, a7 = d1:sub(1, at), at + 1
+			elseif at == "n" then
+				bI, a7 = d1:match("(%d)()")
+			elseif at == "a" then
+				bI, a7 = d1, #d1 + 1
+			elseif at == "l" then
+				bI, a7 = d1:match("(.*)\n()")
+			else
+				bI, a7 = d1:match("(.*\n)()")
+			end
+			if not bI then
+				return nil
+			end
+			d1 = d1:sub(a7)
+			if select("#", ...) > 0 then
+				return bI, self:read(...)
+			else
+				return bI
+			end
+		end,
+		seek = function()
+			return nil, "Cannot seek default file"
+		end,
+		setvbuf = function() end,
+	}, { __name = "FILE*" })
+	local d3 = setmetatable({
+		close = function() end,
+		flush = function() end,
+		seek = function()
+			return nil, "Cannot seek default file"
+		end,
+		setvbuf = function() end,
+		write = function(self, ...)
+			do_syscall("write", ...)
+			return self
+		end,
+	}, { __name = "FILE*" })
+	local d4 = setmetatable({
+		close = function() end,
+		flush = function() end,
+		seek = function()
+			return nil, "Cannot seek default file"
+		end,
+		setvbuf = function() end,
+		write = function(self, ...)
+			do_syscall("writeerr", ...)
+			return self
+		end,
+	}, { __name = "FILE*" })
+	local d5, d6 = d2, d3
+	local d7 = {
+		close = function(self)
+			self._file.close()
+			self._closed = true
+		end,
+		lines = function(self, ...)
+			local args = table.pack(...)
+			return function()
+				return self:read(table.unpack(args, 1, args.n))
+			end
+		end,
+		read = function(self, at, ...)
+			local c
+			if at == nil then
+				at = "l"
+			end
+			if type(at) == "number" then
+				c = self._file.read(at)
+			elseif type(at) == "string" then
+				at = at:gsub("^%*", "")
+				if at == "a" then
+					c = self._file.readAll()
+				elseif at == "l" then
+					c = self._file.readLine(false)
+				elseif at == "L" then
+					c = self._file.readLine(true)
+				elseif at == "n" then
+					local bI, G = ""
+					repeat
+						G = self._file.read(1)
+					until G:match("%d")
+					while G:match("%d") do
+						bI, G = bI .. G, self._file.read(1)
+					end
+					c = tonumber(bI)
+				else
+					error("bad argument (invalid format '" .. at .. "')", 2)
+				end
+			else
+				error("bad argument (expected string or number, got " .. type(at) .. ")", 2)
+			end
+			if select("#", ...) > 0 then
+				return c, self:read(...)
+			else
+				return c
+			end
+		end,
+		seek = function(self, bH, ah)
+			if self._file.seek then
+				return self._file.seek(bH, ah)
+			else
+				return nil, "Cannot seek text file"
+			end
+		end,
+		setvbuf = function() end,
+	}
+	local d8 = {
+		close = function(self)
+			self._file.close()
+			self._closed = true
+		end,
+		flush = function(self)
+			self._file:flush()
+		end,
+		seek = function(self, bH, ah)
+			if self._file.seek then
+				return self._file.seek(bH, ah)
+			else
+				return nil, "Cannot seek text file"
+			end
+		end,
+		setvbuf = function() end,
+		write = function(self, ...)
+			self._file.write(...)
+			return self
+		end,
+	}
+	for k, c in ipairs({ d2, d3, d4, d7, d8 }) do
+		for k, f in pairs(c) do
+			local s, I = pcall(getfenv, f)
+			if s and I then
+				setfenv(f, d0)
+				debug.protect(f)
+			end
+		end
+	end
+	d0.io = {
+		close = function(H)
+			if H == nil then
+				d6:close()
+			elseif type(H) == "table" and getmetatable(H) and getmetatable(H).__name == "FILE*" then
+				H:close()
+			else
+				error("bad argument #1 (expected FILE*, got " .. type(H) .. ")", 2)
+			end
+		end,
+		flush = function()
+			return d6:flush()
+		end,
+		input = function(H)
+			if H == nil then
+				return d5
+			elseif type(H) == "string" then
+				local aC, n = io.open(H, "r")
+				if not aC then
+					error(n, 2)
+				end
+				d5 = aC
+			elseif type(H) == "table" and getmetatable(H) and getmetatable(H).__name == "FILE*" then
+				d5 = H
+			else
+				error("bad argument #1 (expected string or FILE*, got " .. type(H) .. ")", 2)
+			end
+		end,
+		lines = function(d9, ...)
+			if d9 == nil then
+				return d5:lines(...)
+			end
+			if type(d9) ~= "string" then
+				error("bad argument #1 (expected string, got " .. type(d9) .. ")", 2)
+			end
+			local aC, n = io.open(d9, "r")
+			if not aC then
+				error(n, 2)
+			end
+			local J = aC:lines(...)
+			return function(...)
+				local as = table.pack(J(...))
+				if as.n == 0 or as[1] == nil then
+					aC:close()
+				end
+				return table.unpack(as, 1, as.n)
+			end
+		end,
+		open = function(d9, P)
+			if type(d9) ~= "string" then
+				error("bad argument #1 (expected string, got " .. type(d9) .. ")", 2)
+			end
+			if P == nil then
+				P = "r"
+			end
+			if type(P) ~= "string" then
+				error("bad argument #2 (expected string, got " .. type(P) .. ")", 2)
+			end
+			local H, n = do_syscall("open", d9, P)
+			if not H then
+				return nil, n
+			elseif P:find("r") then
+				return setmetatable({ _file = H }, { __index = d7, __name = "FILE*" })
+			else
+				return setmetatable({ _file = H }, { __index = d8, __name = "FILE*" })
+			end
+		end,
+		output = function(H)
+			if H == nil then
+				return d6
+			elseif type(H) == "string" then
+				local aC, n = io.open(H, "w")
+				if not aC then
+					error(n, 2)
+				end
+				d6 = aC
+			elseif type(H) == "table" and getmetatable(H) and getmetatable(H).__name == "FILE*" then
+				d6 = H
+			else
+				error("bad argument #1 (expected string or FILE*, got " .. type(H) .. ")", 2)
+			end
+		end,
+		popen = function(bs, P)
+			expect(1, bs, "string")
+			P = expect(2, P, "string", "nil") or "r"
+			if P ~= "r" and P ~= "w" and P ~= "rw" then
+				error("bad argument #2 (invalid mode)", 2)
+			end
+			if P == "rw" then
+				local da, db = "", ""
+				local dc
+				local dd = {
+					read = function(S)
+						if da == "" then
+							return nil
+						elseif S then
+							local bI = da:sub(1, S)
+							da = da:sub(S + 1)
+							return bI
+						else
+							local bI, a7 = da:match("([^\n]*\n?)()")
+							da = da:sub(a7)
+							return bI
+						end
+					end,
+				}
+				local de = {
+					write = function(bI)
+						da = da .. bI
+					end,
+					flush = function() end,
+					close = function()
+						local info = do_syscall("getpinfo", dc)
+						if not info then
+							return
+						end
+						repeat
+							local aO, df = coroutine.yield()
+						until aO == "process_complete" and df.pid == dc
+					end,
+				}
+				local dg = {
+					read = function(S)
+						if db == "" then
+							return nil
+						elseif S then
+							local bI = db:sub(1, S)
+							db = db:sub(S + 1)
+							return bI
+						else
+							local bI = db:byte()
+							db = db:sub(2)
+							return bI
+						end
+					end,
+					readLine = function()
+						if db == "" then
+							return nil
+						end
+						local bI, a7 = db:match("([^\n]*)\n*()")
+						db = db:sub(a7)
+						return bI
+					end,
+					readAll = function()
+						if db == "" then
+							return nil
+						end
+						local bI = db
+						db = ""
+						return bI
+					end,
+					close = function()
+						local info = do_syscall("getpinfo", dc)
+						if not info then
+							return
+						end
+						repeat
+							local aO, df = coroutine.yield()
+						until aO == "process_complete" and df.pid == dc
+					end,
+				}
+				local dh = {
+					write = function(bI)
+						db = db .. bI
+					end,
+				}
+				dc = do_syscall("fork", function()
+					do_syscall("stdin", dd)
+					do_syscall("stdout", dh)
+					do_syscall("exec", "/bin/sh", "-c", bs)
+				end)
+				return setmetatable({ _file = dg }, { __index = d7, __name = "FILE*" }),
+					setmetatable({ _file = de }, { __index = d8, __name = "FILE*" })
+			else
+				local di = ""
+				local bE = false
+				local dc
+				local dj = {
+					read = function(S)
+						if di == "" then
+							if bE then
+								return nil
+							else
+								return ""
+							end
+						elseif S then
+							local bI = di:sub(1, S)
+							di = di:sub(S + 1)
+							return bI
+						else
+							local bI, a7 = di:match("([^\n]*\n?)()")
+							di = di:sub(a7)
+							return bI
+						end
+					end,
+					readLine = function()
+						local bI, a7 = di:match("([^\n]*\n?)()")
+						di = di:sub(a7)
+						return bI
+					end,
+					readAll = function()
+						local bI = di
+						di = ""
+						return bI
+					end,
+					close = function()
+						bE = true
+						local info = do_syscall("getpinfo", dc)
+						if not info then
+							return
+						end
+						repeat
+							local aO, df = coroutine.yield()
+						until aO == "process_complete" and df.pid == dc
+					end,
+				}
+				local dk = {
+					write = function(bI)
+						di = di .. bI
+					end,
+					flush = function() end,
+					close = function()
+						bE = true
+						local info = do_syscall("getpinfo", dc)
+						if not info then
+							return
+						end
+						repeat
+							local aO, df = coroutine.yield()
+						until aO == "process_complete" and df.pid == dc
+					end,
+				}
+				dc = do_syscall("fork", function()
+					do_syscall(P == "r" and "stdout" or "stdin", P == "r" and dk or dj)
+					do_syscall("exec", "/bin/sh", "-c", bs)
+				end)
+				return P == "r" and setmetatable({ _file = dj }, { __index = d7, __name = "FILE*" })
+					or setmetatable({ _file = dk }, { __index = d8, __name = "FILE*" })
+			end
+		end,
+		read = function(...)
+			return d5:read(...)
+		end,
+		tmpfile = function()
+			return io.open(os.tmpname(), "a")
+		end,
+		type = function(bQ)
+			if type(bQ) == "table" and getmetatable(bQ) and getmetatable(bQ).__name == "FILE*" then
+				if bQ._closed then
+					return "closed file"
+				else
+					return "file"
+				end
+			else
+				return nil
+			end
+		end,
+		write = function(...)
+			return d6:write(...)
+		end,
+		stdin = d2,
+		stdout = d3,
+		stderr = d4,
+	}
+	local dl = os
+	d0.os = {
+		clock = function()
+			return do_syscall("clock")
+		end,
+		date = function(at, co)
+			if type(at) == "string" and at:sub(1, 1) == "?" then
+				local bG = dl.date("!" .. at:sub(2), co or dl.epoch("ingame") / 1000)
+				if type(bG) == "table" then
+					bG.year = bG.year - 1970
+				end
+				return bG
+			else
+				return dl.date(at, co)
+			end
+		end,
+		difftime = function(cM, ax)
+			return cM - ax
+		end,
+		execute = function(bs)
+			do_syscall("exec", "/bin/sh", "-c", bs)
+		end,
+		exit = function(bK)
+			do_syscall("exit", bK)
+		end,
+		getenv = function(O)
+			expect(1, O, "string")
+			local I = do_syscall("getenv")
+			if not I then
+				return nil
+			end
+			return I[O]
+		end,
+		remove = function(bs)
+			expect(1, bs, "string")
+			local s, n = do_syscall("remove", bs)
+			if not s then
+				s = nil
+			end
+			return s, n
+		end,
+		rename = function(c7, c8)
+			expect(1, c7, "string")
+			expect(2, c8, "string")
+			local s, n = do_syscall("rename", c7, c8)
+			if not s then
+				s = nil
+			end
+			return s, n
+		end,
+		setlocale = function(dm)
+			if dm then
+				error("setlocale is not supported", 2)
+			else
+				return "C"
+			end
+		end,
+		time = function(X)
+			if X == "ingame" then
+				return dl.epoch("ingame") / 1000
+			elseif X == "nano" then
+				return ccemux and ccemux.nanoTime() or dl.epoch("nano")
+			end
+			expect(1, X, "table", "nil")
+			if X then
+				return dl.time(X)
+			else
+				return dl.epoch("utc") / 1000
+			end
+		end,
+		tmpname = function()
+			local O = "/tmp/lua_"
+			for o = 1, 6 do
+				local S = math.random(1, 64)
+				O = O .. ("qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM1234567890._"):sub(S, S)
+			end
+			return O
+		end,
+	}
+	d0.debug = deepcopy(debug)
+	local dn = {}
+	function d0.debug.getregistry()
+		return dn
+	end
+	setfenv(d0.debug.getregistry, d0)
+	debug.protect(d0.debug.getregistry)
+	local dp, dq, dr, be, getCurrentThread, ds, dt, next, xpcall, wakeup =
+		coroutine.resume,
+		coroutine.yield,
+		debug.sethook,
+		debug.getinfo,
+		getCurrentThread,
+		table.pack,
+		table.unpack,
+		next,
+		xpcall,
+		wakeup
+	local du = debugHooks
+	function d0.coroutine.resume(dv, ...)
+		expect(1, dv, "thread")
+		local aN = getCurrentThread()
+		if process.debugging then
+			for aX, dw in next, process.breakpoints do
+				if dw.type == "resume" and (dw.thread == nil or dw.thread == aN.id) then
+					local s = true
+					if dw.filter then
+						for F, c in next, dw.filter do
+							if info[F] ~= c then
+								s = false
+								break
+							end
+						end
+					end
+					if s then
+						dw.process.eventQueue[#dw.process.eventQueue + 1] =
+							{ "debug_break", { process = process.id, thread = aN.id, breakpoint = aX } }
+						wakeup(dw.process)
+						aN.paused = true
+						dq("preempt")
+					end
+				end
+			end
+		end
+		local dx = #aN.coroStack + 1
+		aN.coroStack[dx] = dv
+		local as = ds(dp(dv, ...))
+		while
+			as.n >= 2
+			and as[1] == true
+			and (as[2] == "preempt" or as[2] == "secure_syscall" or as[2] == "secure_event")
+		do
+			as = ds(dp(dv, dq(dt(as, 2, as.n))))
+		end
+		if process.debugging and not as[1] then
+			local info = be(dv, 1)
+			for aX, dw in next, process.breakpoints do
+				if dw.type == "error" and (dw.thread == nil or dw.thread == aN.id) then
+					local s = true
+					if dw.filter then
+						for F, c in next, dw.filter do
+							if info[F] ~= c then
+								s = false
+								break
+							end
+						end
+					end
+					if s then
+						dw.process.eventQueue[#dw.process.eventQueue + 1] =
+							{ "debug_break", { process = process.id, thread = aN.id, breakpoint = aX } }
+						wakeup(dw.process)
+						aN.paused = true
+						dq("preempt")
+					end
+				end
+			end
+		end
+		aN.coroStack[dx] = nil
+		return dt(as, 1, as.n)
+	end
+	function d0.coroutine.yield(cM, ax, ...)
+		if process.debugging then
+			local aN = getCurrentThread()
+			local info = be(2)
+			for aX, dw in next, process.breakpoints do
+				if
+					dw.type == "syscall"
+					and not (dw.filter and dw.filter.name and dw.filter.name ~= ax)
+					and (dw.thread == nil or dw.thread == aN.id)
+				then
+					dw.process.eventQueue[#dw.process.eventQueue + 1] =
+						{ "debug_break", { process = process.id, thread = aN.id, breakpoint = aX } }
+					wakeup(dw.process)
+					aN.paused = true
+					dq("preempt")
+				elseif dw.type == "yield" and (dw.thread == nil or dw.thread == aN.id) then
+					local s = true
+					if dw.filter then
+						for F, c in next, dw.filter do
+							if info[F] ~= c then
+								s = false
+								break
+							end
+						end
+					end
+					if s then
+						dw.process.eventQueue[#dw.process.eventQueue + 1] =
+							{ "debug_break", { process = process.id, thread = aN.id, breakpoint = aX } }
+						wakeup(dw.process)
+						aN.paused = true
+						dq("preempt")
+					end
+				end
+			end
+		end
+		return dq(cM, ax, ...)
+	end
+	function d0.debug.gethook(dv)
+		expect(1, dv, "thread", "nil")
+		dv = dv or coroutine.running()
+		local aC = du[dv]
+		if not aC then
+			return nil
+		end
+		return aC.func, aC.mask, aC.count
+	end
+	function d0.debug.sethook(dv, aW, V, dy)
+		if type(dv) ~= "thread" then
+			dv, aW, V, dy = coroutine.running(), dv, aW, V
+		end
+		expect(1, dv, "thread")
+		expect(2, aW, "function", "nil")
+		if aW then
+			expect(3, V, "string")
+			expect(4, dy, "number", "nil")
+			du[dv] = { func = aW, mask = V, count = dy }
+			if not process.debugging then
+				dr(dv, process.hookf, V, process.quantum)
+			end
+		else
+			du[dv] = nil
+			if not process.debugging then
+				dr(dv, process.hookf, "", process.quantum)
+			end
+		end
+	end
+	setfenv(d0.debug.gethook, d0)
+	debug.protect(d0.debug.gethook)
+	setfenv(d0.debug.sethook, d0)
+	debug.protect(d0.debug.sethook)
+	function d0.pcall(f, ...)
+		return xpcall(f, function(n)
+			if process.debugging then
+				local aN = getCurrentThread()
+				local info = be(2)
+				for aX, dw in next, process.breakpoints do
+					if dw.type == "error" and (dw.thread == nil or dw.thread == aN.id) then
+						local s = true
+						if dw.filter then
+							for F, c in next, dw.filter do
+								if info[F] ~= c then
+									s = false
+									break
+								end
+							end
+						end
+						if s then
+							dw.process.eventQueue[#dw.process.eventQueue + 1] =
+								{ "debug_break", { process = process.id, thread = aN.id, breakpoint = aX, error = n } }
+							wakeup(dw.process)
+							aN.paused = true
+							dq("preempt")
+						end
+					end
+				end
+			end
+			return n
+		end, ...)
+	end
+	function d0.xpcall(f, dz, ...)
+		return xpcall(f, function(n)
+			if process.debugging then
+				local aN = getCurrentThread()
+				local info = be(2)
+				for aX, dw in next, process.breakpoints do
+					if dw.type == "error" and (dw.thread == nil or dw.thread == aN.id) then
+						local s = true
+						if dw.filter then
+							for F, c in next, dw.filter do
+								if info[F] ~= c then
+									s = false
+									break
+								end
+							end
+						end
+						if s then
+							dw.process.eventQueue[#dw.process.eventQueue + 1] =
+								{ "debug_break", { process = process.id, thread = aN.id, breakpoint = aX, error = n } }
+							wakeup(dw.process)
+							aN.paused = true
+							dq("preempt")
+						end
+					end
+				end
+			end
+			return dz(n)
+		end, ...)
+	end
+	createRequire(process, d0)
+	for F, c in pairs(d0) do
+		if type(c) == "function" then
+			pcall(setfenv, c, d0)
+			pcall(debug.protect, c)
+		elseif type(c) == "table" and F ~= "debug" then
+			for k, aB in pairs(c) do
+				if type(aB) == "function" then
+					pcall(setfenv, aB, d0)
+					pcall(debug.protect, aB)
+				end
+			end
+		end
+	end
+	return d0
+end
+function loadfile(bs, P, I)
+	if I == nil and type(P) == "table" then
+		I, P = P, nil
+	end
+	if type(bs) ~= "string" then
+		error("bad argument #1 (expected string, got " .. type(bs) .. ")", 2)
+	end
+	if P ~= nil and type(P) ~= "string" then
+		error("bad argument #2 (expected string, got " .. type(P) .. ")", 2)
+	end
+	if I ~= nil and type(I) ~= "table" then
+		error("bad argument #3 (expected table, got " .. type(I) .. ")", 2)
+	end
+	local H, n = filesystem.open(KERNEL, bs, "rb")
+	if not H then
+		error(n, 2)
+	end
+	local bz = H.readAll()
+	H.close()
+	return load(bz, "@" .. bs, P, I)
+end
+function dofile(bs)
+	if bs ~= nil and type(bs) ~= "string" then
+		error("bad argument #1 (expected string, got " .. type(bs) .. ")", 2)
+	end
+	local J, n = loadfile(bs or io.stdin:read("*a"))
+	if not J then
+		error(n, 2)
+	end
+	return J()
+end
+function print(...)
+	for o = 1, select("#", ...) do
+		local c = tostring(select(o, ...))
+		terminal.write(TTY[1], c)
+	end
+end
+function terminal.makeTTY(term, U, dA)
+	local as = {
+		isTTY = true,
+		flags = { cbreak = false, delay = true, echo = true, keypad = false, nlcr = true, raw = false },
+		cursor = { x = 1, y = 1 },
+		cursorBlink = true,
+		colors = { fg = "0", bg = "f", bold = false },
+		size = { width = U, height = dA },
+		dirtyLines = {},
+		palette = {},
+		dirtyPalette = {},
+		buffer = "",
+		preBuffer = "",
+		isLocked = false,
+		isGraphics = false,
+		textBuffer = {},
+		graphicsBuffer = {},
+		frontmostProcess = nil,
+		processList = {},
+		eof = false,
+		term = term,
+	}
+	for R = 1, dA do
+		as[R] = { (" "):rep(U), ("0"):rep(U), ("f"):rep(U) }
+		as.dirtyLines[R] = true
+	end
+	for o = 0, 15 do
+		as.palette[o] = { _G.term.nativePaletteColor(2 ^ o) }
+		as.dirtyPalette[o] = true
+	end
+	return as
+end
+do
+	local dB, dC = term.getSize()
+	TTY = {
+		terminal.makeTTY(term, dB, dC),
+		terminal.makeTTY(term, dB, dC),
+		terminal.makeTTY(term, dB, dC),
+		terminal.makeTTY(term, dB, dC),
+		terminal.makeTTY(term, dB, dC),
+		terminal.makeTTY(term, dB, dC),
+		terminal.makeTTY(term, dB, dC),
+		terminal.makeTTY(term, dB, dC),
+	}
+end
+currentTTY = TTY[1]
+terminal.userTTYs = {}
+do
+	local S = args.console:match("^tty(%d+)$")
+	if S then
+		KERNEL.stdout, KERNEL.stderr, KERNEL.stdin = TTY[tonumber(S)], TTY[tonumber(S)], TTY[tonumber(S)]
+	end
+end
+keysHeld = { ctrl = false, alt = false, shift = false }
+eventHooks.term_resize = eventHooks.term_resize or {}
+eventHooks.char = eventHooks.char or {}
+eventHooks.paste = eventHooks.paste or {}
+eventHooks.key = eventHooks.key or {}
+eventHooks.key_up = eventHooks.key_up or {}
+eventHooks.term_resize[#eventHooks.term_resize + 1] = function()
+	local aB, aC = term.getSize()
+	for o = 1, 8 do
+		terminal.resize(TTY[o], aB, aC)
+	end
+end
+eventHooks.char[#eventHooks.char + 1] = function(aO)
+	if not currentTTY.isLocked then
+		if currentTTY.flags.cbreak then
+			currentTTY.buffer = currentTTY.buffer .. aO[2]
+		else
+			currentTTY.preBuffer = currentTTY.preBuffer .. aO[2]
+		end
+		if currentTTY.flags.echo then
+			terminal.write(currentTTY, aO[2])
+			terminal.redraw(currentTTY)
+		end
+	end
+end
+eventHooks.paste[#eventHooks.paste + 1] = function(aO)
+	if not currentTTY.isLocked then
+		if currentTTY.flags.cbreak then
+			currentTTY.buffer = currentTTY.buffer .. aO[2]
+		else
+			currentTTY.preBuffer = currentTTY.preBuffer .. aO[2]
+		end
+		if currentTTY.flags.echo then
+			terminal.write(currentTTY, aO[2])
+			terminal.redraw(currentTTY)
+		end
+	end
+end
+eventHooks.key[#eventHooks.key + 1] = function(aO)
+	if not currentTTY.isLocked then
+		if aO[2] == keys.enter then
+			if currentTTY.flags.cbreak then
+				currentTTY.buffer = currentTTY.buffer .. "\n"
+			else
+				currentTTY.buffer = currentTTY.buffer .. currentTTY.preBuffer .. "\n"
+				currentTTY.preBuffer = ""
+			end
+			if currentTTY.flags.echo then
+				terminal.write(currentTTY, "\n")
+				terminal.redraw(currentTTY)
+			end
+		elseif aO[2] == keys.backspace then
+			if currentTTY.flags.cbreak then
+			elseif #currentTTY.preBuffer > 0 then
+				currentTTY.preBuffer = currentTTY.preBuffer:sub(1, -2)
+				if currentTTY.flags.echo then
+					terminal.write(currentTTY, "\b \b")
+					terminal.redraw(currentTTY)
+				end
+			end
+		end
+	end
+	if aO[2] == keys.leftCtrl or aO[2] == keys.rightCtrl then
+		keysHeld.ctrl = true
+	elseif aO[2] == keys.leftAlt or aO[2] == keys.rightAlt then
+		keysHeld.alt = true
+	elseif aO[2] == keys.leftShift or aO[2] == keys.rightShift then
+		keysHeld.shift = true
+	end
+	if
+		not currentTTY.flags.raw
+		and currentTTY.frontmostProcess
+		and keysHeld.ctrl
+		and not keysHeld.alt
+		and not keysHeld.shift
+	then
+		if aO[2] == keys.c then
+			killProcess(currentTTY.frontmostProcess.id, 2)
+			terminal.write(currentTTY, "^C")
+		elseif aO[2] == keys.backslash then
+			killProcess(currentTTY.frontmostProcess.id, 3)
+			terminal.write(currentTTY, "^\\")
+		elseif aO[2] == keys.z then
+			killProcess(currentTTY.frontmostProcess.id, 19)
+			terminal.write(currentTTY, "^Z")
+		elseif aO[2] == keys.d then
+			currentTTY.eof = true
+			terminal.write(currentTTY, "^D")
+		elseif aO[2] == keys.l and currentTTY.cursor.y > 1 then
+			local R = currentTTY.cursor.y - 1
+			terminal.write(currentTTY, "\x1b[" .. R .. "T\x1b[1;" .. currentTTY.cursor.x .. "H")
+		end
+	end
+	if keysHeld.ctrl and not keysHeld.alt and keysHeld.shift then
+		local dD = true
+		if aO[2] == keys.f1 then
+			currentTTY = TTY[1]
+		elseif aO[2] == keys.f2 then
+			currentTTY = TTY[2]
+		elseif aO[2] == keys.f3 then
+			currentTTY = TTY[3]
+		elseif aO[2] == keys.f4 then
+			currentTTY = TTY[4]
+		elseif aO[2] == keys.f5 then
+			currentTTY = TTY[5]
+		elseif aO[2] == keys.f6 then
+			currentTTY = TTY[6]
+		elseif aO[2] == keys.f7 then
+			currentTTY = TTY[7]
+		elseif aO[2] == keys.f8 then
+			currentTTY = TTY[8]
+		elseif aO[2] == keys.left then
+			for o = 1, 8 do
+				if currentTTY == TTY[o] then
+					currentTTY = TTY[(o + 7) % 8]
+					break
+				end
+			end
+		elseif aO[2] == keys.right then
+			for o = 1, 8 do
+				if currentTTY == TTY[o] then
+					currentTTY = TTY[(o + 1) % 8]
+					break
+				end
+			end
+		else
+			dD = false
+		end
+		if dD then
+			terminal.redraw(currentTTY, true)
+		end
+	end
+end
+eventHooks.key_up[#eventHooks.key_up + 1] = function(aO)
+	if aO[2] == keys.leftCtrl or aO[2] == keys.rightCtrl then
+		keysHeld.ctrl = false
+	elseif aO[2] == keys.leftAlt or aO[2] == keys.rightAlt then
+		keysHeld.alt = false
+	elseif aO[2] == keys.leftShift or aO[2] == keys.rightShift then
+		keysHeld.shift = false
+	end
+end
+function terminal.redraw(dE, cf)
+	if _HEADLESS and dE == TTY[1] and not dE.isLocked then
+		return
+	end
+	if dE.process then
+		dE.process.eventQueue[#dE.process.eventQueue + 1] = { "tty_redraw", { id = dE.id } }
+		return
+	elseif currentTTY ~= dE and not dE.isMonitor then
+		return
+	end
+	local term = dE.term
+	local di = dE
+	if dE.isLocked then
+		if dE.isGraphics then
+			term.setGraphicsMode(2)
+			if term.setFrozen then
+				term.setFrozen(true)
+			end
+			if cf then
+				term.clear()
+				term.drawPixels(0, 0, dE.graphicsBuffer)
+				for o = 0, 255 do
+					term.setPaletteColor(
+						o,
+						dE.graphicsBuffer.palette[o][1],
+						dE.graphicsBuffer.palette[o][2],
+						dE.graphicsBuffer.palette[o][3]
+					)
+				end
+			else
+				if dE.graphicsBuffer.frozen then
+					if term.setFrozen then
+						term.setFrozen(false)
+					end
+					return
+				end
+				for k, c in ipairs(dE.graphicsBuffer.dirtyRects) do
+					if c.color then
+						term.setPixel(c.x, c.y, c.color, c.width, c.height)
+					else
+						term.drawPixels(c.x, c.y, c)
+					end
+				end
+				for o in pairs(dE.graphicsBuffer.dirtyPalette) do
+					term.setPaletteColor(
+						o,
+						dE.graphicsBuffer.palette[o][1],
+						dE.graphicsBuffer.palette[o][2],
+						dE.graphicsBuffer.palette[o][3]
+					)
+				end
+			end
+			if term.setFrozen then
+				term.setFrozen(false)
+			end
+			di.dirtyRects, di.dirtyPalette = {}, {}
+			return
+		end
+		if term.setGraphicsMode then
+			term.setGraphicsMode(false)
+		end
+		di = dE.textBuffer
+	elseif dE.isGraphics then
+		term.setGraphicsMode(false)
+		dE.isGraphics = false
+	end
+	term.setCursorBlink(false)
+	if cf then
+		term.clear()
+		for R = 1, dE.size.height do
+			term.setCursorPos(1, R)
+			term.blit(di[R][1], di[R][2], di[R][3])
+		end
+		for o = 0, 15 do
+			term.setPaletteColor(2 ^ o, di.palette[o][1], di.palette[o][2], di.palette[o][3])
+		end
+	else
+		for R in pairs(di.dirtyLines) do
+			if not di[R] then
+				error(debug.traceback(R))
+			end
+			term.setCursorPos(1, R)
+			if #di[R][1] ~= #di[R][2] or #di[R][2] ~= #di[R][3] then
+				syslog.log(
+					{ level = "critical" },
+					"Bug in text writer! Inequal lengths: " .. #di[R][1] .. ", " .. #di[R][2] .. ", " .. #di[R][3]
+				)
+				error("Invalid lengths")
+			end
+			term.blit(di[R][1], di[R][2], di[R][3])
+		end
+		for o in pairs(di.dirtyPalette) do
+			term.setPaletteColor(2 ^ o, di.palette[o][1], di.palette[o][2], di.palette[o][3])
+		end
+	end
+	term.setCursorPos(di.cursor.x, di.cursor.y)
+	term.setCursorBlink(di.cursorBlink)
+	term.setTextColor(2 ^ tonumber(di.colors.fg, 16))
+	di.dirtyLines, di.dirtyPalette = {}, {}
+end
+function terminal.resize(dE, U, dA)
+	if U > dE.size.width then
+		for R = 1, dE.size.height do
+			dE[R][1] = dE[R][1] .. (" "):rep(U - dE.size.width)
+			dE[R][2] = dE[R][2] .. dE.colors.fg:rep(U - dE.size.width)
+			dE[R][3] = dE[R][3] .. dE.colors.bg:rep(U - dE.size.width)
+			dE.dirtyLines[R] = true
+		end
+		if dE.isLocked then
+			if dE.isGraphics then
+				for R = 1, dE.size.height * 9 do
+					dE.graphicsBuffer[R] = dE.graphicsBuffer[R] .. ("\15"):rep((U - dE.size.width) * 6)
+				end
+				dE.graphicsBuffer.dirtyRects[#dE.graphicsBuffer.dirtyRects + 1] =
+					{ x = dE.size.width * 6 + 1, y = 1, width = (U - dE.size.width) * 6, height = dE.size.height * 9 }
+			else
+				for R = 1, dE.size.height do
+					dE.textBuffer[R][1] = dE.textBuffer[R][1] .. (" "):rep(U - dE.size.width)
+					dE.textBuffer[R][2] = dE.textBuffer[R][2] .. dE.textBuffer.colors.fg:rep(U - dE.size.width)
+					dE.textBuffer[R][3] = dE.textBuffer[R][3] .. dE.textBuffer.colors.bg:rep(U - dE.size.width)
+					dE.textBuffer.dirtyLines[R] = true
+				end
+			end
+		end
+	elseif U < dE.size.width then
+		for R = 1, dE.size.height do
+			dE[R][1] = dE[R][1]:sub(1, U)
+			dE[R][2] = dE[R][2]:sub(1, U)
+			dE[R][3] = dE[R][3]:sub(1, U)
+			dE.dirtyLines[R] = true
+		end
+		if dE.isLocked then
+			if dE.isGraphics then
+				for R = 1, dE.size.height * 9 do
+					dE.graphicsBuffer[R] = dE.graphicsBuffer[R]:sub(1, U * 6)
+				end
+			else
+				for R = 1, dE.size.height do
+					dE.textBuffer[R][1] = dE.textBuffer[R][1]:sub(1, U)
+					dE.textBuffer[R][2] = dE.textBuffer[R][2]:sub(1, U)
+					dE.textBuffer[R][3] = dE.textBuffer[R][3]:sub(1, U)
+				end
+			end
+		end
+	end
+	dE.size.width = U
+	if dE.cursor.x > U then
+		dE.cursor.x = U
+	end
+	if dA > dE.size.height then
+		for R = dE.size.height + 1, dA do
+			dE[R] = { (" "):rep(U), dE.colors.fg:rep(U), dE.colors.bg:rep(U) }
+			dE.dirtyLines[R] = true
+		end
+		if dE.isLocked then
+			if dE.isGraphics then
+				for R = dE.size.height * 9 + 1, dA * 9 do
+					dE.graphicsBuffer[R] = ("\15"):rep(U * 6)
+				end
+				dE.graphicsBuffer.dirtyRects[#dE.graphicsBuffer.dirtyRects + 1] =
+					{ x = 1, y = dE.size.height * 9 + 1, width = dE.size.width * 6, height = (dA - dE.size.height) * 9 }
+			else
+				for R = dE.size.height + 1, dA do
+					dE.textBuffer[R] = { (" "):rep(U), dE.textBuffer.colors.fg:rep(U), dE.textBuffer.colors.bg:rep(U) }
+					dE.textBuffer.dirtyLines[R] = true
+				end
+			end
+		end
+	elseif dA < dE.size.height then
+		for R = dA + 1, dE.size.height do
+			dE[R] = nil
+			dE.dirtyLines[R] = nil
+		end
+		if dE.isLocked then
+			if dE.isGraphics then
+				for R = dA * 9 + 1, dE.size.height * 9 do
+					dE.graphicsBuffer[R] = nil
+				end
+			else
+				for R = dA + 1, dE.size.height do
+					dE.textBuffer[R] = nil
+					dE.textBuffer.dirtyLines[R] = nil
+				end
+			end
+		end
+	end
+	dE.size.height = dA
+	if dE.cursor.y > dA then
+		dE.cursor.y = dA
+	end
+end
+local function dF(dE)
+	local dG = dE.cursor
+	local R = dG.y + 1
+	dG.y = R
+	local af = dE.size
+	local dA = af.height
+	if R > dA then
+		local dH = dE.dirtyLines
+		for o = 1, dA - 1 do
+			dE[o] = dE[o + 1]
+			dH[o] = true
+		end
+		local U = af.width
+		local dI = dE.colors
+		dE[dA] = { (" "):rep(U), dI.fg:rep(U), dI.bg:rep(U) }
+		dH[dA] = true
+		dG.y = dA
+	end
+end
+local dJ = {
+	["@"] = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		local dK, dL = a1 % dE.size.width, math.floor(a1 / dE.size.width)
+		local S = {
+			dE[dE.cursor.y][1]:sub(dE.size.width - dK + 1),
+			dE[dE.cursor.y][2]:sub(dE.size.width - dK + 1),
+			dE[dE.cursor.y][3]:sub(dE.size.width - dK + 1),
+		}
+		dE[dE.cursor.y][1] = dE[dE.cursor.y][1]:sub(1, dE.cursor.x - 1)
+			.. (" "):rep(a1)
+			.. dE[dE.cursor.y + dL][1]:sub(dE.cursor.x, dE.size.width - dK)
+		dE[dE.cursor.y][2] = dE[dE.cursor.y][2]:sub(1, dE.cursor.x - 1)
+			.. dE.colors.fg:rep(a1)
+			.. dE[dE.cursor.y + dL][2]:sub(dE.cursor.x, dE.size.width - dK)
+		dE[dE.cursor.y][3] = dE[dE.cursor.y][3]:sub(1, dE.cursor.x - 1)
+			.. dE.colors.bg:rep(a1)
+			.. dE[dE.cursor.y + dL][3]:sub(dE.cursor.x, dE.size.width - dK)
+		dE.dirtyLines[dE.cursor.y] = true
+		for R = dE.cursor.y + dL + 1, dE.size.height do
+			local dM = {
+				dE[R - dL][1]:sub(dE.size.width - a1 + 1),
+				dE[R - dL][2]:sub(dE.size.width - a1 + 1),
+				dE[R - dL][3]:sub(dE.size.width - a1 + 1),
+			}
+			dE[R][1] = S[1] .. dE[R - dL][1]:sub(1, dE.size.width - dK)
+			dE[R][2] = S[2] .. dE[R - dL][2]:sub(1, dE.size.width - dK)
+			dE[R][3] = S[3] .. dE[R - dL][3]:sub(1, dE.size.width - dK)
+			dE.dirtyLines[R] = true
+			S = dM
+		end
+		for R = dE.cursor.y + 1, dE.cursor.y + dL do
+			dE[R][1] = (" "):rep(dE.size.width)
+			dE[R][2] = dE.colors.fg:rep(dE.size.width)
+			dE[R][3] = dE.colors.bg:rep(dE.size.width)
+			dE.dirtyLines[R] = true
+		end
+	end,
+	A = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		dE.cursor.y = math.max(dE.cursor.y - a1, 1)
+	end,
+	B = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		dE.cursor.y = math.min(dE.cursor.y + a1, dE.size.height)
+	end,
+	C = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		dE.cursor.y =
+			math.min(math.max(dE.cursor.y + math.floor((dE.cursor.x - 1 + a1) / dE.size.width), 1), dE.size.height)
+		dE.cursor.x = (dE.cursor.x - 1 + a1) % dE.size.width + 1
+	end,
+	D = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		dE.cursor.y =
+			math.min(math.max(dE.cursor.y + math.floor((dE.cursor.x - 1 - a1) / dE.size.width), 1), dE.size.height)
+		dE.cursor.x = (dE.cursor.x - 1 - a1) % dE.size.width + 1
+	end,
+	E = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		dE.cursor.y = math.min(dE.cursor.y + a1, dE.size.height)
+		dE.cursor.x = 1
+	end,
+	F = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		dE.cursor.y = math.max(dE.cursor.y - a1, 1)
+		dE.cursor.x = 1
+	end,
+	G = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		dE.cursor.x = math.min(a1, dE.size.width)
+	end,
+	H = function(dE, aS)
+		local bJ, G = aS[1] or 1, aS[2] or 1
+		if bJ == 0 then
+			bJ = 1
+		end
+		if G == 0 then
+			G = 1
+		end
+		dE.cursor.x, dE.cursor.y = math.min(G, dE.size.width), math.min(bJ, dE.size.height)
+	end,
+	I = function(dE, aS) end,
+	J = function(dE, aS)
+		local S = aS[1] or 0
+		if S == 0 then
+			dE[dE.cursor.y][1] = dE[dE.cursor.y][1]:sub(1, dE.cursor.x - 1) .. (" "):rep(dE.size.width - dE.cursor.x)
+			dE[dE.cursor.y][2] = dE[dE.cursor.y][2]:sub(1, dE.cursor.x - 1)
+				.. dE.colors.fg:rep(dE.size.width - dE.cursor.x)
+			dE[dE.cursor.y][3] = dE[dE.cursor.y][3]:sub(1, dE.cursor.x - 1)
+				.. dE.colors.bg:rep(dE.size.width - dE.cursor.x)
+			dE.dirtyLines[dE.cursor.y] = true
+			for R = dE.cursor.y + 1, dE.size.height do
+				dE[R][1] = (" "):rep(dE.size.width)
+				dE[R][2] = dE.colors.fg:rep(dE.size.width)
+				dE[R][3] = dE.colors.bg:rep(dE.size.width)
+				dE.dirtyLines[R] = true
+			end
+		elseif S == 1 then
+			dE[dE.cursor.y][1] = (" "):rep(dE.cursor.x) .. dE[dE.cursor.y][1]:sub(dE.cursor.x)
+			dE[dE.cursor.y][2] = dE.colors.fg:rep(dE.cursor.x) .. dE[dE.cursor.y][2]:sub(dE.cursor.x)
+			dE[dE.cursor.y][3] = dE.colors.bg:rep(dE.cursor.x) .. dE[dE.cursor.y][3]:sub(dE.cursor.x)
+			dE.dirtyLines[dE.cursor.y] = true
+			for R = dE.cursor.y - 1, 1, -1 do
+				dE[R][1] = (" "):rep(dE.size.width)
+				dE[R][2] = dE.colors.fg:rep(dE.size.width)
+				dE[R][3] = dE.colors.bg:rep(dE.size.width)
+				dE.dirtyLines[R] = true
+			end
+		elseif S == 2 then
+			for R = 1, dE.size.height do
+				dE[R][1] = (" "):rep(dE.size.width)
+				dE[R][2] = dE.colors.fg:rep(dE.size.width)
+				dE[R][3] = dE.colors.bg:rep(dE.size.width)
+				dE.dirtyLines[R] = true
+			end
+		end
+	end,
+	K = function(dE, aS)
+		local S = aS[1] or 0
+		if S == 0 then
+			dE[dE.cursor.y][1] = dE[dE.cursor.y][1]:sub(1, dE.cursor.x - 1) .. (" "):rep(dE.size.width - dE.cursor.x)
+			dE[dE.cursor.y][2] = dE[dE.cursor.y][2]:sub(1, dE.cursor.x - 1)
+				.. dE.colors.fg:rep(dE.size.width - dE.cursor.x)
+			dE[dE.cursor.y][3] = dE[dE.cursor.y][3]:sub(1, dE.cursor.x - 1)
+				.. dE.colors.bg:rep(dE.size.width - dE.cursor.x)
+			dE.dirtyLines[dE.cursor.y] = true
+		elseif S == 1 then
+			dE[dE.cursor.y][1] = (" "):rep(dE.cursor.x) .. dE[dE.cursor.y][1]:sub(dE.cursor.x)
+			dE[dE.cursor.y][2] = dE.colors.fg:rep(dE.cursor.x) .. dE[dE.cursor.y][2]:sub(dE.cursor.x)
+			dE[dE.cursor.y][3] = dE.colors.bg:rep(dE.cursor.x) .. dE[dE.cursor.y][3]:sub(dE.cursor.x)
+			dE.dirtyLines[dE.cursor.y] = true
+		elseif S == 2 then
+			dE[dE.cursor.y][1] = (" "):rep(dE.size.width)
+			dE[dE.cursor.y][2] = dE.colors.fg:rep(dE.size.width)
+			dE[dE.cursor.y][3] = dE.colors.bg:rep(dE.size.width)
+			dE.dirtyLines[dE.cursor.y] = true
+		end
+	end,
+	L = function(dE, aS) end,
+	M = function(dE, aS) end,
+	N = function(dE, aS) end,
+	O = function(dE, aS) end,
+	P = function(dE, aS)
+		local a1 = aS[1] or 1
+		if a1 == 0 then
+			a1 = 1
+		end
+		local dK, dL = a1 % dE.size.width, math.floor(a1 / dE.size.width)
+		local S = { (" "):rep(dK), dE.colors.fg:rep(dK), dE.colors.bg:rep(dK) }
+		for R = dE.size.height - dL, dE.cursor.y + 1, -1 do
+			local dM = { dE[R + dL][1]:sub(1, dK), dE[R + dL][2]:sub(1, dK), dE[R + dL][3]:sub(1, dK) }
+			dE[R][1] = dE[R + dL][1]:sub(dK + 1) .. S[1]
+			dE[R][2] = dE[R + dL][2]:sub(dK + 1) .. S[2]
+			dE[R][3] = dE[R + dL][3]:sub(dK + 1) .. S[3]
+			dE.dirtyLines[R] = true
+			S = dM
+		end
+		for R = dE.size.height - dL + 1, dE.size.height do
+			dE[R][1] = (" "):rep(dE.size.width)
+			dE[R][2] = dE.colors.fg:rep(dE.size.width)
+			dE[R][3] = dE.colors.bg:rep(dE.size.width)
+			dE.dirtyLines[R] = true
+		end
+		dE[dE.cursor.y][1] = dE[dE.cursor.y][1]:sub(1, dE.cursor.x - 1)
+			.. dE[dE.cursor.y + dL][1]:sub(dE.cursor.x + dK, dE.size.width)
+			.. S[1]
+		dE[dE.cursor.y][2] = dE[dE.cursor.y][2]:sub(1, dE.cursor.x - 1)
+			.. dE[dE.cursor.y + dL][2]:sub(dE.cursor.x + dK, dE.size.width)
+			.. S[2]
+		dE[dE.cursor.y][3] = dE[dE.cursor.y][3]:sub(1, dE.cursor.x - 1)
+			.. dE[dE.cursor.y + dL][3]:sub(dE.cursor.x + dK, dE.size.width)
+			.. S[3]
+		dE.dirtyLines[dE.cursor.y] = true
+	end,
+	Q = function(dE, aS) end,
+	R = function(dE, aS) end,
+	S = function(dE, aS)
+		local S = aS[1] or 0
+		if S == 0 then
+			S = 1
+		end
+		for k = 1, S do
+			table.insert(
+				dE,
+				1,
+				{ (" "):rep(dE.size.width), dE.colors.fg:rep(dE.size.width), dE.colors.bg:rep(dE.size.width) }
+			)
+			dE[dE.size.height + 1] = nil
+		end
+		for R = 1, dE.size.height do
+			dE.dirtyLines[R] = true
+		end
+	end,
+	T = function(dE, aS)
+		local S = aS[1] or 0
+		if S == 0 then
+			S = 1
+		end
+		for k = 1, S do
+			table.remove(dE, 1)
+			dE[dE.size.height] =
+				{ (" "):rep(dE.size.width), dE.colors.fg:rep(dE.size.width), dE.colors.bg:rep(dE.size.width) }
+		end
+		for R = 1, dE.size.height do
+			dE.dirtyLines[R] = true
+		end
+	end,
+	U = function(dE, aS) end,
+	V = function(dE, aS) end,
+	W = function(dE, aS) end,
+	X = function(dE, aS) end,
+	Y = function(dE, aS) end,
+	Z = function(dE, aS) end,
+	["["] = function(dE, aS) end,
+	["\\"] = function(dE, aS) end,
+	["]"] = function(dE, aS) end,
+	["^"] = function(dE, aS) end,
+	["_"] = function(dE, aS) end,
+	["`"] = function(dE, aS) end,
+	a = function(dE, aS) end,
+	b = function(dE, aS) end,
+	c = function(dE, aS) end,
+	d = function(dE, aS) end,
+	e = function(dE, aS) end,
+	f = function(dE, aS) end,
+	g = function(dE, aS) end,
+	h = function(dE, aS)
+		if aS[1] == 25 then
+			dE.cursorBlink = true
+		end
+	end,
+	i = function(dE, aS) end,
+	j = function(dE, aS) end,
+	k = function(dE, aS) end,
+	l = function(dE, aS)
+		if aS[1] == 25 then
+			dE.cursorBlink = false
+		end
+	end,
+	m = function(dE, aS)
+		local S, Y = aS[1] or 0, aS[2]
+		if S == 0 then
+			dE.colors.fg, dE.colors.bg, dE.colors.bold = "0", "f", false
+		elseif S == 1 then
+			dE.colors.bold = true
+		elseif S == 7 or S == 27 then
+			dE.colors.fg, dE.colors.bg = dE.colors.bg, dE.colors.fg
+		elseif S == 22 then
+			dE.colors.bold = false
+		elseif S >= 30 and S <= 37 then
+			dE.colors.fg = ("%x"):format(15 - (S - 30) - (dE.colors.bold and 8 or 0))
+		elseif S == 39 then
+			dE.colors.fg = "0"
+		elseif S >= 40 and S <= 47 then
+			dE.colors.bg = ("%x"):format(15 - (S - 40) - (dE.colors.bold and 8 or 0))
+		elseif S == 49 then
+			dE.colors.bg = "f"
+		elseif S >= 90 and S <= 97 then
+			dE.colors.fg = ("%x"):format(15 - (S - 90) - 8)
+		elseif S >= 100 and S <= 107 then
+			dE.colors.bg = ("%x"):format(15 - (S - 100) - 8)
+		end
+		if Y ~= nil then
+			if Y == 0 then
+				dE.colors.fg, dE.colors.bg = "0", "f"
+			elseif Y == 1 then
+				dE.colors.bold = true
+			elseif Y == 7 or Y == 27 then
+				dE.colors.fg, dE.colors.bg = dE.colors.bg, dE.colors.fg
+			elseif Y == 22 then
+				dE.colors.bold = false
+			elseif Y >= 30 and Y <= 37 then
+				dE.colors.fg = ("%x"):format(15 - (Y - 30) - (dE.colors.bold and 8 or 0))
+			elseif Y == 39 then
+				dE.colors.fg = "0"
+			elseif Y >= 40 and Y <= 47 then
+				dE.colors.bg = ("%x"):format(15 - (Y - 40) - (dE.colors.bold and 8 or 0))
+			elseif Y == 49 then
+				dE.colors.bg = "f"
+			elseif Y >= 90 and Y <= 97 then
+				dE.colors.fg = ("%x"):format(15 - (Y - 90) - 8)
+			elseif Y >= 100 and Y <= 107 then
+				dE.colors.bg = ("%x"):format(15 - (Y - 100) - 8)
+			end
+		end
+	end,
+	n = function(dE, aS) end,
+	o = function(dE, aS) end,
+}
+for o = 0x70, 0x7F do
+	dJ[string.char(o)] = function(dE, aS) end
+end
+function terminal.write(dE, dN)
+	if _HEADLESS and dE == TTY[1] then
+		return term.write(dN)
+	end
+	local aU, af = 1, 0
+	local function dO(Q)
+		if af == 0 then
+			aU, af = Q, 0
+			return
+		end
+		while dE.cursor.x + af > dE.size.width do
+			dE[dE.cursor.y][1] = dE[dE.cursor.y][1]:sub(1, dE.cursor.x - 1) .. dN:sub(
+				aU,
+				aU + dE.size.width - dE.cursor.x
+			)
+			dE[dE.cursor.y][2] = dE[dE.cursor.y][2]:sub(1, dE.cursor.x - 1)
+				.. dE.colors.fg:rep(dE.size.width - dE.cursor.x + 1)
+			dE[dE.cursor.y][3] = dE[dE.cursor.y][3]:sub(1, dE.cursor.x - 1)
+				.. dE.colors.bg:rep(dE.size.width - dE.cursor.x + 1)
+			dE.dirtyLines[dE.cursor.y] = true
+			aU = aU + dE.size.width - dE.cursor.x + 1
+			af = af - (dE.size.width - dE.cursor.x + 1)
+			dE.cursor.x = 1
+			dF(dE)
+		end
+		dE[dE.cursor.y][1] = dE[dE.cursor.y][1]:sub(1, dE.cursor.x - 1)
+			.. dN:sub(aU, aU + af - 1)
+			.. dE[dE.cursor.y][1]:sub(dE.cursor.x + af)
+		dE[dE.cursor.y][2] = dE[dE.cursor.y][2]:sub(1, dE.cursor.x - 1)
+			.. dE.colors.fg:rep(af)
+			.. dE[dE.cursor.y][2]:sub(dE.cursor.x + af)
+		dE[dE.cursor.y][3] = dE[dE.cursor.y][3]:sub(1, dE.cursor.x - 1)
+			.. dE.colors.bg:rep(af)
+			.. dE[dE.cursor.y][3]:sub(dE.cursor.x + af)
+		dE.dirtyLines[dE.cursor.y] = true
+		dE.cursor.x = dE.cursor.x + af
+		aU, af = Q, 0
+	end
+	local dP = 0
+	local aS, dQ
+	for Q, G, S in dN:gmatch("()(.)()") do
+		if dP == 0 then
+			if G == "\a" then
+				dO(S)
+				local dR = hardware.find("speaker")
+				if dR then
+					hardware.call(dR, "playNote", "pling")
+				end
+			elseif G == "\b" then
+				dO(S)
+				if dE.cursor.x == 1 then
+					if dE.cursor.y > 1 then
+						dE.cursor.x, dE.cursor.y = dE.size.width, dE.cursor.y - 1
+					end
+				else
+					dE.cursor.x = dE.cursor.x - 1
+				end
+			elseif G == "\t" then
+				dO(S)
+				dE.cursor.x = math.floor((dE.cursor.x - 1) / 8) * 8 + 9
+				if dE.cursor.x > dE.size.width then
+					dE.cursor.x = 1
+					dF(dE)
+				end
+			elseif G == "\n" then
+				dO(S)
+				dF(dE)
+				if dE.flags.nlcr then
+					dE.cursor.x = 1
+				end
+			elseif G == "\f" then
+				dO(S)
+				dF(dE)
+			elseif G == "\r" then
+				dO(S)
+				dE.cursor.x = 1
+			elseif G == "\27" then
+				dP = 1
+			else
+				af = af + 1
+			end
+		elseif dP == 1 then
+			if false then
+			elseif G == "[" then
+				dP = 2
+				aS, dQ = {}, 0
+			elseif G == "]" then
+				if dN:byte(S) == 0x50 then
+					dP = 4
+					aS = {}
+				else
+					dP = 3
+					aS, dQ = {}, 0
+				end
+			else
+				dO(S)
+				dP = 0
+			end
+		elseif dP == 2 then
+			if G >= "@" and G <= "\127" then
+				dO(S)
+				aS[#aS + 1] = dQ
+				dJ[G](dE, aS)
+				dP = 0
+			elseif G >= "0" and G <= "?" then
+				if G <= "9" then
+					dQ = dQ * 10 + tonumber(G)
+				elseif G == ";" then
+					aS[#aS + 1], dQ = dQ, 0
+				end
+			else
+				dO(S)
+				dP = 0
+			end
+		elseif dP == 3 then
+			if G == "\\" and dN:byte(Q - 1) == "\27" then
+				dO(S)
+				dP = 0
+			end
+		elseif dP == 4 then
+			if #aS == 0 then
+				aS[1] = tonumber(G, 16) or 0
+			elseif #aS == 1 and not dQ then
+				dQ = (tonumber(G, 16) or 0) * 16
+			elseif #aS == 1 then
+				aS[2], dQ = dQ + (tonumber(G, 16) or 0), nil
+			elseif #aS == 2 and not dQ then
+				dQ = (tonumber(G, 16) or 0) * 16
+			elseif #aS == 2 then
+				aS[3], dQ = dQ + (tonumber(G, 16) or 0), nil
+			elseif #aS == 3 and not dQ then
+				dQ = (tonumber(G, 16) or 0) * 16
+			elseif #aS == 3 then
+				dO(S)
+				aS[4], dQ = dQ + (tonumber(G, 16) or 0), nil
+				dE.palette[aS[1]] = { aS[2] / 255, aS[3] / 255, aS[4] / 255 }
+				dE.dirtyPalette[aS[1]] = true
+				dP = 0
+			end
+		end
+	end
+	dO()
+end
+function syscalls.write(process, aN, ...)
+	if not process.stdout then
+		return
+	end
+	local function dS(X)
+		if process.stdout.isTTY then
+			terminal.write(process.stdout, X)
+		else
+			process.stdout.write(X)
+		end
+	end
+	local args = table.pack(...)
+	for o = 1, args.n do
+		if o > 1 then
+			dS("\t")
+		end
+		dS(tostring(args[o]))
+	end
+	if process.stdout.isTTY then
+		terminal.redraw(process.stdout)
+	end
+end
+function syscalls.writeerr(process, aN, ...)
+	if not process.stderr then
+		return
+	end
+	local function dS(X)
+		if process.stderr.isTTY then
+			terminal.write(process.stderr, X)
+		else
+			process.stderr.write(X)
+		end
+	end
+	local args = table.pack(...)
+	for o = 1, args.n do
+		if o > 1 then
+			dS("\t")
+		end
+		dS(tostring(args[o]))
+	end
+	if process.stderr.isTTY then
+		terminal.redraw(process.stderr)
+	end
+end
+function syscalls.read(process, aN, S)
+	expect(1, S, "number")
+	if process.stdin then
+		if process.stdin.eof then
+			process.stdin.eof = false
+			return nil
+		end
+		while #process.stdin.buffer < S do
+			if process.stdin.eof then
+				process.stdin.eof = false
+				return nil
+			end
+			if process.stdin.isTTY and not process.stdin.flags.delay then
+				return nil
+			end
+			if process.stdin.read then
+				local bI = process.stdin.read(S - #process.stdin.buffer)
+				if not bI then
+					return nil
+				end
+				process.stdin.buffer = process.stdin.buffer .. bI
+			else
+				return kSyscallYield, "read", S
+			end
+		end
+		local bI = process.stdin.buffer:sub(1, S - 1)
+		process.stdin.buffer = process.stdin.buffer:sub(S)
+		return bI
+	else
+		return nil
+	end
+end
+function syscalls.readline(process, aN)
+	if process.stdin then
+		if process.stdin.eof then
+			process.stdin.eof = false
+			return nil
+		end
+		while not process.stdin.buffer:find("\n") do
+			if process.stdin.eof then
+				process.stdin.eof = false
+				return nil
+			end
+			if process.stdin.isTTY and not process.stdin.flags.delay then
+				return nil
+			end
+			if process.stdin.read then
+				local bI = process.stdin.read()
+				if not bI then
+					return nil
+				end
+				process.stdin.buffer = process.stdin.buffer .. bI
+			else
+				return kSyscallYield, "readline"
+			end
+		end
+		local S = process.stdin.buffer:find("\n")
+		local bI = process.stdin.buffer:sub(1, S - 1)
+		process.stdin.buffer = process.stdin.buffer:sub(S + 1)
+		return bI
+	else
+		return nil
+	end
+end
+function syscalls.termctl(process, aN, dT)
+	expect(1, dT, "table", "nil")
+	if not process.stdout or not process.stdout.isTTY then
+		return nil
+	end
+	if dT then
+		expect.field(dT, "cbreak", "boolean", "nil")
+		expect.field(dT, "delay", "boolean", "nil")
+		expect.field(dT, "echo", "boolean", "nil")
+		expect.field(dT, "keypad", "boolean", "nil")
+		expect.field(dT, "nlcr", "boolean", "nil")
+		expect.field(dT, "raw", "boolean", "nil")
+		for F, c in pairs(dT) do
+			if process.stdout.flags[F] ~= nil then
+				process.stdout.flags[F] = c
+			end
+		end
+	end
+	local X = deepcopy(process.stdout.flags)
+	X.hasgfx = term.getGraphicsMode ~= nil
+	return X
+end
+function terminal.openterm(dE, process)
+	if dE.isLocked then
+		if not dE.isGraphics and dE.frontmostProcess == process then
+			return dE.screenHandle
+		end
+		return nil, "Terminal already in use"
+	end
+	local af = dE.size
+	local di =
+		{ cursor = { x = 1, y = 1 }, cursorBlink = false, colors = { fg = "0", bg = "f" }, palette = {}, dirtyLines = {}, dirtyPalette = {} }
+	dE.textBuffer = di
+	dE.isLocked = true
+	dE.isGraphics = false
+	for R = 1, af.height do
+		di[R] = { (" "):rep(af.width), ("0"):rep(af.width), ("f"):rep(af.width) }
+		di.dirtyLines[R] = true
+	end
+	for o = 0, 15 do
+		di.palette[o] = { term.nativePaletteColor(2 ^ o) }
+		di.dirtyPalette[o] = true
+	end
+	dE.processList[#dE.processList + 1] = dE.frontmostProcess
+	dE.frontmostProcess = process
+	local dU = setmetatable({}, { __name = "Terminal" })
+	local dV = terminal.redraw
+	local expect = expect
+	dE.screenHandle = dU
+	function dU.close()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		dU = nil
+		dE.isLocked = false
+		dE.frontmostProcess = table.remove(dE.processList)
+		dE.screenHandle = nil
+		dV(dE, true)
+	end
+	function dU.write(dN)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		dN = tostring(dN)
+		expect(1, dN, "string")
+		if di.cursor.y < 1 or di.cursor.y > af.height then
+			return
+		elseif di.cursor.x > af.width or di.cursor.x + #dN < 1 then
+			di.cursor.x = di.cursor.x + #dN
+			return
+		elseif di.cursor.x < 1 then
+			dN = dN:sub(-di.cursor.x + 2)
+			di.cursor.x = 1
+		end
+		local dW = #dN
+		if di.cursor.x + #dN > af.width then
+			dN = dN:sub(1, af.width - di.cursor.x + 1)
+		end
+		di[di.cursor.y][1] = di[di.cursor.y][1]:sub(1, di.cursor.x - 1)
+			.. dN
+			.. di[di.cursor.y][1]:sub(di.cursor.x + #dN)
+		di[di.cursor.y][2] = di[di.cursor.y][2]:sub(1, di.cursor.x - 1)
+			.. di.colors.fg:rep(#dN)
+			.. di[di.cursor.y][2]:sub(di.cursor.x + #dN)
+		di[di.cursor.y][3] = di[di.cursor.y][3]:sub(1, di.cursor.x - 1)
+			.. di.colors.bg:rep(#dN)
+			.. di[di.cursor.y][3]:sub(di.cursor.x + #dN)
+		di.cursor.x = di.cursor.x + dW
+		di.dirtyLines[di.cursor.y] = true
+	end
+	function dU.blit(dN, dX, dY)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		dN = tostring(dN)
+		expect(1, dN, "string")
+		expect(2, dX, "string")
+		expect(3, dY, "string")
+		if #dN ~= #dX or #dX ~= #dY then
+			error("Arguments must be the same length", 2)
+		end
+		if di.cursor.y < 1 or di.cursor.y > af.height then
+			return
+		elseif di.cursor.x > af.width or di.cursor.x < 1 - #dN then
+			di.cursor.x = di.cursor.x + #dN
+			dV(dE)
+			return
+		elseif di.cursor.x < 1 then
+			dN, dX, dY = dN:sub(-di.cursor.x + 2), dX:sub(-di.cursor.x + 2), dY:sub(-di.cursor.x + 2)
+			di.cursor.x = 1
+		end
+		local dW = #dN
+		if di.cursor.x + #dN > af.width then
+			dN, dX, dY =
+				dN:sub(1, af.width - di.cursor.x + 1),
+				dX:sub(1, af.width - di.cursor.x + 1),
+				dY:sub(1, af.width - di.cursor.x + 1)
+		end
+		di[di.cursor.y][1] = di[di.cursor.y][1]:sub(1, di.cursor.x - 1)
+			.. dN
+			.. di[di.cursor.y][1]:sub(di.cursor.x + #dN)
+		di[di.cursor.y][2] = di[di.cursor.y][2]:sub(1, di.cursor.x - 1)
+			.. dX
+			.. di[di.cursor.y][2]:sub(di.cursor.x + #dX)
+		di[di.cursor.y][3] = di[di.cursor.y][3]:sub(1, di.cursor.x - 1)
+			.. dY
+			.. di[di.cursor.y][3]:sub(di.cursor.x + #dY)
+		di.cursor.x = di.cursor.x + dW
+		di.dirtyLines[di.cursor.y] = true
+	end
+	function dU.clear()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		for R = 1, af.height do
+			di[R] = { (" "):rep(af.width), di.colors.fg:rep(af.width), di.colors.bg:rep(af.width) }
+			di.dirtyLines[R] = true
+		end
+	end
+	function dU.clearLine()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		if di.cursor.y >= 1 and di.cursor.y <= af.height then
+			di[di.cursor.y] = { (" "):rep(af.width), di.colors.fg:rep(af.width), di.colors.bg:rep(af.width) }
+			di.dirtyLines[di.cursor.y] = true
+		end
+	end
+	function dU.getCursorPos()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		return di.cursor.x, di.cursor.y
+	end
+	function dU.setCursorPos(dZ, d_)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, dZ, "number")
+		expect(2, d_, "number")
+		if dZ == di.cursor.x and d_ == di.cursor.y then
+			return
+		end
+		di.cursor.x, di.cursor.y = math.floor(dZ), math.floor(d_)
+	end
+	function dU.getCursorBlink()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		return di.cursorBlink
+	end
+	function dU.setCursorBlink(ax)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, ax, "boolean")
+		di.cursorBlink = ax
+	end
+	function dU.isColor()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		return true
+	end
+	function dU.getSize()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		return af.width, af.height
+	end
+	function dU.scroll(e0)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, e0, "number")
+		if math.abs(e0) >= af.width then
+			for R = 1, af.height do
+				di[R] = { (" "):rep(af.width), di.colors.fg:rep(af.width), di.colors.bg:rep(af.width) }
+			end
+		elseif e0 > 0 then
+			for o = e0 + 1, af.height do
+				di[o] = di[o - e0]
+			end
+			for o = af.height - e0 + 1, af.height do
+				di[o] = { (" "):rep(af.width), di.colors.fg:rep(af.width), di.colors.bg:rep(af.width) }
+			end
+		elseif e0 < 0 then
+			for o = 1, af.height + e0 do
+				di[o - e0] = di[o]
+			end
+			for o = 1, -e0 do
+				di[o] = { (" "):rep(af.width), di.colors.fg:rep(af.width), di.colors.bg:rep(af.width) }
+			end
+		else
+			return
+		end
+		for o = 1, af.height do
+			di.dirtyLines[o] = true
+		end
+	end
+	function dU.getTextColor()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		return tonumber(di.colors.fg, 16)
+	end
+	function dU.setTextColor(e1)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, e1, "number")
+		expect.range(e1, 0, 15)
+		di.colors.fg = ("%x"):format(e1)
+	end
+	function dU.getBackgroundColor()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		return tonumber(di.colors.bg, 16)
+	end
+	function dU.setBackgroundColor(e1)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, e1, "number")
+		expect.range(e1, 0, 15)
+		di.colors.bg = ("%x"):format(e1)
+	end
+	function dU.getPaletteColor(e1)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, e1, "number")
+		expect.range(e1, 0, 15)
+		return table.unpack(di.palette[math.floor(e1)])
+	end
+	function dU.setPaletteColor(e1, bJ, e2, ax)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, e1, "number")
+		expect(2, bJ, "number")
+		if e2 == nil and ax == nil then
+			bJ, e2, ax =
+				bit32.band(bit32.rshift(bJ, 16), 0xFF) / 255,
+				bit32.band(bit32.rshift(bJ, 8), 0xFF) / 255,
+				bit32.band(bJ, 0xFF) / 255
+		end
+		expect(3, e2, "number")
+		expect(4, ax, "number")
+		expect.range(e1, 0, 15)
+		if bJ < 0 or bJ > 1 then
+			error("bad argument #2 (value out of range)", 2)
+		end
+		if e2 < 0 or e2 > 1 then
+			error("bad argument #3 (value out of range)", 2)
+		end
+		if ax < 0 or ax > 1 then
+			error("bad argument #4 (value out of range)", 2)
+		end
+		di.palette[math.floor(e1)] = { bJ, e2, ax }
+		di.dirtyPalette[math.floor(e1)] = true
+	end
+	function dU.getLine(R)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, R, "number")
+		local aa = di[R]
+		if aa then
+			return table.unpack(aa, 1, 3)
+		end
+	end
+	local e3 = term.nativePaletteColor
+	function dU.nativePaletteColor(e1)
+		expect(1, e1, "number")
+		expect.range(e1, 0, 15)
+		return e3(2 ^ e1)
+	end
+	for k, c in pairs(dU) do
+		setfenv(c, process.env)
+		debug.protect(c)
+	end
+	dU.isColour = dU.isColor
+	dU.getTextColour = dU.getTextColor
+	dU.setTextColour = dU.setTextColor
+	dU.getBackgroundColour = dU.getBackgroundColor
+	dU.setBackgroundColour = dU.setBackgroundColor
+	dU.getPaletteColour = dU.getPaletteColor
+	dU.setPaletteColour = dU.setPaletteColor
+	dU.nativePaletteColour = dU.nativePaletteColor
+	process.dependents[#process.dependents + 1] = {
+		gc = function()
+			if dU then
+				return dU.close()
+			end
+		end,
+	}
+	dV(dE, true)
+	return dU
+end
+function syscalls.openterm(process, aN)
+	if not process.stdout or not process.stdout.isTTY then
+		return nil, "No valid TTY attached"
+	end
+	if process ~= process.stdout.frontmostProcess then
+		syscalls.kill(KERNEL, nil, process.id, 22)
+		if process.paused then
+			return kSyscallYield, "openterm"
+		end
+	end
+	return terminal.openterm(process.stdout, process)
+end
+function terminal.opengfx(dE, process)
+	if not term.drawPixels then
+		return nil, "Graphics mode not supported"
+	end
+	if dE.isLocked then
+		if dE.isGraphics and dE.frontmostProcess == process then
+			return dE.screenHandle
+		end
+		return nil, "Terminal already in use"
+	end
+	local af = dE.size
+	local di = { palette = {}, dirtyRects = {}, dirtyPalette = {}, frozen = false }
+	dE.graphicsBuffer = di
+	dE.isLocked = true
+	dE.isGraphics = true
+	for R = 1, af.height * 9 do
+		di[R] = ("\15"):rep(af.width * 6)
+	end
+	for o = 0, 15 do
+		di.palette[o] = { term.nativePaletteColor(2 ^ o) }
+		di.dirtyPalette[o] = true
+	end
+	for o = 16, 255 do
+		di.palette[o] = { 0, 0, 0 }
+		di.dirtyPalette[o] = true
+	end
+	dE.processList[#dE.processList + 1] = dE.frontmostProcess
+	dE.frontmostProcess = process
+	local dU = setmetatable({}, { __name = "GFXTerminal" })
+	local dV = terminal.redraw
+	local expect = expect
+	dE.screenHandle = dU
+	function dU.close()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		dU = nil
+		dE.isLocked = false
+		dE.frontmostProcess = table.remove(dE.processList)
+		dE.screenHandle = nil
+		dV(dE, true)
+	end
+	function dU.getSize()
+		return af.width * 6, af.height * 9
+	end
+	function dU.clear()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		for R = 1, af.height * 9 do
+			di[R] = ("\15"):rep(af.width * 6)
+		end
+		dV(dE, true)
+	end
+	function dU.getPixel(Q, R)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, Q, "number")
+		expect(2, R, "number")
+		expect.range(Q, 0, af.width * 6 - 1)
+		expect.range(R, 0, af.height * 9 - 1)
+		Q, R = math.floor(Q), math.floor(R)
+		return di[R + 1]:byte(Q + 1)
+	end
+	function dU.setPixel(Q, R, e1)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, Q, "number")
+		expect(2, R, "number")
+		expect(3, e1, "number")
+		expect.range(Q, 0, af.width * 6 - 1)
+		expect.range(R, 0, af.height * 9 - 1)
+		expect.range(e1, 0, 255)
+		Q, R = math.floor(Q), math.floor(R)
+		di[R + 1] = di[R + 1]:sub(1, Q) .. string.char(e1) .. di[R + 1]:sub(Q + 2)
+		di.dirtyRects[#di.dirtyRects + 1] = { x = Q, y = R, color = e1 }
+	end
+	function dU.getPixels(Q, R, U, dA, e4)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, Q, "number")
+		expect(2, R, "number")
+		expect(3, U, "number")
+		expect(4, dA, "number")
+		expect(5, e4, "boolean", "nil")
+		expect.range(U, 0)
+		expect.range(dA, 0)
+		Q, R = math.floor(Q), math.floor(R)
+		local X = {}
+		for e5 = 1, dA do
+			if e4 then
+				X[e5] = di[R + e5]:sub(Q + 1, Q + U)
+			else
+				X[e5] = { di[R + e5]:sub(Q + 1, Q + U):byte(1, -1) }
+			end
+		end
+		return X
+	end
+	function dU.drawPixels(Q, R, bz, U, dA)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, Q, "number")
+		expect(2, R, "number")
+		expect(3, bz, "table", "number")
+		local e6 = type(bz) == "number"
+		expect(4, U, "number", not e6 and "nil" or nil)
+		expect(5, dA, "number", not e6 and "nil" or nil)
+		expect.range(Q, 0, af.width * 6 - 1)
+		expect.range(R, 0, af.height * 9 - 1)
+		if U then
+			expect.range(U, 0)
+		end
+		if dA then
+			expect.range(dA, 0)
+		end
+		if e6 then
+			expect.range(bz, 0, 255)
+		end
+		if U == 0 or dA == 0 then
+			return
+		end
+		Q, R = math.floor(Q), math.floor(R)
+		if U and Q + U >= af.width * 6 then
+			U = af.width * 6 - Q
+		end
+		dA = dA or #bz
+		local e7 = { x = Q, y = R, width = U, height = dA }
+		for e5 = 1, dA do
+			if R + e5 > af.height * 9 then
+				break
+			end
+			if e6 then
+				local bI = string.char(bz):rep(U)
+				di[R + e5] = di[R + e5]:sub(1, Q) .. bI .. di[R + e5]:sub(Q + U + 1)
+				e7[e5] = bI
+			elseif bz[e5] ~= nil then
+				if type(bz[e5]) ~= "table" and type(bz[e5]) ~= "string" then
+					error("bad argument #3 to 'drawPixels' (invalid row " .. e5 .. ")", 2)
+				end
+				local U = U or #bz[e5]
+				if Q + U >= af.width * 6 then
+					U = af.width * 6 - Q
+				end
+				local bI
+				if type(bz[e5]) == "string" then
+					bI = bz[e5]
+					if #bI < U then
+						bI = bI .. ("\15"):rep(U - #bI)
+					elseif #bI > U then
+						bI = bI:sub(1, U)
+					end
+				else
+					bI = ""
+					for e8 = 1, U do
+						bI = bI .. string.char(bz[e5][e8] or di[R + e5]:byte(Q + e8))
+					end
+				end
+				di[R + e5] = di[R + e5]:sub(1, Q) .. bI .. di[R + e5]:sub(Q + U + 1)
+				e7[e5] = bI
+			end
+		end
+		di.dirtyRects[#di.dirtyRects + 1] = e7
+	end
+	function dU.getFrozen()
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		return di.frozen
+	end
+	function dU.setFrozen(f)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, f, "boolean")
+		di.frozen = f
+	end
+	function dU.getPaletteColor(e1)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, e1, "number")
+		expect.range(e1, 0, 255)
+		return table.unpack(di.palette[e1])
+	end
+	function dU.setPaletteColor(e1, bJ, e2, ax)
+		if not dU then
+			error("terminal is already closed", 2)
+		end
+		expect(1, e1, "number")
+		expect(2, bJ, "number")
+		if e2 == nil and ax == nil then
+			bJ, e2, ax =
+				bit32.band(bit32.rshift(bJ, 16), 0xFF) / 255,
+				bit32.band(bit32.rshift(bJ, 8), 0xFF) / 255,
+				bit32.band(bJ, 0xFF) / 255
+		end
+		expect(3, e2, "number")
+		expect(4, ax, "number")
+		expect.range(bJ, 0, 1)
+		expect.range(e2, 0, 1)
+		expect.range(ax, 0, 1)
+		expect.range(e1, 0, 255)
+		di.palette[e1] = { bJ, e2, ax }
+		di.dirtyPalette[e1] = true
+	end
+	local e3 = term.nativePaletteColor
+	function dU.nativePaletteColor(e1)
+		expect(1, e1, "number")
+		expect.range(e1, 0, 15)
+		return e3(2 ^ e1)
+	end
+	for k, c in pairs(dU) do
+		setfenv(c, process.env)
+		debug.protect(c)
+	end
+	dU.getPaletteColour = dU.getPaletteColor
+	dU.setPaletteColour = dU.setPaletteColor
+	dU.nativePaletteColour = dU.nativePaletteColor
+	process.dependents[#process.dependents + 1] = {
+		gc = function()
+			if dU then
+				return dU.close()
+			end
+		end,
+	}
+	dV(dE, true)
+	return dU
+end
+function syscalls.opengfx(process, aN)
+	if not process.stdout or not process.stdout.isTTY then
+		return nil, "No valid TTY attached"
+	end
+	if process ~= process.stdout.frontmostProcess then
+		syscalls.kill(KERNEL, nil, process.id, 22)
+		if process.paused then
+			return kSyscallYield, "openterm"
+		end
+	end
+	return terminal.opengfx(process.stdout, process)
+end
+function syscalls.mktty(process, aN, U, dA)
+	expect(1, U, "number")
+	expect(2, dA, "number")
+	expect.range(U, 1)
+	expect.range(dA, 1)
+	local dE = terminal.makeTTY(term, U, dA)
+	dE.id = math.random(0, 0x7FFFFFFF)
+	dE.process = process
+	local j = { __index = dE, __metatable = { __name = "TTY" } }
+	local as = setmetatable({}, j)
+	local do_syscall = do_syscall
+	function as.sendEvent(cr, df)
+		return do_syscall("__ttyevent", as, cr, df)
+	end
+	function as.write(dN)
+		return do_syscall("__ttyevent", as, "paste", tostring(dN))
+	end
+	debug.protect(as.sendEvent)
+	debug.protect(as.write)
+	j.__newindex = function()
+		error("cannot modify TTY", 2)
+	end
+	terminal.userTTYs[as] = dE
+	process.dependents[#process.dependents + 1] = {
+		gc = function()
+			terminal.userTTYs[as] = nil
+		end,
+	}
+	return as
+end
+function syscalls.__ttyevent(process, aN, e9, cr, df)
+	expect(1, e9, "table")
+	expect(2, cr, "string")
+	expect(3, df, "table")
+	local dE = terminal.userTTYs[e9]
+	if not dE then
+		error("Invalid TTY")
+	end
+	if dE.process ~= process then
+		error("Invalid TTY")
+	end
+	if not dE.frontmostProcess then
+		return
+	end
+	if cr == "key" then
+		expect.field(df, "keycode", "number")
+		expect.field(df, "isRepeat", "boolean")
+		dE.frontmostProcess.eventQueue[#dE.frontmostProcess.eventQueue + 1] = {
+			"key",
+			{
+				keycode = df.keycode,
+				isRepeat = df.isRepeat,
+				ctrlHeld = keysHeld.ctrl,
+				altHeld = keysHeld.alt,
+				shiftHeld = keysHeld.shift,
+			},
+		}
+		if not dE.isLocked then
+			if df.keycode == 10 then
+				if dE.flags.cbreak then
+					dE.buffer = dE.buffer .. "\n"
+				else
+					dE.buffer = dE.buffer .. dE.preBuffer .. "\n"
+					dE.preBuffer = ""
+				end
+				if dE.flags.echo then
+					terminal.write(dE, "\n")
+					terminal.redraw(dE)
+				end
+			elseif df.keycode == 8 then
+				if dE.flags.cbreak then
+				elseif #dE.preBuffer > 0 then
+					dE.preBuffer = dE.preBuffer:sub(1, -2)
+					if dE.flags.echo then
+						terminal.write(dE, "\b \b")
+						terminal.redraw(dE)
+					end
+				end
+			end
+		end
+	elseif cr == "key_up" then
+		expect.field(df, "keycode", "number")
+		dE.frontmostProcess.eventQueue[#dE.frontmostProcess.eventQueue + 1] = {
+			"key_up",
+			{ keycode = df.keycode, ctrlHeld = keysHeld.ctrl, altHeld = keysHeld.alt, shiftHeld = keysHeld.shift },
+		}
+	elseif cr == "char" then
+		expect.field(df, "character", "string")
+		dE.frontmostProcess.eventQueue[#dE.frontmostProcess.eventQueue + 1] = { "char", { character = df.character } }
+		if not dE.isLocked then
+			if dE.flags.cbreak then
+				dE.buffer = dE.buffer .. df.character
+			else
+				dE.preBuffer = dE.preBuffer .. df.character
+			end
+			if dE.flags.echo then
+				terminal.write(dE, df.character)
+				terminal.redraw(dE)
+			end
+		end
+	elseif cr == "paste" then
+		expect.field(df, "text", "string")
+		dE.frontmostProcess.eventQueue[#dE.frontmostProcess.eventQueue + 1] = { "paste", { text = df.text } }
+		if not dE.isLocked then
+			if dE.flags.cbreak then
+				dE.buffer = dE.buffer .. df.text
+			else
+				dE.preBuffer = dE.preBuffer .. df.text
+			end
+			if dE.flags.echo then
+				terminal.write(dE, df.text)
+				terminal.redraw(dE)
+			end
+		end
+	elseif cr == "mouse_click" or cr == "mouse_up" or cr == "mouse_drag" then
+		expect.field(df, "x", "number")
+		expect.field(df, "y", "number")
+		expect.field(df, "button", "number")
+		dE.frontmostProcess.eventQueue[#dE.frontmostProcess.eventQueue + 1] =
+			{ cr, { x = df.x, y = df.y, button = df.button, buttonMask = 0 } }
+	elseif cr == "mouse_scroll" then
+		expect.field(df, "x", "number")
+		expect.field(df, "y", "number")
+		expect.field(df, "direction", "number")
+		dE.frontmostProcess.eventQueue[#dE.frontmostProcess.eventQueue + 1] =
+			{ cr, { x = df.x, y = df.y, button = df.direction } }
+	else
+		error("Invalid event")
+	end
+	wakeup(dE.frontmostProcess)
+end
+function syscalls.capture(process, aN)
+	local bD = process.stdin
+	if not bD or not bD.isTTY then
+		return
+	end
+	bD.processList[#bD.processList + 1] = bD.frontmostProcess
+	bD.frontmostProcess = process
+end
+function syscalls.release(process, aN)
+	local bD = process.stdin
+	if not bD or not bD.isTTY then
+		return
+	end
+	if bD.frontmostProcess == process then
+		bD.frontmostProcess = table.remove(bD.processList)
+	else
+		local ea = nil
+		for o = #bD.processList, 1, -1 do
+			if bD.processList[o] == process then
+				if ea then
+					table.remove(bD.processList, ea)
+					break
+				else
+					ea = o
+				end
+			end
+		end
+	end
+end
+function syscalls.stdin(process, aN, bD)
+	expect(1, bD, "number", "table", "string", "nil")
+	if process.stdin and process.stdin.isTTY and process.stdin.frontmostProcess == process then
+		process.stdin.preBuffer = ""
+	end
+	if type(bD) == "number" then
+		bD = TTY[bD]
+		if bD and process.stdin.frontmostProcess == process then
+			process.stdin.frontmostProcess = table.remove(process.stdin.processList)
+			bD.processList[#bD.processList + 1] = bD.frontmostProcess
+			bD.frontmostProcess = process
+			if discord and process.stdin == currentTTY then
+				discord("Phoenix", "Executing " .. process.name)
+			end
+		end
+		process.stdin = bD
+	elseif type(bD) == "string" then
+		local eb = hardware.get(bD)
+		if not eb then
+			error("bad argument #1 (no such device)", 2)
+		end
+		if not eb.internalState.tty then
+			error("bad argument #1 (no TTY available on device)", 2)
+		end
+		bD = eb.internalState.tty
+		if process.stdin and process.stdin.frontmostProcess == process then
+			process.stdin.frontmostProcess = table.remove(process.stdin.processList)
+			bD.processList[#bD.processList + 1] = bD.frontmostProcess
+			bD.frontmostProcess = process
+		end
+		process.stdin = bD
+	elseif bD == nil then
+		if process.stdin and process.stdin.frontmostProcess == process then
+			process.stdin.frontmostProcess = table.remove(process.stdin.processList)
+		end
+		process.stdin = nil
+	else
+		if bD.isTTY then
+			bD = terminal.userTTYs[bD]
+			if not bD then
+				error("bad argument #1 (invalid TTY)", 2)
+			end
+			if process.stdin and process.stdin.frontmostProcess == process then
+				process.stdin.frontmostProcess = table.remove(process.stdin.processList)
+				bD.processList[#bD.processList + 1] = bD.frontmostProcess
+				bD.frontmostProcess = process
+				bD.preBuffer = ""
+			end
+		else
+			expect.field(bD, "read", "function")
+			local bC = bD.read
+			bD = {
+				buffer = "",
+				read = function(...)
+					local s, E = userModeCallback(process, bC, ...)
+					if s then
+						return E
+					else
+						error(E, 2)
+					end
+				end,
+			}
+		end
+		process.stdin = bD
+	end
+end
+function syscalls.stdout(process, aN, bD)
+	expect(1, bD, "number", "table", "string", "nil")
+	if process.stdout and process.stdout.isTTY and process.stdout.frontmostProcess == process then
+		if discord and process.stdout == currentTTY then
+			discord("Phoenix", "Executing " .. process.stdout.frontmostProcess.name)
+		end
+	end
+	if type(bD) == "number" then
+		bD = TTY[bD]
+		if bD and process.stdout.frontmostProcess == process then
+			process.stdout.frontmostProcess = table.remove(process.stdout.processList)
+			bD.processList[#bD.processList + 1] = bD.frontmostProcess
+			bD.frontmostProcess = process
+			if discord and process.stdout == currentTTY then
+				discord("Phoenix", "Executing " .. process.name)
+			end
+		end
+		process.stdout = bD
+	elseif type(bD) == "string" then
+		local eb = hardware.get(bD)
+		if not eb then
+			error("bad argument #1 (no such device)", 2)
+		end
+		if not eb.internalState.tty then
+			error("bad argument #1 (no TTY available on device)", 2)
+		end
+		bD = eb.internalState.tty
+		if process.stdout and process.stdout.frontmostProcess == process then
+			process.stdout.frontmostProcess = table.remove(process.stdout.processList)
+			bD.processList[#bD.processList + 1] = bD.frontmostProcess
+			bD.frontmostProcess = process
+			if discord and process.stdout == currentTTY then
+				discord("Phoenix", "Executing " .. process.name)
+			end
+		end
+		process.stdout = bD
+	elseif bD == nil then
+		if process.stdout and process.stdout.frontmostProcess == process then
+			process.stdout.frontmostProcess = table.remove(process.stdout.processList)
+			if discord and process.stdout == currentTTY then
+				discord("Phoenix", "Executing " .. process.name)
+			end
+		end
+		process.stdout = nil
+	else
+		if bD.isTTY then
+			bD = terminal.userTTYs[bD]
+			if not bD then
+				error("bad argument #1 (invalid TTY)", 2)
+			end
+			if process.stdout and process.stdout.frontmostProcess == process then
+				process.stdout.frontmostProcess = table.remove(process.stdout.processList)
+				bD.processList[#bD.processList + 1] = bD.frontmostProcess
+				bD.frontmostProcess = process
+				if discord and process.stdout == currentTTY then
+					discord("Phoenix", "Executing " .. process.name)
+				end
+			end
+		else
+			expect.field(bD, "write", "function")
+			local dS = bD.write
+			bD = {
+				write = function(...)
+					local s, E = userModeCallback(process, dS, ...)
+					if s then
+						return E
+					else
+						error(E, 2)
+					end
+				end,
+			}
+		end
+		process.stdout = bD
+	end
+end
+function syscalls.stderr(process, aN, bD)
+	expect(1, bD, "number", "table", "string", "nil")
+	if process.stderr and process.stderr.isTTY and process.stderr.frontmostProcess == process then
+	end
+	if type(bD) == "number" then
+		bD = TTY[bD]
+		if bD and process.stderr.frontmostProcess == process then
+			process.stderr.frontmostProcess = table.remove(process.stderr.processList)
+			bD.processList[#bD.processList + 1] = bD.frontmostProcess
+			bD.frontmostProcess = process
+			if discord and process.stderr == currentTTY then
+				discord("Phoenix", "Executing " .. process.name)
+			end
+		end
+		process.stderr = bD
+	elseif type(bD) == "string" then
+		local eb = hardware.get(bD)
+		if not eb then
+			error("bad argument #1 (no such device)", 2)
+		end
+		if not eb.internalState.tty then
+			error("bad argument #1 (no TTY available on device)", 2)
+		end
+		bD = eb.internalState.tty
+		if process.stderr and process.stderr.frontmostProcess == process then
+			process.stderr.frontmostProcess = table.remove(process.stderr.processList)
+			bD.processList[#bD.processList + 1] = bD.frontmostProcess
+			bD.frontmostProcess = process
+		end
+		process.stderr = bD
+	elseif bD == nil then
+		if process.stderr and process.stderr.frontmostProcess == process then
+			process.stderr.frontmostProcess = table.remove(process.stderr.processList)
+		end
+		process.stderr = nil
+	else
+		if bD.isTTY then
+			bD = terminal.userTTYs[bD]
+			if not bD then
+				error("bad argument #1 (invalid TTY)", 2)
+			end
+			if process.stderr and process.stderr.frontmostProcess == process then
+				process.stderr.frontmostProcess = table.remove(process.stderr.processList)
+				bD.processList[#bD.processList + 1] = bD.frontmostProcess
+				bD.frontmostProcess = process
+			end
+		else
+			expect.field(bD, "write", "function")
+			local dS = bD.write
+			bD = {
+				write = function(...)
+					local s, E = userModeCallback(process, dS, ...)
+					if s then
+						return E
+					else
+						error(E, 2)
+					end
+				end,
+			}
+		end
+		process.stderr = bD
+	end
+end
+function syscalls.istty(process, aN)
+	return process.stdin and process.stdin.isTTY, process.stdout and process.stdout.isTTY
+end
+function syscalls.termsize(process, aN)
+	if not process.stdout or not process.stdout.isTTY then
+		return nil, nil
+	end
+	return process.stdout.size.width, process.stdout.size.height
+end
+function syscalls.chvt(process, aN, h)
+	expect(1, h, "number")
+	if not TTY[h] then
+		error("TTY out of range", 0)
+	end
+	if process.user ~= "root" then
+		error("Permission denied", 0)
+	end
+	currentTTY = TTY[h]
+	terminal.redraw(currentTTY, true)
+end
+syslogs = { default = { stream = {}, tty = KERNEL.stdout, tty_level = args.loglevel, colorize = true } }
+local ec = { [0] = "Debug", "Info", "Notice", "Warning", "Error", "Critical", "Panic" }
+local ed = {}
+for o = 0, #ec do
+	ed[ec[o]:lower()] = o
+end
+local ee = { [0] = "\27[90m", "\27[97m", "\27[36m", "\27[93m", "\27[31m", "\27[95m", "\27[96m" }
+local function ef(X, aI, o, aw)
+	if o >= aw then
+		return tostring(X[o])
+	else
+		return tostring(X[o]) .. aI .. ef(X, aI, o + 1, aw)
+	end
+end
+function syscalls.syslog(process, aN, bY, ...)
+	local args = table.pack(...)
+	if type(bY) == "table" then
+		expect.field(bY, "name", "string", "nil")
+		expect.field(bY, "category", "string", "nil")
+		expect.field(bY, "level", "number", "string", "nil")
+		expect.field(bY, "time", "number", "nil")
+		expect.field(bY, "process", "number", "nil")
+		expect.field(bY, "thread", "number", "nil")
+		expect.field(bY, "module", "string", "nil")
+		expect.field(bY, "traceback", "boolean", "nil")
+		if type(bY.level) == "string" then
+			bY.level = ed[bY.level:lower()]
+			if not bY.level then
+				error("bad field 'level' (invalid name)", 0)
+			end
+		elseif bY.level and (bY.level < 0 or bY.level > #ec) then
+			error("bad field 'level' (level out of range)", 0)
+		end
+		bY.name = bY.name or "default"
+		bY.process = bY.process or process.id
+		bY.thread = bY.thread or aN and aN.id
+		bY.level = bY.level or 1
+		bY.time = bY.time or os.epoch("utc")
+	else
+		local S = args.n
+		table.insert(args, 1, bY)
+		args.n = S + 1
+		bY = { process = process.id, thread = aN and aN.id, level = 1, name = "default", time = os.epoch("utc") }
+	end
+	local eg = syslogs[bY.name]
+	if eg == nil then
+		error("No such log named " .. bY.name, 0)
+	end
+	local aA
+	for o = 1, args.n do
+		aA = (o == 1 and "" or aA .. " ") .. serialize(args[o])
+	end
+	if eg.file then
+		eg.file.write(
+			("[%s]%s %s[%d%s]%s [%s]: %s\n"):format(
+				os.date("%b %d %X", bY.time / 1000),
+				bY.category and " <" .. bY.category .. ">" or "",
+				processes[bY.process] and processes[bY.process].name or "(unknown)",
+				bY.process,
+				bY.thread and ":" .. bY.thread or "",
+				bY.module and " (" .. bY.module .. ")" or "",
+				ec[bY.level],
+				ef(args, " ", 1, args.n)
+			)
+		)
+		eg.file.flush()
+	end
+	if eg.stream then
+		bY.message = aA
+		for k, c in pairs(eg.stream) do
+			local s = true
+			if c.filter then
+				local O, eh, z = ""
+				local o = 1
+				local ei, ej = false, false
+				while o < #c.filter do
+					if eh == nil then
+						O, o = c.filter:match("(%a+)%s*()", o)
+						if bY[O] == nil then
+							s = false
+							break
+						end
+						eh = ""
+					elseif z == nil then
+						local b2 = c.filter:sub(o, o + 1)
+						if b2 == "==" or b2 == "!=" or b2 == "=%" or b2 == "!%" or b2 == "<=" or b2 == ">=" then
+							eh = b2
+						elseif b2 == "~=" then
+							eh = "!="
+						elseif b2 == "~%" then
+							eh = "!%"
+						elseif c.filter:sub(o, o) == "<" or c.filter:sub(o, o) == ">" then
+							eh = c.filter:sub(o, o)
+						else
+							s = false
+							break
+						end
+						z = ""
+					else
+						local G = c.filter:sub(o, o)
+						if ei then
+							if G == ei and not ej then
+								ei, ej = false, false
+							else
+								z = z .. G
+								if not ej and G == "\\" then
+									ej = true
+								else
+									ej = false
+								end
+							end
+						elseif G == '"' or G == "'" then
+							ei = G
+						elseif G == "|" or G == ";" then
+							if
+								eh == "==" and bY[O] == z
+								or eh == "!=" and bY[O] ~= z
+								or eh == "=%" and bY[O]:match(z)
+								or eh == "!%" and not bY[O]:match(z)
+								or eh == "<" and (tonumber(bY[O]) or 0) < (tonumber(z) or 0)
+								or eh == "<=" and (tonumber(bY[O]) or 0) <= (tonumber(z) or 0)
+								or eh == ">=" and (tonumber(bY[O]) or 0) >= (tonumber(z) or 0)
+								or eh == ">" and (tonumber(bY[O]) or 0) > (tonumber(z) or 0)
+							then
+								if G == "|" then
+									o = c.filter:match("[^;]*;+()", o)
+									if o == nil then
+										break
+									end
+									o = o - 1
+								end
+								O, eh, z = ""
+								ei, ej = false, false
+							else
+								s = G == "|"
+								z = ""
+								if not s then
+									break
+								end
+							end
+						elseif not (G == " " and z == "") then
+							z = z .. G
+						end
+						o = o + 1
+					end
+				end
+				if ei then
+					s = false
+					break
+				end
+			end
+			if s then
+				local process = processes[c.pid]
+				if process then
+					process.eventQueue[#process.eventQueue + 1] = { "syslog", deepcopy(bY) }
+				end
+			end
+		end
+	end
+	if eg.tty and eg.tty_level <= bY.level then
+		if eg.tty.isTTY then
+			local t = ef(args, " ", 1, args.n)
+			if eg.colorize and bY.traceback then
+				t = t:gsub("\t", "  ")
+					:gsub("([^\n]+):(%d+):", "\27[96m%1\27[37m:\27[95m%2\27[37m:")
+					:gsub("'([^']+)'\n", "\27[93m'%1'\27[37m\n")
+			end
+			terminal.write(
+				eg.tty,
+				("%s[%s]%s %s[%d%s]%s [%s]: %s%s\n"):format(
+					eg.colorize and ee[bY.level] or "",
+					os.date("%b %d %X", bY.time / 1000),
+					bY.category and " <" .. bY.category .. ">" or "",
+					processes[bY.process] and processes[bY.process].name or "(unknown)",
+					bY.process,
+					bY.thread and ":" .. bY.thread or "",
+					bY.module and " (" .. bY.module .. ")" or "",
+					ec[bY.level],
+					t,
+					eg.colorize and "\27[0m" or ""
+				)
+			)
+			terminal.redraw(eg.tty)
+		else
+		end
+	end
+end
+function syscalls.mklog(process, aN, O, ek, bs)
+	expect(1, O, "string")
+	expect(2, ek, "boolean", "nil")
+	expect(3, bs, "string", "nil")
+	if syslogs[O] then
+		return
+	end
+	syslogs[O] = {}
+	if bs then
+		local n
+		syslogs[O].file, n = filesystem.open(process, bs, "a")
+		if syslogs[O].file == nil then
+			syslogs[O] = nil
+			return error("Could not open log file: " .. n, 0)
+		end
+	end
+	if ek then
+		syslogs[O].stream = {}
+	end
+end
+function syscalls.rmlog(process, aN, O)
+	expect(1, O, "string")
+	if O == "default" then
+		error("Cannot delete default log", 0)
+	end
+	if not syslogs[O] then
+		error("Log does not exist", 0)
+	end
+	if syslogs[O].stream then
+		for k, c in pairs(syslogs[O].stream) do
+			processes[c.pid].eventQueue[#processes[c.pid].eventQueue + 1] = { "syslog_close", { id = c.id } }
+			processes[c.pid].dependents[c.id] = nil
+			wakeup(processes[c.pid])
+		end
+	end
+	syslogs[O] = nil
+end
+function syscalls.openlog(process, aN, O, el)
+	expect(1, O, "string")
+	expect(2, el, "string", "nil")
+	if not syslogs[O] then
+		error("Log does not exist", 0)
+	end
+	if not syslogs[O].stream then
+		error("Log does not have streaming enabled", 0)
+	end
+	local aX = #process.dependents + 1
+	local dc = process.id
+	process.dependents[aX] = {
+		type = "log",
+		name = O,
+		filter = el,
+		gc = function()
+			for o, c in pairs(syslogs[O].stream) do
+				if c.id == aX and c.pid == dc then
+					syslogs[O].stream[o] = nil
+				end
+			end
+		end,
+	}
+	syslogs[O].stream[#syslogs[O].stream + 1] = { pid = dc, id = aX, filter = el }
+	return aX
+end
+function syscalls.closelog(process, aN, O)
+	expect(1, O, "string", "number")
+	if type(O) == "string" then
+		if not syslogs[O] then
+			error("Log does not exist", 0)
+		end
+		if not syslogs[O].stream then
+			error("Log does not have streaming enabled", 0)
+		end
+		for o, c in pairs(syslogs[O].stream) do
+			if c.pid == process.id then
+				process.dependents[c.id] = nil
+				syslogs[O].stream[o] = nil
+			end
+		end
+	else
+		if not process.dependents[O] then
+			error("Log connection does not exist", 0)
+		end
+		local eg = syslogs[process.dependents[O].name].stream
+		for o, c in pairs(eg) do
+			if c.pid == process.id and c.id == O then
+				process.dependents[c.id] = nil
+				eg[o] = nil
+				break
+			end
+		end
+	end
+end
+function syscalls.logtty(process, aN, O, dE, C)
+	if process.user ~= "root" then
+		error("Permission denied", 0)
+	end
+	expect(1, O, "string")
+	expect(2, dE, "table", "number", "nil")
+	expect(3, C, "number", "nil")
+	if not syslogs[O] then
+		error("Log does not exist", 0)
+	end
+	syslogs[O].tty = type(dE) == "table" and dE or TTY[dE]
+	syslogs[O].tty_level = C
+	return true
+end
+function syslog.log(bY, ...)
+	return pcall(syscalls.syslog, KERNEL, nil, bY, ...)
+end
+function syslog.debug(...)
+	return pcall(syscalls.syslog, KERNEL, nil, { level = "debug", process = 0 }, ...)
+end
+local em = panic
+function panic(aA)
+	xpcall(function()
+		currentTTY = TTY[1]
+		TTY[1].isLocked = false
+		syslog.log({ level = "panic" }, "Kernel panic:", aA)
+		if debug then
+			local aE = debug.traceback(nil, 2)
+			syslog.log({ level = "panic", traceback = true }, aE)
+		end
+		syslog.log({ level = "panic" }, "We are hanging here...")
+		terminal.redraw(TTY[1], true)
+		term.setCursorBlink(false)
+		mainThread = nil
+		if _HEADLESS then
+			os.shutdown(1)
+		end
+		while true do
+			coroutine.yield()
+		end
+	end, function(Y)
+		em(aA .. "; and an error occurred while logging the error: " .. Y)
+	end)
+end
+xpcall(function()
+	local n
+	syslogs.default.file, n = filesystem.open(KERNEL, "/var/log/default.log", "a")
+	shutdownHooks[#shutdownHooks + 1] = function()
+		if syslogs.default.file then
+			syslogs.default.file.close()
+		end
+	end
+	syslog.log("Starting Phoenix version", PHOENIX_VERSION, PHOENIX_BUILD)
+	syslog.log("Initialized system logger")
+	syslog.log(
+		"System started at "
+			.. systemStartTime
+			.. " on computer "
+			.. os.computerID()
+			.. (os.computerLabel() and "('" .. os.computerLabel() .. "')" or "")
+	)
+	syslog.log("Computer host is " .. _HOST)
+	if syslogs.default.file == nil then
+		syslog.log(
+			{ level = "notice" },
+			"An error occurred while opening the log file at /var/log/default.log:",
+			n,
+			". System logs will not be saved to disk."
+		)
+	end
+end, panic)
+local function en(bI)
+	return string.match(bI, "^()%s*$") and "" or string.match(bI, "^%s*(.*%S)")
+end
+local expect, do_syscall = expect, do_syscall
+local function eo(bz)
+	local au = 1
+	local function bC(G)
+		if au > #bz then
+			return nil
+		end
+		G = G or 1
+		local bI = bz:sub(au, au + G - 1)
+		au = au + G
+		return bI
+	end
+	if bC(8) ~= "!<arch>\n" then
+		error("Not an ar archive", 2)
+	end
+	local as = {}
+	local ep = nil
+	local eq = {}
+	while true do
+		local bz = {}
+		local er = bC()
+		while er == "\n" do
+			er = bC()
+		end
+		if er == nil then
+			break
+		end
+		local O = bC(15)
+		if O == nil then
+			break
+		end
+		O = er .. O
+		if string.find(O, "/") and string.find(O, "/") > 1 then
+			O = string.sub(O, 1, string.find(O, "/") - 1)
+		else
+			O = en(O)
+		end
+		bz.timestamp = tonumber(en(bC(12)))
+		bz.owner = tonumber(en(bC(6)))
+		bz.group = tonumber(en(bC(6)))
+		bz.mode = tonumber(en(bC(8)), 8)
+		local af = tonumber(en(bC(10)))
+		if bC(2) ~= "`\n" then
+			error("Invalid header for file " .. O, 2)
+		end
+		if string.match(O, "^#1/%d+$") then
+			O = bC(tonumber(string.match(O, "#1/(%d+)")))
+		elseif string.match(O, "^/%d+$") then
+			if ep then
+				local S = tonumber(string.match(O, "/(%d+)"))
+				O = ep:match("[^/]*", S + 1)
+			else
+				table.insert(eq, O)
+			end
+		end
+		bz.name = O
+		bz.data = bC(af)
+		if O == "//" then
+			ep = bz.data
+		elseif O ~= "/" and O ~= "/SYM64/" then
+			table.insert(as, bz)
+		end
+	end
+	if ep then
+		for F, c in pairs(eq) do
+			local S = tonumber(string.match(c, "/(%d+)"))
+			for aa, aB in pairs(as) do
+				if aB.name == c then
+					aB.name = ep:match("[^/]*", S + 1)
+					break
+				end
+			end
+		end
+	end
+	local es = {}
+	for k, c in ipairs(as) do
+		es[c.name] = c
+	end
+	return es
+end
+function createRequire(process, d0)
+	local et, eu = {}, {}
+	d0.package = {}
+	local ev = processes[process.parent] and processes[process.parent].env
+	if ev then
+		d0.package.path = ev.package and ev.package.path
+		d0.package.libpath = ev.package and ev.package.libpath
+	end
+	d0.package.path = d0.package.path
+		or "/lib/?.lua;/lib/?/init.lua;/usr/lib/?.lua;/usr/lib/?/init.lua;./?.lua;./?/init.lua"
+	if type(process.vars.PACKAGE_PATH) == "string" then
+		d0.package.path = process.vars.PACKAGE_PATH .. ";" .. d0.package.path
+	end
+	d0.package.libpath = d0.package.libpath or "/lib/lib?.a;/usr/lib/lib?.a"
+	if type(process.vars.PACKAGE_LIBPATH) == "string" then
+		d0.package.libpath = process.vars.PACKAGE_LIBPATH .. ";" .. d0.package.libpath
+	end
+	d0.package.config = "/\n;\n?\n!\n-"
+	d0.package.loaded = et
+	d0.package.preload = eu
+	d0.package.forceload = false
+	for F, c in pairs(d0) do
+		if type(c) == "table" then
+			et[F] = c
+		end
+	end
+	local ew = setmetatable({}, { __newindex = function() end, __metatable = false })
+	local ex = {}
+	local function ey(O, bs)
+		local H, n = do_syscall("open", bs, "rb")
+		if not H then
+			error(bs .. ": " .. n, 3)
+		end
+		local bz = H.readAll()
+		H.close()
+		local J, n = load(bz, "@" .. bs, nil, _ENV)
+		if not J then
+			error(bs .. ": " .. n, 3)
+		end
+		local cs = bs:match("^(.*)/[^/]*$") or "/"
+		ex[#ex + 1] = function(ez)
+			local bs, n = package.searchpath(ez, cs .. "/?.lua;" .. cs .. "/?/init.lua")
+			if not bs then
+				return nil, n
+			end
+			return ey, bs
+		end
+		local s, E = pcall(J, O)
+		ex[#ex] = nil
+		if s then
+			return E
+		else
+			error(bs .. ": " .. E, 3)
+		end
+	end
+	local function eA(O, bs)
+		local eB
+		if bs:find("%z") then
+			bs, eB = bs:match("^([^%z]*)%z(.*)$")
+		elseif O:find("%-") then
+			eB = O:match("^([^%-]*)%-(.*)$")
+		else
+			eB = "init"
+		end
+		local H, n = do_syscall("open", bs, "rb")
+		if not H then
+			error(bs .. ": " .. n, 3)
+		end
+		local bz = H.readAll()
+		H.close()
+		local cs = eo(bz)
+		local function eC(O)
+			local a1 = O .. ".lua"
+			if not cs[a1] then
+				error(bs .. ":" .. a1 .. ": File not found", 0)
+			end
+			local bz = cs[a1].data
+			local J, n = load(bz, "@" .. bs .. ":" .. a1, nil, _ENV)
+			if not J then
+				error(bs .. ":" .. a1 .. ": " .. n, 3)
+			end
+			local s, E = pcall(J, O)
+			if s then
+				return E
+			else
+				error(bs .. ":" .. a1 .. ": " .. E)
+			end
+		end
+		ex[#ex + 1] = function(ez)
+			return eC, ez
+		end
+		local E = eC(eB)
+		ex[#ex] = nil
+		return E
+	end
+	ex[1] = function(O)
+		local cs = do_syscall("getname"):match("^(.*)/[^/]*$") or "/"
+		local bs, n = package.searchpath(O, cs .. "/?.lua;" .. cs .. "/?/init.lua")
+		if not bs then
+			return nil, n
+		end
+		return ey, bs
+	end
+	function d0.package.searchpath(O, bs, aI, eD)
+		expect(1, O, "string")
+		expect(2, bs, "string")
+		expect(3, aI, "string", "nil")
+		expect(4, eD, "string", "nil")
+		aI = (aI or "."):gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+		eD = (eD or "/"):gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+		local e = ""
+		for a1 in bs:gmatch("[^;]+") do
+			local cu = a1:gsub("%?", O:gsub(aI, eD), nil)
+			local H, n = do_syscall("open", cu, "r")
+			if H then
+				H.close()
+				return cu
+			else
+				e = e .. "\t" .. cu .. ": " .. n .. "\n"
+			end
+		end
+		return nil, e
+	end
+	d0.package.searchers = {
+		function(O)
+			local a1 = eu[O]
+			if a1 then
+				return a1
+			else
+				return nil, "\tpackage.preload['" .. O .. "']: No such field\n"
+			end
+		end,
+		function(O)
+			local bs, n = package.searchpath(O, package.path)
+			if not bs then
+				return nil, n
+			end
+			return ey, bs, bs
+		end,
+		function(O)
+			local bs, n = package.searchpath(O:match("^[^%-]*"), package.libpath)
+			if not bs then
+				return nil, n
+			end
+			local S = O:match("%-(.+)$")
+			if S then
+				return eA, bs, bs .. ":" .. S
+			else
+				return eA, bs, bs .. ":init"
+			end
+		end,
+		function(O)
+			if not O:find("%.") then
+				return nil
+			end
+			local bs, n = package.searchpath(O:match("^[^%.]*"), package.libpath)
+			if not bs then
+				return nil, n
+			end
+			local S = O:match("^[^%.]*%.(.*)$")
+			return eA, bs .. "\0" .. S, bs .. ":" .. S
+		end,
+		function(O)
+			if #ex > 0 then
+				return ex[#ex](O)
+			end
+			return nil, "no local loaders found"
+		end,
+	}
+	setfenv(ey, d0)
+	debug.protect(ey)
+	setfenv(eA, d0)
+	debug.protect(eA)
+	setfenv(ex[1], d0)
+	debug.protect(ex[1])
+	for k, c in pairs(d0.package.searchers) do
+		setfenv(c, d0)
+		debug.protect(c)
+	end
+	function d0.require(O)
+		expect(1, O, "string")
+		local n = "module '" .. O .. "' not found:\n"
+		local eE, eF, eG
+		for k, c in ipairs(package.searchers) do
+			eE, eF, eG = c(O)
+			if eE then
+				break
+			end
+			n = n .. (eF or "")
+		end
+		if not eE then
+			error(n, 2)
+		end
+		if eG then
+			if et[eG] then
+				if et[eG] == ew then
+					error("loop detected loading '" .. O .. "'", 3)
+				elseif not package.forceload then
+					return et[eG]
+				end
+			end
+			et[eG] = ew
+		else
+			if et[O] then
+				if et[O] == ew then
+					error("loop detected loading '" .. O .. "'", 3)
+				elseif not package.forceload then
+					return et[O]
+				end
+			end
+		end
+		et[O] = ew
+		local s, E = pcall(eE, O, eF)
+		if s then
+			if E ~= nil then
+				et[O] = E
+			elseif et[O] == ew then
+				et[O] = true
+			end
+			if eG then
+				if E ~= nil then
+					et[eG] = E
+				elseif et[eG] == ew then
+					et[eG] = true
+				end
+			end
+			return et[O]
+		else
+			et[O] = nil
+			if eG then
+				et[eG] = nil
+			end
+			error(n .. "\t" .. E .. "\n", 2)
+		end
+	end
+	return d0
+end
+do
+	local et, eu = {}, {}
+	package = {}
+	package.path = "/lib/?.lua;/lib/?/init.lua;/usr/lib/?.lua;/usr/lib/?/init.lua"
+	package.libpath = "/lib/lib?.a;/usr/lib/lib?.a"
+	package.config = "/\n;\n?\n!\n-"
+	package.loaded = et
+	package.preload = eu
+	package.forceload = false
+	for F, c in pairs(_G) do
+		if type(c) == "table" then
+			et[F] = c
+		end
+	end
+	local ew = setmetatable({}, { __newindex = function() end, __metatable = false })
+	local ex = {}
+	local function ey(O, bs)
+		local bZ, n = filesystem.stat(KERNEL, bs)
+		if not bZ then
+			error(bs .. ": " .. n, 3)
+		end
+		if bZ.owner ~= "root" or bZ.worldPermissions.write then
+			error(bs .. ": Insecure file permissions", 3)
+		end
+		for F, c in pairs(bZ.permissions) do
+			if F ~= "root" and c.write then
+				error(bs .. ": Insecure file permissions", 3)
+			end
+		end
+		local H, n = filesystem.open(KERNEL, bs, "rb")
+		if not H then
+			error(bs .. ": " .. n, 3)
+		end
+		local bz = H.readAll()
+		H.close()
+		local J, n = load(bz, "@" .. bs, nil, _G)
+		if not J then
+			error(bs .. ": " .. n, 3)
+		end
+		local cs = bs:match("^(.*)/[^/]*$") or "/"
+		ex[#ex + 1] = function(ez)
+			local bs, n = package.searchpath(ez, cs .. "/?.lua;" .. cs .. "/?/init.lua")
+			if not bs then
+				return nil, n
+			end
+			return ey, bs
+		end
+		local s, E = pcall(J, O)
+		ex[#ex] = nil
+		if s then
+			return E
+		else
+			error(bs .. ": " .. E, 3)
+		end
+	end
+	local function eA(O, bs)
+		local eB
+		if bs:find("%z") then
+			bs, eB = bs:match("^([^%z]*)%z(.*)$")
+		elseif O:find("%-") then
+			eB = O:match("^([^%-]*)%-(.*)$")
+		else
+			eB = "init"
+		end
+		local bZ, n = filesystem.stat(KERNEL, bs)
+		if not bZ then
+			error(bs .. ": " .. n, 3)
+		end
+		if bZ.owner ~= "root" or bZ.worldPermissions.write then
+			error(bs .. ": Insecure file permissions", 3)
+		end
+		for F, c in pairs(bZ.permissions) do
+			if F ~= "root" and c.write then
+				error(bs .. ": Insecure file permissions", 3)
+			end
+		end
+		local H, n = filesystem.open(KERNEL, bs, "rb")
+		if not H then
+			error(bs .. ": " .. n, 3)
+		end
+		local bz = H.readAll()
+		H.close()
+		local cs = eo(bz)
+		local function eC(O)
+			local a1 = O .. ".lua"
+			if not cs[a1] then
+				error(bs .. ":" .. a1 .. ": File not found", 0)
+			end
+			local bz = cs[a1].data
+			local J, n = load(bz, "@" .. bs .. ":" .. a1, nil, _ENV)
+			if not J then
+				error(bs .. ":" .. a1 .. ": " .. n, 3)
+			end
+			local s, E = pcall(J, O)
+			if s then
+				return E
+			else
+				error(bs .. ":" .. a1 .. ": " .. E)
+			end
+		end
+		ex[#ex + 1] = function(ez)
+			return eC, ez
+		end
+		local E = eC(eB)
+		ex[#ex] = nil
+		return E
+	end
+	function package.searchpath(O, bs, aI, eD)
+		expect(1, O, "string")
+		expect(2, bs, "string")
+		expect(3, aI, "string", "nil")
+		expect(4, eD, "string", "nil")
+		aI = (aI or "."):gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+		eD = (eD or "/"):gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1")
+		local e = ""
+		for a1 in bs:gmatch("[^;]+") do
+			local cu = a1:gsub("%?", O:gsub(aI, eD), nil)
+			local H, n = filesystem.open(KERNEL, cu, "r")
+			if H then
+				H.close()
+				return cu
+			else
+				e = e .. "\t" .. cu .. ": " .. n .. "\n"
+			end
+		end
+		return nil, e
+	end
+	package.searchers = {
+		function(O)
+			local a1 = eu[O]
+			if a1 then
+				return a1
+			else
+				return nil, "\tpackage.preload['" .. O .. "']: No such field\n"
+			end
+		end,
+		function(O)
+			local bs, n = package.searchpath(O, package.path)
+			if not bs then
+				return nil, n
+			end
+			return ey, bs, bs
+		end,
+		function(O)
+			local bs, n = package.searchpath(O:match("^[^%-]*"), package.libpath)
+			if not bs then
+				return nil, n
+			end
+			local S = O:match("%-(.+)$")
+			if S then
+				return eA, bs, bs .. ":" .. S
+			else
+				return eA, bs, bs .. ":init"
+			end
+		end,
+		function(O)
+			if not O:find("%.") then
+				return nil
+			end
+			local bs, n = package.searchpath(O:match("^[^%.]*"), package.libpath)
+			if not bs then
+				return nil, n
+			end
+			local S = O:match("^[^%.]*%.(.*)$")
+			return eA, bs .. "\0" .. S, bs .. ":" .. S
+		end,
+		function(O)
+			if #ex > 0 then
+				return ex[#ex](O)
+			end
+			return nil, "\tno local loaders found"
+		end,
+	}
+	function require(O)
+		expect(1, O, "string")
+		local n = "module '" .. O .. "' not found:\n"
+		local eE, eF, eG
+		for k, c in ipairs(package.searchers) do
+			eE, eF, eG = c(O)
+			if eE then
+				break
+			end
+			n = n .. (eF or "")
+		end
+		if not eE then
+			error(n, 2)
+		end
+		if eG then
+			if et[eG] then
+				if et[eG] == ew then
+					error("loop detected loading '" .. O .. "'", 3)
+				elseif not package.forceload then
+					return et[eG]
+				end
+			end
+			et[eG] = ew
+		else
+			if et[O] then
+				if et[O] == ew then
+					error("loop detected loading '" .. O .. "'", 3)
+				elseif not package.forceload then
+					return et[O]
+				end
+			end
+		end
+		et[O] = ew
+		local s, E = pcall(eE, O, eF)
+		if s then
+			if E ~= nil then
+				et[O] = E
+			elseif et[O] == ew then
+				et[O] = true
+			end
+			if eG then
+				if E ~= nil then
+					et[eG] = E
+				elseif et[eG] == ew then
+					et[eG] = true
+				end
+			end
+			return et[O]
+		else
+			et[O] = nil
+			if eG then
+				et[eG] = nil
+			end
+			error(n .. "\t" .. E .. "\n", 2)
+		end
+	end
+end
+timerMap = {}
+alarmMap = {}
+local eH = {}
+function syscalls.kill(process, aN, dc, eI)
+	expect(1, dc, "number")
+	expect(2, eI, "number")
+	local eJ = processes[dc]
+	if not eJ then
+		error("No such process", 2)
+	end
+	if process.user ~= "root" and process.user ~= eJ.user then
+		error("Permission denied", 2)
+	end
+	if eI == 9 then
+		reap_process(eJ)
+		if processes[eJ.parent] then
+			syscalls.queueEvent(processes[eJ.parent], nil, "process_complete", { id = dc, result = 9 })
+		end
+		processes[dc] = nil
+	elseif eJ.signalHandlers[eI] then
+		userModeCallback(eJ, eJ.signalHandlers[eI], eI)
+	else
+		syscalls.queueEvent(eJ, nil, "signal", { signal = eI })
+	end
+end
+function killProcess(dc, eI)
+	expect(1, dc, "number")
+	expect(2, eI, "number")
+	local eJ = processes[dc]
+	if not eJ then
+		return
+	end
+	if eI == 9 then
+		reap_process(eJ)
+		if processes[eJ.parent] then
+			syscalls.queueEvent(processes[eJ.parent], nil, "process_complete", { id = dc, result = 9 })
+		end
+		processes[dc] = nil
+	elseif eJ.signalHandlers[eI] then
+		local aX = syscalls.newthread(eJ, nil, eJ.signalHandlers[eI], eI)
+		eJ.threads[aX].name = "<signal handler:" .. eI .. ">"
+	else
+		syscalls.queueEvent(eJ, nil, "signal", { signal = eI })
+	end
+end
+function syscalls.signal(process, aN, eI, eK)
+	expect(1, eI, "number")
+	expect(2, eK, "function", "nil")
+	process.signalHandlers[eI] = eK
+end
+function syscalls.queueEvent(process, aN, O, aS)
+	expect(1, O, "string")
+	expect(2, aS, "table")
+	process.eventQueue[#process.eventQueue + 1] = { O, aS }
+end
+function syscalls.sendEvent(process, aN, dc, O, aS)
+	expect(1, dc, "number")
+	expect(2, O, "string")
+	local eJ = processes[dc]
+	if not eJ then
+		return false
+	end
+	eJ.eventQueue[#eJ.eventQueue + 1] = { "remote_event", { type = O, sender = process.id, data = aS } }
+	wakeup(eJ)
+	return true
+end
+function syscalls.peekEvent(process, aN)
+	local aO = process.eventQueue[#process.eventQueue]
+	if not aO then
+		return nil
+	end
+	local args = {}
+	for F, c in pairs(aO[2]) do
+		args[F] = c
+	end
+	return aO[1], args
+end
+function syscalls.register(process, aN, O)
+	expect(1, O, "string")
+	if eH[O] then
+		return false
+	end
+	eH[O] = process.id
+	process.dependents[#process.dependents + 1] = {
+		gc = function()
+			eH[O] = nil
+		end,
+	}
+	return true
+end
+function syscalls.lookup(process, aN, O)
+	expect(1, O, "string")
+	return eH[O]
+end
+function syscalls.timer(process, aN, eL)
+	expect(1, eL, "number")
+	local eM = os.startTimer(eL)
+	timerMap[eM] = process
+	return bit32.band(eM, 0x7FFFFFFF)
+end
+function syscalls.alarm(process, aN, eL)
+	expect(1, eL, "number")
+	local eM = os.setAlarm(eL)
+	alarmMap[eM] = process
+	return bit32.bor(eM, 0x80000000)
+end
+function syscalls.cancel(process, aN, eM)
+	expect(1, eM, "number")
+	if bit32.btest(eM, 0x80000000) then
+		eM = bit32.band(eM, 0x7FFFFFFF)
+		if alarmMap[eM] ~= process then
+			error("No such alarm")
+		end
+		os.cancelAlarm(eM)
+		alarmMap[eM] = nil
+	else
+		if timerMap[eM] ~= process then
+			error("No such timer")
+		end
+		os.cancelTimer(eM)
+		timerMap[eM] = nil
+	end
+end
+eventHooks.terminate = eventHooks.terminate or {}
+eventHooks.terminate[#eventHooks.terminate + 1] = function()
+	if currentTTY.frontmostProcess then
+		syscalls.kill(KERNEL, nil, currentTTY.frontmostProcess.id, 2)
+		terminal.write(currentTTY, "^T")
+	end
+end
+eventParameterMap = {
+	alarm = { "id" },
+	char = { "character" },
+	key = { "keycode", "isRepeat" },
+	key_up = { "keycode" },
+	mouse_click = { "button", "x", "y" },
+	mouse_drag = { "button", "x", "y" },
+	mouse_up = { "button", "x", "y" },
+	mouse_scroll = { "direction", "x", "y" },
+	paste = { "text" },
+	redstone = {},
+	term_resize = {},
+	timer = { "id" },
+	turtle_inventory = {},
+}
+do
+	local eN = 0
+	for k, c in pairs(keys) do
+		if type(c) == "number" then
+			eN = math.max(eN, c)
+		end
+	end
+	if table.create then
+		keymap = table.create(eN, 0)
+	else
+		local bK
+		local eO, eP = pcall(string.dump, function() end)
+		if eO then
+			local eQ = (function(Q)
+				if Q < 8 then
+					return Q
+				end
+				local a7 = 0
+				while Q >= 128 do
+					Q, a7 = bit32.rshift(Q + 0xf, 4), a7 + 4
+				end
+				while Q >= 16 do
+					Q, a7 = bit32.rshift(Q + 1, 1), a7 + 1
+				end
+				return bit32.bor((a7 + 1) * 8, Q - 8)
+			end)(eN)
+			syslog.debug("Key table sizes:", eN, eQ)
+			if _VERSION == "Lua 5.1" then
+				bK = eP:sub(1, 12)
+					.. ("I" .. eP:byte(9) .. "IIBBBBIIIIIIII"):pack(
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						2,
+						eQ * 0x800000 + 10,
+						0x0100001E,
+						0,
+						0,
+						0,
+						0,
+						0
+					)
+			elseif _VERSION == "Lua 5.2" then
+				bK = eP:sub(1, 18) .. ("IIBBBIIIIIIIIII"):pack(
+					0,
+					0,
+					0,
+					0,
+					1,
+					2,
+					eQ * 0x800000 + 11,
+					0x0100001F,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0,
+					0
+				)
+			elseif _VERSION == "Lua 5.3" then
+				bK = eP:sub(1, 17 + ("jn"):packsize())
+					.. ("BBIIBBBIIIIIIIII"):pack(
+						0,
+						0,
+						0,
+						0,
+						0,
+						0,
+						1,
+						2,
+						eQ * 0x800000 + 11,
+						0x01000026,
+						0,
+						0,
+						0,
+						0,
+						0,
+						0
+					)
+			elseif _VERSION == "Lua 5.4" then
+				bK = eP:sub(1, 15 + ("jn"):packsize())
+					.. ("BBBBBBBBIIIBBBBBBB"):pack(
+						0,
+						0x80,
+						0x80,
+						0x80,
+						0,
+						0,
+						1,
+						0x83,
+						0x00000013,
+						eN * 0x80 + 82,
+						0x00008048,
+						0x80,
+						0x80,
+						0x80,
+						0x80,
+						0x80,
+						0x80,
+						0x80
+					)
+			end
+			if bK then
+				local J, n = load(bK, nil, "b")
+				if J then
+					keymap = J()
+				else
+					syslog.debug("Could not load key table code:", n)
+				end
+			end
+		end
+		if not keymap then
+			keymap = load("return {" .. ("nil,"):rep(eN) .. "}")()
+		end
+	end
+	for o = 0x61, 0x7A do
+		keymap[keys[string.char(o)]] = o
+	end
+	for o = 0x81, 0x99 do
+		if keys["f" .. bit32.band(o, 31)] then
+			keymap[keys["f" .. bit32.band(o, 31)]] = o
+		end
+	end
+	for o = 0xA0, 0xA9 do
+		keymap[keys["numPad" .. bit32.band(o, 15)]] = o
+	end
+	keymap[keys.backspace] = 0x08
+	keymap[keys.tab] = 0x09
+	keymap[keys.enter or keys["return"]] = 0x0A
+	keymap[keys.space] = 0x20
+	keymap[keys.apostrophe] = 0x27
+	keymap[keys.comma] = 0x2C
+	keymap[keys.minus] = 0x2D
+	keymap[keys.period] = 0x2E
+	keymap[keys.slash] = 0x2F
+	keymap[keys.zero] = 0x30
+	keymap[keys.one] = 0x31
+	keymap[keys.two] = 0x32
+	keymap[keys.three] = 0x33
+	keymap[keys.four] = 0x34
+	keymap[keys.five] = 0x35
+	keymap[keys.six] = 0x36
+	keymap[keys.seven] = 0x37
+	keymap[keys.eight] = 0x38
+	keymap[keys.nine] = 0x39
+	keymap[keys.semicolon or keys.semiColon] = 0x3B
+	keymap[keys.equals] = 0x3D
+	keymap[keys.leftBracket] = 0x5B
+	keymap[keys.backslash] = 0x5C
+	keymap[keys.rightBracket] = 0x5D
+	keymap[keys.grave] = 0x60
+	keymap[keys.delete] = 0x7F
+	keymap[keys.insert] = 0x80
+	if keys.convert then
+		keymap[keys.convert] = 0x9A
+	end
+	if keys.noconvert then
+		keymap[keys.noconvert] = 0x9B
+	end
+	if keys.kana then
+		keymap[keys.kana] = 0x9C
+	end
+	if keys.kanji then
+		keymap[keys.kanji] = 0x9D
+	end
+	if keys.yen then
+		keymap[keys.yen] = 0x9E
+	end
+	keymap[keys.numPadDecimal] = 0x9F
+	keymap[keys.numPadAdd] = 0xAA
+	keymap[keys.numPadSubtract] = 0xAB
+	if keys.numPadMultiply then
+		keymap[keys.numPadMultiply] = 0xAC
+	end
+	keymap[keys.numPadDivide] = 0xAD
+	keymap[keys.numPadEqual or keys.numPadEquals] = 0xAE
+	keymap[keys.numPadEnter] = 0xAF
+	keymap[keys.leftCtrl] = 0xB0
+	keymap[keys.rightCtrl] = 0xB1
+	keymap[keys.leftAlt] = 0xB2
+	keymap[keys.rightAlt] = 0xB3
+	keymap[keys.leftShift] = 0xB4
+	keymap[keys.rightShift] = 0xB5
+	if keys.leftSuper then
+		keymap[keys.leftSuper] = 0xB6
+	end
+	if keys.rightSuper then
+		keymap[keys.rightSuper] = 0xB7
+	end
+	keymap[keys.capsLock] = 0xB8
+	keymap[keys.numLock] = 0xB9
+	keymap[keys.scrollLock or keys.scollLock] = 0xBA
+	if keys.printScreen then
+		keymap[keys.printScreen] = 0xBB
+	end
+	keymap[keys.pause] = 0xBC
+	if keys.menu then
+		keymap[keys.menu] = 0xBD
+	end
+	if keys.stop then
+		keymap[keys.stop] = 0xBE
+	end
+	if keys.ax then
+		keymap[keys.ax] = 0xBF
+	end
+	keymap[keys.up] = 0xC0
+	keymap[keys.down] = 0xC1
+	keymap[keys.left] = 0xC2
+	keymap[keys.right] = 0xC3
+	keymap[keys.pageUp] = 0xC4
+	keymap[keys.pageDown] = 0xC5
+	keymap[keys.home] = 0xC6
+	keymap[keys["end"]] = 0xC7
+	if keys.circumflex or keys.cimcumflex then
+		keymap[keys.circumflex or keys.cimcumflex] = 0xC8
+	end
+	if keys.at then
+		keymap[keys.at] = 0xC9
+	end
+	if keys.colon then
+		keymap[keys.colon] = 0xCA
+	end
+	if keys.underscore then
+		keymap[keys.underscore] = 0xCB
+	end
+end
+local eR = {
+	id = 0,
+	name = "",
+	coro = coroutine.create(function() end),
+	coroStack = {},
+	status = "starting",
+	args = { "a", n = 1 },
+	filter = function(process, aN, cr) end,
+	paused = false,
+}
+local eS = {
+	id = 1,
+	name = "init",
+	user = "root",
+	dependents = { { gc = function() end } },
+	parent = 0,
+	dir = "/",
+	stdin = TTY[1],
+	stdout = {},
+	stderr = TTY[1],
+	cputime = 0.2,
+	systime = 0.1,
+	debugging = false,
+	allowDebug = true,
+	debugger = nil,
+	breakpoints = {},
+	hookf = function() end,
+	env = {},
+	syscallyield = nil,
+	eventQueue = {},
+	signalHandlers = {},
+	paused = false,
+	nice = 0,
+	threads = { [0] = eR },
+	globalMetatables = {},
+}
+local eT = 1
+local function eU(process)
+	local I = createLuaLib(process)
+	if _VERSION < "Lua 5.2" then
+		I = make_ENV(I)
+	end
+	I._G = I
+	return I
+end
+local eV, eW, debugHooks = coroutine.yield, coroutine.running, debugHooks
+local function eX(cr, aF)
+	if cr == "count" then
+		eV("preempt")
+	end
+	local aC = debugHooks[eW()]
+	if aC then
+		if cr == "count" and not aC.count then
+			return
+		end
+		return aC.func(cr, aF)
+	end
+end
+local eY = {
+	function(G, ...)
+		return load(G:gsub("^#![^\n]+\n", ""), ...)
+	end,
+}
+function addProcessLoader(eE)
+	table.insert(eY, 1, eE)
+end
+function removeProcessLoader(eE)
+	for o, c in ipairs(eY) do
+		if c == eE then
+			table.remove(eY, o)
+			return
+		end
+	end
+end
+function reap_process(process)
+	syslog.debug("Reaping process " .. process.id .. " (" .. process.name .. ")")
+	for k, c in ipairs(process.dependents) do
+		c:gc()
+	end
+	if process.stdin and process.stdin.isTTY then
+		if process.stdin.frontmostProcess == process then
+			process.stdin.frontmostProcess = table.remove(process.stdin.processList)
+			process.stdin.preBuffer = ""
+			if discord and process.stdout == currentTTY and process.stdout.frontmostProcess then
+				discord("Phoenix", "Executing " .. process.stdout.frontmostProcess.name)
+			end
+		else
+			for o, c in ipairs(process.stdin.processList) do
+				if c == process then
+					table.remove(process.stdin.processList, o)
+					break
+				end
+			end
+		end
+	end
+	if process.stdout and process.stdout.isTTY then
+		if process.stdout.frontmostProcess == process then
+			process.stdout.frontmostProcess = table.remove(process.stdout.processList)
+		else
+			for o, c in ipairs(process.stdout.processList) do
+				if c == process then
+					table.remove(process.stdout.processList, o)
+					break
+				end
+			end
+		end
+	end
+	if process.stderr and process.stderr.isTTY then
+		if process.stderr.frontmostProcess == process then
+			process.stderr.frontmostProcess = table.remove(process.stderr.processList)
+		else
+			for o, c in ipairs(process.stderr.processList) do
+				if c == process then
+					table.remove(process.stderr.processList, o)
+					break
+				end
+			end
+		end
+	end
+end
+function syscalls.getpid(process, aN)
+	return process.id
+end
+function syscalls.getppid(process, aN)
+	return process.parent
+end
+function syscalls.clock(process, aN)
+	return process.cputime
+end
+function syscalls.getenv(process, aN)
+	return process.vars
+end
+function syscalls.getfenv(process, aN)
+	return process.env
+end
+function syscalls.getname(process, aN)
+	return process.name
+end
+function syscalls.getcwd(process, aN)
+	return process.dir
+end
+function syscalls.chdir(process, aN, cs)
+	expect(1, cs, "string")
+	local bZ = filesystem.stat(process, cs)
+	if not bZ or bZ.type ~= "directory" then
+		return false, "No such file or directory"
+	elseif not (bZ.permissions[process.user] or bZ.worldPermissions).execute then
+		return false, "Permission denied"
+	end
+	process.dir = cs:gsub("^([^/])", "/" .. process.dir .. "/%1")
+	return true
+end
+function syscalls.getuser(process, aN)
+	return process.user, process.realuser
+end
+function syscalls.setuser(process, aN, bV)
+	expect(1, bV, "string")
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	process.user = bV
+	process.realuser = nil
+end
+local function eZ(d0)
+	return {
+		["nil"] = {},
+		["boolean"] = { __unm = function() end },
+		["number"] = {},
+		["string"] = { __index = d0.string },
+		["function"] = {},
+		["thread"] = { __index = d0.coroutine, __call = d0.coroutine.resume },
+		["userdata"] = {},
+	}
+end
+function syscalls.fork(process, aN, aW, O, ...)
+	expect(1, aW, "function")
+	expect(2, O, "string", "nil")
+	local aX = eT
+	eT = eT + 1
+	processes[aX] = {
+		id = aX,
+		name = O or process.name,
+		user = process.user,
+		dependents = {},
+		parent = process.id,
+		dir = process.dir,
+		env = nil,
+		root = process.root,
+		stdin = process.stdin,
+		stdout = process.stdout,
+		stderr = process.stderr,
+		vars = deepcopy(process.vars),
+		cputime = 0,
+		systime = 0,
+		debugging = false,
+		allowDebug = true,
+		breakpoints = {},
+		hookf = eX,
+		quantum = args.quantum,
+		syscallyield = nil,
+		eventQueue = {},
+		globalMetatables = {},
+		signalHandlers = {
+			[1] = function()
+				return coroutine.yield("syscall", "exit", 1)
+			end,
+			[2] = function()
+				return coroutine.yield("syscall", "exit", 1)
+			end,
+			[3] = function()
+				coroutine.yield(
+					"syscall",
+					"syslog",
+					{ level = "error", category = "Application Error", traceback = true },
+					debug.traceback("Quit")
+				)
+				return coroutine.yield("syscall", "exit", 1)
+			end,
+			[6] = function(n)
+				coroutine.yield(
+					"syscall",
+					"syslog",
+					{ level = "error", category = "Application Error", traceback = true },
+					debug.traceback(n or "Aborted")
+				)
+				return coroutine.yield("syscall", "exit", 1)
+			end,
+			[13] = function()
+				return coroutine.yield("syscall", "exit", 1)
+			end,
+			[15] = function()
+				return coroutine.yield("syscall", "exit", 1)
+			end,
+			[19] = function()
+				return coroutine.yield("syscall", "suspend")
+			end,
+			[21] = function()
+				return coroutine.yield("syscall", "suspend")
+			end,
+			[22] = function()
+				return coroutine.yield("syscall", "suspend")
+			end,
+		},
+		paused = false,
+		nice = 0,
+		threads = {
+			[0] = {
+				id = 0,
+				name = "<main thread>",
+				coro = coroutine.create(aW),
+				syscall = coroutine.create(function(...)
+					local args = table.pack(...)
+					while true do
+						args = table.pack(
+							coroutine.yield(
+								kSyscallComplete,
+								xpcall(syscalls[args[1]], debug.traceback, table.unpack(args, 2, args.n))
+							)
+						)
+					end
+				end),
+				status = "starting",
+				args = table.pack(...),
+				filter = nil,
+				coroStack = nil,
+				paused = false,
+			},
+		},
+	}
+	processes[aX].threads[0].coroStack = { processes[aX].threads[0].coro }
+	processes[aX].env = eU(processes[aX])
+	processes[aX].globalMetatables = eZ(processes[aX].env)
+	setfenv(aW, processes[aX].env)
+	if process.stdin and process.stdin.isTTY and not process.stdin.isLocked then
+		process.stdin.processList[#process.stdin.processList + 1] = process.stdin.frontmostProcess
+		process.stdin.frontmostProcess = processes[aX]
+		process.stdin.preBuffer = ""
+		if discord and process.stdout == currentTTY then
+			discord("Phoenix", "Executing " .. process.name)
+		end
+	end
+	if
+		process.stdout
+		and process.stdout.isTTY
+		and not process.stdout.isLocked
+		and process.stdout.frontmostProcess ~= processes[aX]
+	then
+		process.stdout.processList[#process.stdout.processList + 1] = process.stdout.frontmostProcess
+		process.stdout.frontmostProcess = processes[aX]
+	end
+	if
+		process.stderr
+		and process.stderr.isTTY
+		and not process.stderr.isLocked
+		and process.stderr.frontmostProcess ~= processes[aX]
+	then
+		process.stderr.processList[#process.stderr.processList + 1] = process.stderr.frontmostProcess
+		process.stderr.frontmostProcess = processes[aX]
+	end
+	if args.preemptive then
+		debug.sethook(processes[aX].threads[0].coro, eX, "", processes[aX].quantum)
+	end
+	return aX
+end
+function syscalls.exec(process, aN, bs, ...)
+	expect(1, bs, "string")
+	local H, n = filesystem.open(process, bs, "r")
+	if not H then
+		bs = bs .. ".lua"
+		H, n = filesystem.open(process, bs, "r")
+		if not H then
+			error("Could not open file: " .. n, 0)
+		end
+	end
+	local e_ = H.readAll()
+	H.close()
+	if e_:find("[%z\1-\31]") then
+		H, n = filesystem.open(process, bs, "rb")
+		if not H then
+			error("Could not open file: " .. n, 0)
+		end
+		e_ = H.readAll()
+		H.close()
+	end
+	local bZ = assert(filesystem.stat(process, bs))
+	if not (bZ.permissions[bZ.owner] or bZ.worldPermissions).execute then
+		error("Could not execute file: Permission denied", 0)
+	end
+	if bZ.setuser then
+		process.env = createLuaLib(process)
+		if process.stdin and not process.stdin.isTTY then
+			process.stdin = nil
+		end
+		if process.stdout and not process.stdout.isTTY then
+			process.stdout = nil
+		end
+		if process.stderr and not process.stderr.isTTY then
+			process.stderr = nil
+		end
+		process.realuser, process.user = process.user, bZ.owner
+	end
+	if
+		e_:sub(1, 2) == "#!" and not (
+			e_:match("^#!/bin/lua")
+			or e_:match("^#!/usr/bin/lua")
+			or e_:match("^#!/usr/bin/env lua")
+		)
+	then
+		local f0 = e_:sub(3, e_:find("\n") - 1)
+		local args, o = {}, 0
+		for bI in f0:gmatch("%S+") do
+			args[o] = bI
+			o = o + 1
+		end
+		args[o], o = bs, o + 1
+		for k, c in ipairs({ ... }) do
+			args[o] = c
+			o = o + 1
+		end
+		if args[0] == bs then
+			error("Recursive path detected while resolving shebang", 0)
+		end
+		syscalls.exec(process, aN, args[0], table.unpack(args, 1, o))
+		process.name = "/" .. fs.combine(bs:sub(1, 1) == "/" and "" or process.dir, bs)
+	else
+		local aW, n
+		for k, eE in ipairs(eY) do
+			aW, n = eE(e_, "@" .. bs, "bt", process.env)
+			if aW then
+				break
+			end
+		end
+		if not aW then
+			error("Could not execute file: " .. n, 0)
+		end
+		process.name = "/" .. fs.combine(bs:sub(1, 1) == "/" and "" or process.dir, bs)
+		process.threads = {
+			[0] = {
+				id = 0,
+				name = "<main thread>",
+				coro = coroutine.create(aW),
+				syscall = coroutine.create(function(...)
+					local args = table.pack(...)
+					while true do
+						args = table.pack(
+							coroutine.yield(
+								kSyscallComplete,
+								xpcall(syscalls[args[1]], debug.traceback, table.unpack(args, 2, args.n))
+							)
+						)
+					end
+				end),
+				status = "starting",
+				args = table.pack(...),
+				filter = nil,
+			},
+		}
+		process.threads[0].coroStack = { process.threads[0].coro }
+		if args.preemptive then
+			debug.sethook(process.threads[0].coro, process.hookf, process.debugging and "crl" or "", process.quantum)
+		end
+	end
+	if discord and process.stdin and process.stdin.isTTY and process.stdin.frontmostProcess == process then
+		discord("Phoenix", "Executing " .. process.name)
+	end
+end
+function syscalls.newthread(process, aN, aW, ...)
+	expect(1, aW, "function")
+	local aX = #process.threads + 1
+	process.threads[aX] = {
+		id = aX,
+		name = "<thread:" .. aX .. ">",
+		coro = coroutine.create(aW),
+		syscall = coroutine.create(function(...)
+			local args = table.pack(...)
+			while true do
+				args = table.pack(
+					coroutine.yield(
+						kSyscallComplete,
+						xpcall(syscalls[args[1]], debug.traceback, table.unpack(args, 2, args.n))
+					)
+				)
+			end
+		end),
+		status = "starting",
+		args = table.pack(...),
+		filter = nil,
+		coroStack = nil,
+		paused = false,
+	}
+	setfenv(aW, process.env)
+	process.threads[aX].coroStack = { process.threads[aX].coro }
+	if args.preemptive then
+		debug.sethook(process.threads[aX].coro, process.hookf, process.debugging and "crl" or "", process.quantum)
+	end
+	return aX
+end
+function syscalls.exit(process, aN, bK)
+	process.lastReturnValue = { pid = process.id, thread = aN.id, value = bK, n = 1, bK }
+	for k, aN in pairs(process.threads) do
+		aN.status = "dead"
+		aN.return_value = bK
+	end
+end
+function syscalls.atexit(process, aN, J)
+	expect(1, J, "function")
+	process.dependents[#process.dependents + 1] = {
+		gc = function()
+			local aX = syscalls.newthread(process, nil, J)
+			local o = 0
+			while process.threads[aX] and process.threads[aX].coro:status() == "suspended" and o < 100 do
+				executeThread(process, process.threads[aX], { n = 0 }, false, false)
+				o = o + 1
+			end
+		end,
+	}
+end
+function syscalls.getplist(process, aN)
+	local f1 = {}
+	for F in pairs(processes) do
+		f1[#f1 + 1] = F
+	end
+	table.sort(f1)
+	return f1
+end
+function syscalls.getpinfo(process, aN, dc)
+	expect(1, dc, "number")
+	local a1 = processes[dc]
+	if not a1 then
+		return nil, "No such process"
+	end
+	local f2, f3, f4
+	for o, c in ipairs(TTY) do
+		if a1.stdin == c then
+			f2 = o
+		end
+		if a1.stdout == c then
+			f3 = o
+		end
+		if a1.stderr == c then
+			f4 = o
+		end
+	end
+	local f5 = {}
+	if a1.threads then
+		for o, c in pairs(a1.threads) do
+			f5[o] = { id = c.id, name = c.name, status = c.status, paused = c.pause or false }
+		end
+	end
+	return {
+		id = a1.id,
+		name = a1.name,
+		user = a1.user,
+		realuser = a1.realuser,
+		parent = a1.parent,
+		dir = a1.dir,
+		stdin = f2,
+		stdout = f3,
+		stderr = f4,
+		cputime = a1.cputime or 0,
+		systime = a1.systime or 0,
+		threads = f5,
+		allowDebug = a1.allowDebug,
+		debugging = a1.debugging,
+	}
+end
+function syscalls.suspend(process, aN)
+	process.paused = true
+end
+function syscalls.nice(process, aN, C, dc)
+	expect(1, C, "number")
+	expect.range(C, -20, 20)
+	expect(2, dc, "number", "nil")
+	if C < 0 and process.user ~= "root" then
+		error("Permission denied", 0)
+	end
+	local eJ = dc and assert(processes[dc], "Invalid process ID") or process
+	if eJ.user ~= process.user and process.user ~= "root" then
+		error("Permission denied", 0)
+	end
+	eJ.nice = C
+	eJ.quantum = args.quantum * 10 ^ (C / -10)
+	if args.preemptive then
+		for k, X in pairs(eJ.threads) do
+			debug.sethook(X.coro, eX, "", eJ.quantum)
+		end
+	end
+end
+local function f6(process)
+	local f7, next, f8, getCurrentThread, wakeup = string.find, next, debug.getinfo, getCurrentThread, wakeup
+	local function f9(cr, aF)
+		if cr == "count" then
+			eV("preempt")
+		end
+		local info = f8(2)
+		local aN = getCurrentThread()
+		for aX, dw in next, process.breakpoints do
+			if dw.type == cr or dw.type == "call" and cr == "tail call" then
+				local s = dw.thread == nil or dw.thread == aN.id
+				if dw.filter then
+					for F, c in next, dw.filter do
+						if info[F] ~= c then
+							s = false
+							break
+						end
+					end
+				end
+				if s then
+					dw.process.eventQueue[#dw.process.eventQueue + 1] =
+						{ "debug_break", { process = process.id, thread = aN.id, breakpoint = aX } }
+					wakeup(dw.process)
+					aN.paused = true
+					eV("preempt")
+					break
+				end
+			end
+		end
+		while aN.pendingExec do
+			local E = table.pack(pcall(aN.pendingExec))
+			E.ok = table.remove(E, 1)
+			E.n = E.n - 1
+			if not E.ok then
+				E.error = E[1]
+			end
+			E.process = process.id
+			E.thread = aN.id
+			local fa = aN.pendingExecProcess.eventQueue
+			fa[#fa + 1] = { "debug_exec_result", E }
+			wakeup(aN.pendingExecProcess)
+			aN.pendingExec, aN.pendingExecProcess = nil
+			aN.paused = true
+			eV("preempt")
+		end
+		local aC = debugHooks[eW()]
+		if aC then
+			if
+				cr == "count" and not aC.count
+				or (cr == "call" or cr == "tail call") and not f7(aC.mask, "c")
+				or cr == "return" and not f7(aC.mask, "r")
+				or cr == "line" and not f7(aC.mask, "l")
+			then
+				return
+			end
+			return aC.func(cr, aF)
+		end
+	end
+	setfenv(f9, process.env)
+	debug.protect(f9)
+	process.hookf = f9
+	for k, c in pairs(process.threads) do
+		for k, aB in ipairs(c.coroStack) do
+			debug.sethook(aB, f9, "clr", process.quantum)
+		end
+	end
+end
+local function fb(process)
+	for k, c in pairs(process.threads) do
+		c.paused = false
+		for k, aB in ipairs(c.coroStack) do
+			local aC = debugHooks[aB]
+			debug.sethook(aB, eX, aC and aC.mask or "", process.quantum)
+		end
+	end
+	process.hookf = eX
+end
+function syscalls.debug_enable(process, aN, dc, cG)
+	expect(1, dc, "number", "nil")
+	expect(2, cG, "boolean")
+	local a1
+	if dc == process.id or dc == nil then
+		a1 = process
+		process.allowDebug = cG
+	else
+		a1 = processes[dc]
+		if not a1 then
+			error("No such process")
+		end
+		if not a1.allowDebug or a1.user ~= process.user and process.user ~= "root" then
+			error("Permission denied")
+		end
+	end
+	if a1.debugging ~= cG then
+		if cG then
+			f6(a1)
+		else
+			fb(a1)
+		end
+	end
+	a1.debugging = cG
+	if cG and a1 ~= process then
+		a1.debugger = process
+	end
+end
+function syscalls.debug_break(process, aN, dc, fc)
+	if dc == nil then
+		if not process.debugger or not processes[process.debugger.id] then
+			return
+		end
+		process.debugger.eventQueue[#process.debugger.eventQueue + 1] =
+			{ "debug_break", { process = process.id, thread = aN.id } }
+		wakeup(process.debugger)
+		aN.paused = true
+		return
+	end
+	expect(1, dc, "number")
+	expect(2, fc, "number", "nil")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	if fc then
+		local X = a1.threads[fc]
+		if not X then
+			error("No such thread")
+		end
+		if not X.paused then
+			process.eventQueue[#process.eventQueue + 1] = { "debug_break", { process = a1.id, thread = X.id } }
+		end
+		X.paused = true
+	else
+		for k, X in pairs(a1.threads) do
+			if not X.paused then
+				process.eventQueue[#process.eventQueue + 1] = { "debug_break", { process = a1.id, thread = X.id } }
+			end
+			X.paused = true
+		end
+	end
+end
+function syscalls.debug_continue(process, aN, dc, fc)
+	expect(1, dc, "number")
+	expect(2, fc, "number", "nil")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	if fc then
+		local X = a1.threads[fc]
+		if not X then
+			error("No such thread")
+		end
+		X.paused = false
+	else
+		for k, X in pairs(a1.threads) do
+			X.paused = false
+		end
+	end
+end
+local fd = { call = true, ["return"] = true, line = true, error = true, resume = true, yield = true }
+function syscalls.debug_setbreakpoint(process, aN, dc, fc, l, el)
+	expect(1, dc, "number")
+	expect(2, fc, "number", "nil")
+	expect(3, l, "string", "number")
+	expect(4, el, "table", "nil")
+	if type(l) ~= "number" and not fd[l] then
+		error("bad argument #3 (invalid option '" .. l .. "')")
+	end
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	local aX = #a1.breakpoints + 1
+	a1.breakpoints[aX] = { process = process, thread = fc, type = l, filter = el }
+	return aX
+end
+function syscalls.debug_unsetbreakpoint(process, aN, dc, fe)
+	expect(1, dc, "number")
+	expect(2, fe, "number")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	a1.breakpoints[fe] = nil
+end
+function syscalls.debug_listbreakpoints(process, aN, dc)
+	expect(1, dc, "number")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	local as = {}
+	for aX, dw in pairs(a1.breakpoints) do
+		as[aX] = { type = dw.type, thread = dw.thread }
+		if dw.filter then
+			for F, c in pairs(dw.filter) do
+				as[aX][F] = c
+			end
+		end
+	end
+	return as
+end
+function syscalls.debug_getinfo(process, aN, dc, fc, C, bj)
+	expect(1, dc, "number")
+	expect(2, fc, "number")
+	expect(3, C, "number")
+	expect(4, bj, "string", "nil")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	local X = a1.threads[fc]
+	if not X then
+		error("No such thread")
+	end
+	return debug.getinfo(X.coroStack[#X.coroStack], C, bj)
+end
+function syscalls.debug_getlocal(process, aN, dc, fc, C, S)
+	expect(1, dc, "number")
+	expect(2, fc, "number")
+	expect(3, C, "number")
+	expect(4, S, "number")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	local X = a1.threads[fc]
+	if not X then
+		error("No such thread")
+	end
+	return debug.getlocal(X.coroStack[#X.coroStack], C, S)
+end
+function syscalls.debug_getupvalue(process, aN, dc, fc, C, S)
+	expect(1, dc, "number")
+	expect(2, fc, "number")
+	expect(3, C, "number")
+	expect(4, S, "number")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	local X = a1.threads[fc]
+	if not X then
+		error("No such thread")
+	end
+	local info = debug.getinfo(X.coroStack[#X.coroStack], C, "f")
+	if not info then
+		error("bad argument #3 (level out of range)")
+	end
+	return debug.getupvalue(info.func, S)
+end
+function syscalls.debug_exec(process, aN, dc, fc, J)
+	expect(1, dc, "number")
+	expect(2, fc, "number")
+	expect(3, J, "function")
+	local a1 = processes[dc]
+	if not a1 then
+		error("No such process")
+	end
+	if a1.user ~= process.user and process.user ~= "root" then
+		error("Permission denied")
+	end
+	if not a1.debugging then
+		error("Process does not have debugging enabled")
+	end
+	local X = a1.threads[fc]
+	if not X then
+		error("No such thread")
+	end
+	if not X.paused then
+		error("Thread is not paused")
+	end
+	setfenv(J, a1.env)
+	X.pendingExec = J
+	X.pendingExecProcess = process
+	X.paused = false
+end
+local function ff(t)
+	t = t .. "\x80" .. ("\0"):rep(-(#t + 9) % 64) .. (">I8"):pack(#t)
+	local fg, fh, fi, fj, fk, aB = 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0, {}
+	for fl = 1, #t, 64 do
+		local fm = fl
+		for o = 0, 15 do
+			aB[o] = t:byte(fm) * 0x1000000 + t:byte(fm + 1) * 0x10000 + t:byte(fm + 2) * 0x100 + t:byte(fm + 3)
+			fm = fm + 4
+		end
+		for o = 16, 79 do
+			aB[o] = bit32.lrotate(bit32.bxor(aB[o - 3], aB[o - 8], aB[o - 14], aB[o - 16]), 1)
+		end
+		local cM, ax, G, bG, a7 = fg, fh, fi, fj, fk
+		for o = 0, 79 do
+			local f, F
+			if o <= 19 then
+				f, F = bit32.bxor(bG, bit32.band(ax, bit32.bxor(G, bG))), 0x5A827999
+			elseif o <= 39 then
+				f, F = bit32.bxor(ax, G, bG), 0x6ED9EBA1
+			elseif o <= 59 then
+				f, F = bit32.bor(bit32.band(ax, bit32.bor(G, bG)), bit32.band(G, bG)), 0x8F1BBCDC
+			else
+				f, F = bit32.bxor(ax, G, bG), 0xCA62C1D6
+			end
+			local fn = bit32.band(bit32.lrotate(cM, 5) + f + a7 + F + aB[o], 0xFFFFFFFF)
+			a7, bG, G, ax, cM = bG, G, bit32.lrotate(ax, 30), cM, fn
+		end
+		fg = bit32.band(fg + cM, 0xFFFFFFFF)
+		fh = bit32.band(fh + ax, 0xFFFFFFFF)
+		fi = bit32.band(fi + G, 0xFFFFFFFF)
+		fj = bit32.band(fj + bG, 0xFFFFFFFF)
+		fk = bit32.band(fk + a7, 0xFFFFFFFF)
+	end
+	return { fg, fh, fi, fj, fk }
+end
+local function fo(fp, O)
+	local fq = ff(fp:gsub("%X", ""):gsub("%x%x", function(bI)
+		return string.char(tonumber(bI, 16))
+	end) .. O)
+	local cM, ax, G, bG =
+		fq[1],
+		bit32.bor(bit32.band(fq[2], 0xFFFF0FFF), 0x5000),
+		bit32.bor(bit32.band(fq[3], 0x3FFFFFFF), 0x80000000),
+		fq[4]
+	return ("%08x-%04x-%04x-%04x-%04x%08x"):format(
+		cM,
+		bit32.rshift(ax, 16),
+		bit32.band(ax, 0xFFFF),
+		bit32.rshift(G, 16),
+		bit32.band(G, 0xFFFF),
+		bG
+	)
+end
+local fr = "a6f53b7d-50f3-4e51-adef-8728c83e3f3a"
+deviceTreeRoot = {
+	id = tostring(os.getComputerID()),
+	uuid = fo(fr, tostring(os.getComputerID())),
+	parent = nil,
+	displayName = os.getComputerLabel() or "",
+	drivers = {},
+	metadata = {},
+	internalState = {},
+	children = {},
+	listeners = setmetatable({}, { __mode = "k" }),
+}
+local ft = { [deviceTreeRoot.uuid] = deviceTreeRoot }
+local fu = {}
+function hardware.get(bs)
+	expect(1, bs, "string")
+	if bs:find("^%x+%-%x+%-%x+%-%x+%-%x+$") then
+		return ft[bs]
+	elseif bs == "" or bs:find("/") then
+		local eb = deviceTreeRoot
+		for O in bs:gmatch("[^/]+") do
+			eb = eb.children[O]
+			if eb == nil then
+				break
+			end
+		end
+		return eb
+	else
+		local fv = {}
+		local function fw(eb)
+			if eb.id == bs or eb.alias == bs then
+				fv[#fv + 1] = eb
+			end
+			for k, c in pairs(eb.children) do
+				fw(c)
+			end
+		end
+		fw(deviceTreeRoot)
+		return table.unpack(fv)
+	end
+end
+function hardware.find(type)
+	expect(1, type, "string")
+	local ea = {}
+	local function fx(eb)
+		for k, c in ipairs(eb.drivers) do
+			if c.type == type then
+				ea[#ea + 1] = eb
+				break
+			end
+		end
+		for k, c in pairs(eb.children) do
+			fx(c)
+		end
+	end
+	fx(deviceTreeRoot)
+	return table.unpack(ea)
+end
+function hardware.path(eb)
+	expect(1, eb, "table")
+	expect.field(eb, "uuid", "string")
+	if not ft[eb.uuid] then
+		error("bad argument #1 (invalid node)", 2)
+	end
+	local bs = eb.id
+	eb = eb.parent
+	while eb do
+		bs = eb.id .. "/" .. bs
+		eb = eb.parent
+	end
+	bs = bs:gsub("^[^/]+", "")
+	return bs == "" and "/" or bs
+end
+function hardware.add(ch, O)
+	expect(1, ch, "table")
+	expect(2, O, "string")
+	expect.field(ch, "uuid", "string")
+	if not ft[ch.uuid] then
+		return nil, "Invalid parent node"
+	end
+	if ch.children[O] then
+		return nil, "Node already exists"
+	end
+	local eb = {
+		id = O,
+		uuid = fo(ch.uuid, O),
+		parent = ch,
+		displayName = "",
+		drivers = {},
+		metadata = {},
+		internalState = {},
+		children = {},
+		listeners = setmetatable({}, { __mode = "k" }),
+	}
+	ch.children[O] = eb
+	ft[eb.uuid] = eb
+	syslog.log({ module = "Hardware" }, "Added new device at " .. hardware.path(eb))
+	for k, c in ipairs(fu) do
+		if (not c.parent or c.parent == ch) and (not c.pattern or O:match(c.pattern)) then
+			c.callback(eb)
+		end
+	end
+	return eb
+end
+function hardware.remove(eb)
+	expect(1, eb, "table")
+	expect.field(eb, "uuid", "string")
+	if not ft[eb.uuid] then
+		return false, "Invalid node"
+	end
+	if eb == deviceTreeRoot or not eb.parent then
+		return false, "Cannot remove root node"
+	end
+	for o = #eb.drivers, 1, -1 do
+		hardware.deregister(eb, eb.drivers[o])
+	end
+	for k, c in pairs(eb.children) do
+		hardware.remove(c)
+	end
+	syslog.log({ module = "Hardware" }, "Device at " .. hardware.path(eb) .. " has been removed")
+	eb.parent.children[eb.id] = nil
+	ft[eb.uuid] = nil
+	eb.parent = nil
+	return true
+end
+function hardware.register(eb, fy)
+	expect(1, eb, "table")
+	expect(2, fy, "table")
+	expect.field(eb, "uuid", "string")
+	expect.field(fy, "name", "string")
+	expect.field(fy, "type", "string")
+	expect.field(fy, "properties", "table")
+	expect.field(fy, "methods", "table")
+	expect.field(fy, "init", "function", "nil")
+	expect.field(fy, "deinit", "function", "nil")
+	for F in pairs(fy.methods) do
+		if type(F) ~= "string" then
+			error("bad method name '" .. tostring(F) .. "' (not a string)", 2)
+		end
+		expect.field(fy.methods, F, "function")
+	end
+	for k, c in ipairs(fy.properties) do
+		if type(c) ~= "string" then
+			error("bad property name '" .. tostring(c) .. "' (not a string)", 2)
+		end
+		if not fy.methods["get" .. c:sub(1, 1):upper() .. c:sub(2)] then
+			error("bad property '" .. c .. "' (no getter present)", 2)
+		end
+	end
+	if not ft[eb.uuid] then
+		error("bad argument #1 (invalid node)", 2)
+	end
+	for k, c in ipairs(eb.drivers) do
+		if c == fy then
+			return false
+		end
+	end
+	eb.drivers[#eb.drivers + 1] = fy
+	syslog.log(
+		{ module = "Hardware" },
+		"Registered device with type " .. fy.type .. " on device " .. hardware.path(eb) .. " using driver " .. fy.name
+	)
+	if fy.init then
+		fy.init(eb)
+	end
+	return true
+end
+function hardware.register_callback(fy)
+	return function(eb)
+		return hardware.register(eb, fy)
+	end
+end
+function hardware.deregister(eb, fy)
+	expect(1, eb, "table")
+	expect(2, fy, "table")
+	expect.field(eb, "uuid", "string")
+	if not ft[eb.uuid] then
+		error("bad argument #1 (invalid node)", 2)
+	end
+	for o, c in ipairs(eb.drivers) do
+		if c == fy then
+			if fy.deinit then
+				fy.deinit(eb)
+			end
+			table.remove(eb.drivers, o)
+			syslog.log(
+				{ module = "Hardware" },
+				"Driver " .. fy.name .. " has been deregistered from device " .. hardware.path(eb)
+			)
+			return true
+		end
+	end
+	return false
+end
+function hardware.listen(fz, ch, fA)
+	expect(1, fz, "function")
+	expect(2, ch, "table", "nil")
+	expect(3, fA, "string", "nil")
+	if ch then
+		expect.field(ch, "uuid", "string")
+	end
+	if fA and not pcall(string.match, "", fA) then
+		error("bad argument #3 (invalid pattern)", 2)
+	end
+	fu[#fu + 1] = { callback = fz, parent = ch, pattern = fA }
+end
+function hardware.unlisten(fz)
+	expect(1, fz, "function")
+	local o = 1
+	while o < #fu do
+		if fu[o].callback == fz then
+			table.remove(fu, o)
+		else
+			o = o + 1
+		end
+	end
+end
+function hardware.broadcast(eb, cr, df)
+	expect(1, eb, "table")
+	expect(2, cr, "string")
+	expect(3, df, "table")
+	expect.field(eb, "uuid", "string")
+	if not ft[eb.uuid] then
+		error("bad argument #1 (invalid node)", 2)
+	end
+	for c in pairs(eb.listeners) do
+		c.eventQueue[#c.eventQueue + 1] = { cr, df }
+		wakeup(c)
+	end
+end
+function hardware.call(process, eb, fB, ...)
+	for k, fy in ipairs(eb.drivers) do
+		if fy.methods[fB] then
+			return fy.methods[fB](eb, process, ...)
+		end
+	end
+	error("No such method", 2)
+end
+function syscalls.devlookup(process, aN, O)
+	expect(1, O, "string")
+	local fC = { hardware.get(O) }
+	for F, c in ipairs(fC) do
+		fC[F] = hardware.path(c)
+	end
+	return table.unpack(fC)
+end
+function syscalls.devfind(process, aN, type)
+	expect(1, type, "string")
+	local fC = { hardware.find(type) }
+	for F, c in ipairs(fC) do
+		fC[F] = hardware.path(c)
+	end
+	return table.unpack(fC)
+end
+function syscalls.devinfo(process, aN, fD)
+	expect(1, fD, "string")
+	local eb = hardware.get(fD)
+	if not eb then
+		return nil
+	end
+	local m = {}
+	for k, c in ipairs(eb.drivers) do
+		m[c.type] = c.name
+	end
+	return {
+		id = eb.id,
+		uuid = eb.uuid,
+		alias = eb.alias,
+		parent = eb.parent and hardware.path(eb.parent) or "/",
+		displayName = eb.displayName,
+		types = m,
+		metadata = deepcopy(eb.metadata),
+	}
+end
+function syscalls.devalias(process, aN, fD, fE)
+	expect(1, fD, "string")
+	expect(2, fE, "string", "nil")
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	eb.alias = fE
+end
+function syscalls.devmethods(process, aN, fD)
+	expect(1, fD, "string")
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	local fF = {}
+	for k, c in ipairs(eb.drivers) do
+		for F in pairs(c.methods) do
+			fF[#fF + 1] = F
+		end
+	end
+	return fF
+end
+function syscalls.devproperties(process, aN, fD)
+	expect(1, fD, "string")
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	local fG = {}
+	for k, c in ipairs(eb.drivers) do
+		for k, F in pairs(c.properties) do
+			fG[#fG + 1] = F
+		end
+	end
+	return fG
+end
+function syscalls.devchildren(process, aN, fD)
+	expect(1, fD, "string")
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	local fH = {}
+	for F in pairs(eb.children) do
+		fH[#fH + 1] = F
+	end
+	return fH
+end
+function syscalls.devcall(process, aN, fD, fB, ...)
+	expect(1, fD, "string")
+	expect(2, fB, "string")
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	if eb.process and eb.process ~= process.id then
+		error("Device is locked", 2)
+	end
+	return hardware.call(process, eb, fB, ...)
+end
+function syscalls.devlisten(process, aN, fD, dP)
+	expect(1, fD, "string")
+	expect(2, dP, "boolean", "nil")
+	if dP == nil then
+		dP = true
+	end
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	if dP then
+		for k, c in ipairs(eb.listeners) do
+			if c == process then
+				return
+			end
+		end
+		eb.listeners[process] = true
+		process.dependents[#process.dependents + 1] = {
+			type = "hardware listen",
+			node = eb,
+			gc = function()
+				eb.listeners[process] = nil
+			end,
+		}
+	else
+		eb.listeners[process] = nil
+		for o, c in ipairs(process.dependents) do
+			if c.type == "hardware listen" and c.node == eb then
+				table.remove(process.dependents, o)
+				break
+			end
+		end
+	end
+end
+function syscalls.devlock(process, aN, fD, fI)
+	expect(1, fD, "string")
+	expect(2, fI, "boolean", "nil")
+	if fI == nil then
+		fI = true
+	end
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	if eb.process == nil then
+		eb.process = process.id
+		process.dependents[#process.dependents + 1] = {
+			type = "hardware lock",
+			node = eb,
+			gc = function()
+				eb.process = nil
+			end,
+		}
+		return true
+	elseif eb.process == process.id then
+		return true
+	elseif fI then
+		aN.filter = function(process, aN)
+			return eb.process == nil or eb.process == process.id
+		end
+		return kSyscallYield, "devlock", fD, true
+	else
+		return false
+	end
+end
+function syscalls.devunlock(process, aN, fD)
+	expect(1, fD, "string")
+	local eb = hardware.get(fD)
+	if not eb then
+		error("No such device", 2)
+	end
+	if eb.process and eb.process ~= process.id then
+		error("Device is locked", 2)
+	end
+	eb.process = nil
+	for o, c in ipairs(process.dependents) do
+		if c.type == "hardware lock" and c.node == eb then
+			table.remove(process.dependents, o)
+			break
+		end
+	end
+end
+function syscalls.version(process, aN, fJ)
+	if fJ then
+		return PHOENIX_BUILD
+	else
+		return PHOENIX_VERSION
+	end
+end
+function syscalls.cchost(process, aN)
+	return _HOST
+end
+function syscalls.uptime(process, aN)
+	return (os.epoch("utc") - systemStartTime) / 1000
+end
+function syscalls.attach(process, aN, fK, _type, ...)
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, fK, "string", "number")
+	expect(2, _type, "string")
+	local s, n
+	if periphemu then
+		s = periphemu.create(fK, _type, ...)
+	elseif ccemux then
+		if type(fK) == "number" then
+			fK = _type .. "_" .. fK
+		end
+		if _type == "drive" then
+			_type = "disk_drive"
+		elseif _type == "modem" then
+			_type = "wireless_modem"
+		end
+		if _type == "computer" then
+			local aX = tonumber(fK:match("%d+"))
+			if aX then
+				s, n = pcall(ccemux.openEmu, aX)
+			else
+				s, n = false, "Invalid side"
+			end
+		else
+			s, n = pcall(ccemux.attach, fK, _type, ...)
+		end
+	else
+		s, n = false, "Operation not supported"
+	end
+	return s, n
+end
+function syscalls.detach(process, aN, fK)
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, fK, "string", "number")
+	local s, n
+	if periphemu then
+		s = periphemu.remove(fK)
+	elseif ccemux then
+		if type(fK) == "number" then
+			fK = _type .. "_" .. fK
+		end
+		s, n = pcall(ccemux.detach, fK)
+	else
+		s, n = false, "Operation not supported"
+	end
+	return s, n
+end
+function syscalls.kernargs(process, aN)
+	return deepcopy(args)
+end
+local fL = 0
+function syscalls.lockmutex(process, aN, fM)
+	expect(1, fM, "table")
+	while fM.owner ~= nil and fM.owner ~= aN.id or fM.pid ~= nil and fM.pid ~= process.id do
+		coroutine.yield()
+	end
+	if fM.owner then
+		if type(fM.recursive) == "number" then
+			fM.recursive = fM.recursive + 1
+			return
+		else
+			error("cannot recursively lock mutex", 0)
+		end
+	end
+	fM.owner = aN.id
+	fM.pid = process.id
+	if fM.recursive then
+		fM.recursive = 1
+	end
+end
+function syscalls.__timeout_check(process, aN, info)
+	if info.timeout then
+		return false
+	end
+	return syscalls[info.call](process, aN, info.object, 0)
+end
+function syscalls.timelockmutex(process, aN, fM, eL)
+	expect(1, fM, "table")
+	expect(2, eL, "number")
+	if fM.owner then
+		if fM.owner ~= aN.id then
+			local fN = os.startTimer(eL)
+			local info = { object = fM, timeout = false, call = "timelockmutex" }
+			aN.filter = function(process, aN, aO)
+				if aO[1] == "timer" and aO[2].id == fN then
+					info.timeout = true
+					return true
+				end
+				return fM.owner == nil or fM.owner == aN.id
+			end
+			return kSyscallYield, "__timeout_check", info
+		elseif type(fM.recursive) == "number" then
+			fM.recursive = fM.recursive + 1
+		else
+			error("cannot recursively lock mutex", 0)
+		end
+	else
+		fM.owner = aN.id
+		if fM.recursive then
+			fM.recursive = 1
+		end
+	end
+	return true
+end
+function syscalls.unlockmutex(process, aN, fM)
+	expect(1, fM, "table")
+	if fM.owner == aN.id and fM.pid == process.id then
+		if type(fM.recursive) == "number" then
+			fM.recursive = fM.recursive - 1
+			if fM.recursive <= 0 then
+				fM.owner = nil
+			end
+		else
+			fM.owner, fM.pid = nil
+		end
+	elseif fM.owner == nil then
+		error("mutex already unlocked", 0)
+	else
+		error("mutex not locked by current thread")
+	end
+end
+function syscalls.trylockmutex(process, aN, fM)
+	expect(1, fM, "table")
+	if fM.owner then
+		if fM.owner ~= aN.id or fM.pid ~= process.id then
+			return false
+		elseif type(fM.recursive) == "number" then
+			fM.recursive = fM.recursive + 1
+			return true
+		else
+			error("cannot recursively lock mutex", 0)
+		end
+	else
+		fM.owner = aN.id
+		fM.pid = process.id
+		if fM.recursive then
+			fM.recursive = 1
+		end
+		return true
+	end
+end
+function syscalls.acquiresemaphore(process, aN, fO)
+	expect(1, fO, "table")
+	expect.field(fO, "count", "number")
+	while fO.count <= 0 do
+		coroutine.yield()
+	end
+	fO.count = fO.count - 1
+end
+function syscalls.timeacquiresemaphore(process, aN, fO, eL)
+	expect(1, fO, "table")
+	expect.field(fO, "count", "number")
+	expect(2, eL, "number")
+	if fO.count <= 0 then
+		local fN = os.startTimer(eL)
+		local info = { object = fO, timeout = false, call = "timeacquiresemaphore" }
+		aN.filter = function(process, aN, aO)
+			if aO[1] == "timer" and aO[2].id == fN then
+				info.timeout = true
+				return true
+			end
+			return type(fO.count) ~= "number" or fO.count > 0
+		end
+		return kSyscallYield, "__timeout_check", info
+	end
+	fO.count = fO.count - 1
+	return true
+end
+function syscalls.releasesemaphore(process, aN, fO)
+	expect(1, fO, "table")
+	expect.field(fO, "count", "number")
+	fO.count = fO.count + 1
+end
+local fP = {
+	name = "root",
+	type = "computer",
+	properties = { "label", "id" },
+	methods = {
+		getLabel = function() end,
+		setLabel = function(fQ) end,
+		getId = function() end,
+		shutdown = function() end,
+		reboot = function() end,
+	},
+	init = function(eb) end,
+	deinit = function(eb) end,
+}
+local fR = { top = true, bottom = true, left = true, right = true, front = true, back = true }
+local fS = {}
+function getNodeById(O)
+	if fR[O] then
+		if deviceTreeRoot.children[O] then
+			return deviceTreeRoot.children[O]
+		end
+	else
+		for F in pairs(fR) do
+			if
+				peripheral.getType(F) == "modem"
+				and not peripheral.call(F, "isWireless")
+				and deviceTreeRoot.children[F]
+				and deviceTreeRoot.children[F].children[O]
+			then
+				return deviceTreeRoot.children[F].children[O]
+			end
+		end
+	end
+end
+local function fT(self)
+	self.internalState.peripheral = self.internalState.peripheral or {}
+	if not self.internalState.peripheral.call then
+		self.internalState.peripheral.call = peripheral.call
+	end
+	if self.internalState.peripheral.call == peripheral.call or not self.parent then
+		self.internalState.peripheral.getMethods = peripheral.getMethods
+	else
+		self.internalState.peripheral.getMethods = function(aX)
+			return peripheral.call(self.parent.id, "getMethodsRemote", aX)
+		end
+	end
+end
+local function fU(process, j)
+	j.__metatable = {}
+	for k, c in pairs(j) do
+		setfenv(c, process.env)
+		debug.protect(c)
+	end
+	return setmetatable({}, j)
+end
+local function fV(fy, type)
+	return function(eb)
+		local m, J
+		if eb.parent == deviceTreeRoot then
+			m, J = { peripheral.getType(eb.id) }, peripheral.call
+		else
+			m, J =
+				{ peripheral.call(eb.parent.id, "getTypeRemote", eb.id) }, function(...)
+					return peripheral.call(eb.parent.id, "callRemote", ...)
+				end
+		end
+		for k, c in ipairs(m) do
+			if c == type then
+				eb.internalState.peripheral = { call = J }
+				return hardware.register(eb, fy)
+			end
+		end
+	end
+end
+local function fW(type)
+	return hardware.listen(fV(fS["peripheral_" .. type], type), deviceTreeRoot)
+end
+local function fX(fB)
+	return function(self)
+		return self.internalState.peripheral.call(self.id, fB)
+	end
+end
+local function fY(fB)
+	return function(self, process)
+		if process.user ~= "root" then
+			error("Permission denied", 0)
+		end
+		return self.internalState.peripheral.call(self.id, fB)
+	end
+end
+local function fZ(fB)
+	return function(...)
+		local m = { ... }
+		return function(self, process, g)
+			expect(1, g, table.unpack(m))
+			return self.internalState.peripheral.call(self.id, fB, g)
+		end
+	end
+end
+local function f_(fB)
+	return function(...)
+		local m = { ... }
+		return function(self, process, g)
+			expect(1, g, table.unpack(m))
+			if process.user ~= "root" then
+				error("Permission denied", 0)
+			end
+			return self.internalState.peripheral.call(self.id, fB, g)
+		end
+	end
+end
+local function g0()
+	syslog.log("Sending SIGTERM to all processes")
+	local g1 = false
+	for dc, process in pairs(processes) do
+		if dc ~= 0 then
+			killProcess(dc, 15)
+			local g2, aO = false, nil
+			local aP = true
+			for fc, aN in pairs(process.threads) do
+				if not g2 and aN.status == "suspended" then
+					aO = table.remove(process.eventQueue, 1)
+					g2 = true
+				end
+				if aO or aN.status ~= "suspended" then
+					aP = executeThread(process, aN, aO or { n = 0 }, aP, true)
+				else
+					aP = false
+				end
+			end
+			if aP then
+				process.isDead = true
+				if process.parent ~= 0 and processes[process.parent] then
+					processes[process.parent].eventQueue[#processes[process.parent].eventQueue + 1] =
+						{ "process_complete", process.lastReturnValue }
+					wakeup(processes[process.parent])
+				end
+				reap_process(process)
+				processes[dc] = nil
+			else
+				g1 = true
+			end
+		end
+	end
+	terminal.redraw(currentTTY)
+	if g1 then
+		syslog.log("Sending SIGKILL to all processes")
+		for dc in pairs(processes) do
+			if dc ~= 0 then
+				killProcess(dc, 9)
+			end
+		end
+	end
+end
+fS.root = { name = "root", type = "computer", properties = { "isOn", "label" }, methods = {} }
+function fS.root.methods:getIsOn(process)
+	return true
+end
+function fS.root.methods:getLabel(process)
+	return os.getComputerLabel()
+end
+function fS.root.methods:setLabel(process, fQ)
+	expect(1, fQ, "string", "nil")
+	os.setComputerLabel(fQ)
+end
+function fS.root.methods:turnOn(process) end
+function fS.root.methods:shutdown(process, as)
+	if process.user ~= "root" then
+		error("Permission denied", 2)
+	end
+	syslog.log("System is shutting down.")
+	function postkill()
+		hardware.deregister(deviceTreeRoot, fS.root)
+		syslog.log("Halting system")
+		for k, c in ipairs(shutdownHooks) do
+			c()
+		end
+		os.shutdown(as)
+		mainThread = nil
+		while true do
+			coroutine.yield()
+		end
+	end
+	g0()
+end
+function fS.root.methods:reboot(process)
+	if process.user ~= "root" then
+		error("Permission denied", 2)
+	end
+	syslog.log("System is restarting.")
+	function postkill()
+		hardware.deregister(deviceTreeRoot, fS.root)
+		syslog.log("Rebooting system")
+		for k, c in ipairs(shutdownHooks) do
+			c()
+		end
+		os.reboot()
+		mainThread = nil
+		while true do
+			coroutine.yield()
+		end
+	end
+	g0()
+end
+function fS.root:init()
+	local g3 = hardware.add(self, "redstone")
+	for k, c in ipairs({ "top", "bottom", "left", "right", "front", "back" }) do
+		local bG = hardware.add(g3, c)
+		bG.internalState.redstone = { side = c }
+		hardware.register(bG, fS.root_redstone)
+	end
+	hardware.register(hardware.add(deviceTreeRoot, "lo"), fS.loopback_modem)
+	registerLoopback()
+	for c in pairs(fR) do
+		if peripheral.isPresent(c) then
+			hardware.add(self, c)
+		end
+	end
+	self.displayName = os.getComputerLabel()
+	self.metadata.id = os.getComputerID()
+end
+function fS.root:deinit()
+	for c in pairs(fR) do
+		if peripheral.isPresent(c) and self.children[c] then
+			hardware.remove(self.children[c])
+		end
+	end
+	hardware.remove(hardware.get("/lo"))
+	hardware.remove(hardware.get("/redstone"))
+end
+eventHooks.peripheral = eventHooks.peripheral or {}
+eventHooks.peripheral[#eventHooks.peripheral + 1] = function(aO)
+	if fR[aO[2]] then
+		local eb, n = hardware.add(deviceTreeRoot, aO[2])
+		if eb then
+			hardware.broadcast(deviceTreeRoot, "device_added", { device = hardware.path(eb) })
+		else
+			syslog.log({ level = "error", module = "Hardware" }, "Could not create new device: " .. n)
+		end
+	else
+		for F in pairs(fR) do
+			if
+				peripheral.getType(F) == "modem"
+				and not peripheral.call(F, "isWireless")
+				and peripheral.call(F, "isPresentRemote", aO[2])
+			then
+				if not deviceTreeRoot.children[F] then
+					hardware.add(deviceTreeRoot, F)
+				end
+				local eb, n = hardware.add(deviceTreeRoot.children[F], aO[2])
+				if eb then
+					hardware.broadcast(deviceTreeRoot.children[F], "device_added", { device = hardware.path(eb) })
+				else
+					syslog.log({ level = "error", module = "Hardware" }, "Could not create new device: " .. n)
+				end
+				break
+			end
+		end
+	end
+end
+eventHooks.peripheral_detach = eventHooks.peripheral_detach or {}
+eventHooks.peripheral_detach[#eventHooks.peripheral_detach + 1] = function(aO)
+	local eb = getNodeById(aO[2])
+	if not eb then
+		syslog.log(
+			{ level = "notice", module = "Hardware" },
+			"Received " .. aO[1] .. " event for device ID " .. aO[2] .. ", but no device node was found; ignoring"
+		)
+		return
+	end
+	local bs, ch = hardware.path(eb), eb.parent
+	hardware.remove(eb)
+	hardware.broadcast(ch, "device_removed", { device = bs })
+end
+rootDriver = fS.root
+fS.root_redstone = {
+	name = "root_redstone",
+	type = "redstone",
+	properties = { "input", "output", "bundledInput", "bundledOutput" },
+	methods = {},
+}
+local function g4(S)
+	if S == 0 then
+		return nil
+	else
+		return S
+	end
+end
+function fS.root_redstone.methods:getInput()
+	return g4(redstone.getAnalogInput(self.internalState.redstone.side))
+end
+function fS.root_redstone.methods:getOutput()
+	return g4(redstone.getAnalogOutput(self.internalState.redstone.side))
+end
+function fS.root_redstone.methods:setOutput(process, S)
+	S = expect(1, S, "number", "boolean", "nil") or 0
+	if S == false then
+		S = 0
+	elseif S == true then
+		S = 15
+	end
+	expect.range(S, 0, 15)
+	redstone.setAnalogOutput(self.internalState.redstone.side, S)
+end
+function fS.root_redstone.methods:getBundledInput()
+	return redstone.getBundledInput(self.internalState.redstone.side)
+end
+function fS.root_redstone.methods:getBundledOutput()
+	return redstone.getBundledOutput(self.internalState.redstone.side)
+end
+function fS.root_redstone.methods:setBundledOutput(process, S)
+	expect(1, S, "number")
+	expect.range(S, 0, 65535)
+	redstone.setBundledOutput(self.internalState.redstone.side, S)
+end
+function fS.root_redstone:init()
+	if not self.internalState.redstone or not self.internalState.redstone.side then
+		error("No assigned side on redstone device!", 2)
+	end
+	self.displayName = "Redstone I/O on side " .. self.internalState.redstone.side
+end
+fS.peripheral_command = { name = "peripheral_command", type = "command", properties = { "command" }, methods = {} }
+fS.peripheral_command.methods.getCommand = fY("getCommand")
+fS.peripheral_command.methods.setCommand = f_("setCommand")("string")
+fS.peripheral_command.methods.run = fY("runCommand")
+function fS.peripheral_command:init()
+	fT(self)
+	self.displayName = "Command block at " .. self.id
+end
+fW("command")
+fS.peripheral_computer =
+	{ name = "peripheral_computer", type = "computer", properties = { "isOn", "label" }, methods = {} }
+fS.peripheral_computer.methods.getIsOn = fX("isOn")
+fS.peripheral_computer.methods.getLabel = fX("getLabel")
+fS.peripheral_computer.methods.turnOn = fY("turnOn")
+fS.peripheral_computer.methods.shutdown = fY("shutdown")
+fS.peripheral_computer.methods.reboot = fY("reboot")
+function fS.peripheral_command:init()
+	fT(self)
+	local fQ = self.internalState.peripheral.call(self.id, "getLabel")
+	self.metadata.id = self.internalState.peripheral.call(self.id, "getID")
+	self.displayName = (fQ or "Computer " .. self.metadata.id) .. " at " .. self.id
+end
+fW("computer")
+hardware.listen(fV(fS["peripheral_computer"], "turtle"), deviceTreeRoot)
+fS.peripheral_drive = { name = "peripheral_drive", type = "drive", properties = { "state", "label" }, methods = {} }
+function fS.peripheral_drive.methods:getState(process)
+	if not self.internalState.peripheral.call(self.id, "isDiskPresent") then
+		return nil
+	end
+	return {
+		audio = self.internalState.peripheral.call(self.id, "getAudioTitle") or nil,
+		label = self.internalState.peripheral.call(self.id, "getDiskLabel"),
+		id = self.internalState.peripheral.call(self.id, "getDiskID"),
+	}
+end
+fS.peripheral_drive.methods.getLabel = fX("getDiskLabel")
+fS.peripheral_drive.methods.setLabel = fZ("setDiskLabel")("string", "nil")
+fS.peripheral_drive.methods.getMountPath = fX("getMountPath")
+function fS.peripheral_drive.methods:play(process)
+	if not self.internalState.peripheral.call(self.id, "hasAudio") then
+		error("Inserted disk is not an audio disc", 2)
+	end
+	return self.internalState.peripheral.call(self.id, "playAudio")
+end
+fS.peripheral_drive.methods.stop = fX("stopAudio")
+fS.peripheral_drive.methods.eject = fX("ejectDisk")
+fS.peripheral_drive.methods.insert = f_("insertDisk")("string")
+function fS.peripheral_drive:init()
+	fT(self)
+	self.displayName = (self.internalState.peripheral.call(self.id, "getDiskLabel") or "No disk")
+		.. " on drive "
+		.. self.id
+end
+fW("drive")
+eventHooks.disk = eventHooks.disk or {}
+eventHooks.disk[#eventHooks.disk + 1] = function(aO)
+	local eb = getNodeById(aO[2])
+	if not eb then
+		syslog.log(
+			{ level = "notice", module = "Hardware" },
+			"Received " .. aO[1] .. " event for device ID " .. aO[2] .. ", but no device node was found; ignoring"
+		)
+		return
+	end
+	hardware.broadcast(eb, "disk", { device = hardware.path(eb) })
+end
+eventHooks.disk_eject = eventHooks.disk_eject or {}
+eventHooks.disk_eject[#eventHooks.disk_eject + 1] = function(aO)
+	local eb = getNodeById(aO[2])
+	if not eb then
+		syslog.log(
+			{ level = "notice", module = "Hardware" },
+			"Received " .. aO[1] .. " event for device ID " .. aO[2] .. ", but no device node was found; ignoring"
+		)
+		return
+	end
+	hardware.broadcast(eb, "disk_eject", { device = hardware.path(eb) })
+end
+fS.peripheral_energy_storage =
+	{ name = "peripheral_energy_storage", type = "energy_storage", properties = { "energy" }, methods = {} }
+fS.peripheral_energy_storage.methods.getEnergy = fX("getEnergy")
+function fS.peripheral_energy_storage:init()
+	fT(self)
+	self.displayName = "Energy storage block at " .. self.id
+	self.metadata.capacity = self.internalState.peripheral.call(self.id, "getEnergyCapacity")
+end
+fW("energy_storage")
+fS.peripheral_fluid_storage =
+	{ name = "peripheral_fluid_storage", type = "fluid_storage", properties = { "tanks" }, methods = {} }
+fS.peripheral_fluid_storage.methods.getTanks = fX("tanks")
+function fS.peripheral_fluid_storage.methods:push(process, c8, g5, O)
+	expect(1, c8, "string")
+	expect(2, g5, "number", "nil")
+	expect(3, O, "string", "nil")
+	local eJ
+	local g6 = { hardware.get(c8) }
+	if #g6 == 1 then
+		eJ = g6[1]
+	else
+		for k, c in ipairs(g6) do
+			if c.parent == self.parent then
+				eJ = c
+				break
+			end
+		end
+	end
+	if not eJ then
+		error("No such device", 0)
+	elseif eJ.parent ~= self.parent then
+		error("Devices must be on the same network", 0)
+	end
+	local s = false
+	for k, c in ipairs(eJ.drivers) do
+		if c == fS.peripheral_fluid_storage then
+			s = true
+			break
+		end
+	end
+	if not s then
+		error("Target device is not a fluid storage block", 0)
+	end
+	return self.internalState.peripheral.call(self.id, "pushFluid", eJ.id, g5, O)
+end
+function fS.peripheral_fluid_storage.methods:pull(process, c7, g5, O)
+	expect(1, c7, "string")
+	expect(2, g5, "number", "nil")
+	expect(3, O, "string", "nil")
+	local eJ
+	local g6 = { hardware.get(c7) }
+	if #g6 == 1 then
+		eJ = g6[1]
+	else
+		for k, c in ipairs(g6) do
+			if c.parent == self.parent then
+				eJ = c
+				break
+			end
+		end
+	end
+	if not eJ then
+		error("No such device", 0)
+	elseif eJ.parent ~= self.parent then
+		error("Devices must be on the same network", 0)
+	end
+	local s = false
+	for k, c in ipairs(eJ.drivers) do
+		if c == fS.peripheral_fluid_storage then
+			s = true
+			break
+		end
+	end
+	if not s then
+		error("Target device is not a fluid storage block", 0)
+	end
+	return self.internalState.peripheral.call(self.id, "pullFluid", eJ.id, g5, O)
+end
+function fS.peripheral_fluid_storage:init()
+	fT(self)
+	self.displayName = "Fluid storage block at " .. self.id
+end
+fW("fluid_storage")
+fS.peripheral_inventory = { name = "peripheral_inventory", type = "inventory", properties = { "items" }, methods = {} }
+fS.peripheral_inventory.methods.getItems = fX("list")
+fS.peripheral_inventory.methods.detail = fZ("getItemDetail")("number")
+fS.peripheral_inventory.methods.limit = fZ("getItemLimit")("number")
+function fS.peripheral_inventory.methods:push(process, c8, g7, g5, g8)
+	expect(1, c8, "string")
+	expect(2, g7, "number")
+	expect(3, g5, "number", "nil")
+	expect(4, g8, "number", "nil")
+	local eJ
+	local g6 = { hardware.get(c8) }
+	if #g6 == 1 then
+		eJ = g6[1]
+	else
+		for k, c in ipairs(g6) do
+			if c.parent == self.parent then
+				eJ = c
+				break
+			end
+		end
+	end
+	if not eJ then
+		error("No such device", 0)
+	elseif eJ.parent ~= self.parent then
+		error("Devices must be on the same network", 0)
+	end
+	local s = false
+	for k, c in ipairs(eJ.drivers) do
+		if c == fS.peripheral_inventory then
+			s = true
+			break
+		end
+	end
+	if not s then
+		error("Target device is not an inventory block", 0)
+	end
+	return self.internalState.peripheral.call(self.id, "pushItems", eJ.id, g7, g5, g8)
+end
+function fS.peripheral_inventory.methods:pull(process, c7, g7, g5, g8)
+	expect(1, c7, "string")
+	expect(2, g7, "number")
+	expect(3, g5, "number", "nil")
+	expect(4, g8, "number", "nil")
+	local eJ
+	local g6 = { hardware.get(c7) }
+	if #g6 == 1 then
+		eJ = g6[1]
+	else
+		for k, c in ipairs(g6) do
+			if c.parent == self.parent then
+				eJ = c
+				break
+			end
+		end
+	end
+	if not eJ then
+		error("No such device", 0)
+	elseif eJ.parent ~= self.parent then
+		error("Devices must be on the same network", 0)
+	end
+	local s = false
+	for k, c in ipairs(eJ.drivers) do
+		if c == fS.peripheral_inventory then
+			s = true
+			break
+		end
+	end
+	if not s then
+		error("Target device is not an inventory block", 0)
+	end
+	return self.internalState.peripheral.call(self.id, "pullItems", eJ.id, g7, g5, g8)
+end
+function fS.peripheral_inventory:init()
+	fT(self)
+	self.displayName = "Inventory at " .. self.id
+	self.metadata.size = self.internalState.peripheral.call(self.id, "size")
+end
+fW("inventory")
+fS.peripheral_monitor =
+	{ name = "peripheral_monitor", type = "monitor", properties = { "scale", "size" }, methods = {} }
+fS.peripheral_monitor.methods.getScale = fX("getTextScale")
+fS.peripheral_monitor.methods.setScale = fZ("setTextScale")("number")
+function fS.peripheral_monitor.methods:getSize()
+	local aB, aC = self.internalState.peripheral.call(self.id, "getSize")
+	return { width = aB, height = aC }
+end
+function fS.peripheral_monitor.methods:write(process, ...)
+	for o, c in ipairs({ ... }) do
+		if o > 1 then
+			terminal.write(self.internalState.tty, "\t")
+		end
+		terminal.write(self.internalState.tty, c)
+	end
+	terminal.redraw(self.internalState.tty)
+end
+function fS.peripheral_monitor.methods:termctl(process, dT)
+	expect(1, dT, "table", "nil")
+	if dT then
+		expect.field(dT, "cbreak", "boolean", "nil")
+		expect.field(dT, "delay", "boolean", "nil")
+		expect.field(dT, "echo", "boolean", "nil")
+		expect.field(dT, "keypad", "boolean", "nil")
+		expect.field(dT, "nlcr", "boolean", "nil")
+		expect.field(dT, "raw", "boolean", "nil")
+		for F, c in pairs(dT) do
+			if self.internalState.tty.flags[F] ~= nil then
+				self.internalState.tty.flags[F] = c
+			end
+		end
+	end
+	local X = deepcopy(self.internalState.tty.flags)
+	X.hasgfx = term.getGraphicsMode ~= nil
+	return X
+end
+function fS.peripheral_monitor.methods:openterm(process)
+	return terminal.openterm(self.internalState.tty, process)
+end
+function fS.peripheral_monitor.methods:opengfx(process)
+	return terminal.opengfx(self.internalState.tty, process)
+end
+function fS.peripheral_monitor:init()
+	fT(self)
+	local aB, aC = self.internalState.peripheral.call(self.id, "getSize")
+	local g9 = self.internalState.peripheral.call(self.id, "getTextScale")
+	self.displayName = aB * g9 .. "x" .. aC * g9 .. " monitor at " .. self.id
+	local term = {}
+	for k, c in ipairs(self.internalState.peripheral.getMethods(self.id)) do
+		term[c] = function(...)
+			return self.internalState.peripheral.call(self.id, c, ...)
+		end
+	end
+	self.internalState.tty = terminal.makeTTY(term, aB, aC)
+	self.internalState.tty.isMonitor = true
+	terminal.redraw(self.internalState.tty, true)
+end
+function fS.peripheral_monitor:deinit()
+	local dE = self.internalState.tty
+	if dE.frontmostProcess then
+		local c = dE.frontmostProcess
+		if c.stdin == dE then
+			c.stdin = nil
+		end
+		if c.stdout == dE then
+			c.stdout = nil
+		end
+		if c.stderr == dE then
+			c.stderr = nil
+		end
+	end
+	for k, c in ipairs(dE.processList) do
+		if c.stdin == dE then
+			c.stdin = nil
+		end
+		if c.stdout == dE then
+			c.stdout = nil
+		end
+		if c.stderr == dE then
+			c.stderr = nil
+		end
+	end
+end
+fW("monitor")
+eventHooks.monitor_resize = eventHooks.monitor_resize or {}
+eventHooks.monitor_resize[#eventHooks.monitor_resize + 1] = function(aO)
+	local eb = getNodeById(aO[2])
+	if not eb then
+		syslog.log(
+			{ level = "notice", module = "Hardware" },
+			"Received " .. aO[1] .. " event for device ID " .. aO[2] .. ", but no device node was found; ignoring"
+		)
+		return
+	end
+	local af = fS.peripheral_monitor.methods.getSize(eb)
+	terminal.resize(eb.internalState.tty, af.width, af.height)
+	hardware.broadcast(eb, "monitor_resize", { device = hardware.path(eb), width = af.width, height = af.height })
+end
+fS.peripheral_printer =
+	{ name = "peripheral_printer", type = "printer", properties = { "inkLevel", "paperLevel" }, methods = {} }
+fS.peripheral_printer.methods.getInkLevel = fX("getInkLevel")
+fS.peripheral_printer.methods.getPaperLevel = fX("getPaperLevel")
+function fS.peripheral_printer.methods:page(process)
+	if self.internalState.printer.open then
+		self.internalState.peripheral.call(self.id, "endPage")
+		self.internalState.printer.open = false
+	end
+	if not self.internalState.peripheral.call(self.id, "newPage") then
+		return nil
+	end
+	self.internalState.printer.open = true
+	local ga, Q, R
+	local function dS(...)
+		if not self.internalState.printer.open then
+			error("attempt to use closed page", 2)
+		end
+		return self.internalState.peripheral.call(self.id, "write", ...)
+	end
+	local function gb()
+		if not self.internalState.printer.open then
+			return true
+		end
+		if not self.internalState.peripheral.call(self.id, "endPage") then
+			return false
+		end
+		self.internalState.printer.open = false
+	end
+	setfenv(dS, process.env)
+	setfenv(gb, process.env)
+	debug.protect(dS)
+	debug.protect(gb)
+	return fU(process, {
+		__index = function(k, aY)
+			if not self.internalState.printer.open then
+				error("attempt to use closed page", 2)
+			end
+			if aY == "size" then
+				local U, dA = self.internalState.peripheral.call(self.id, "getPageSize")
+				return fU(process, {
+					__index = function(k, aY)
+						if aY == "width" then
+							return U
+						elseif aY == "height" then
+							return dA
+						end
+					end,
+					__newindex = function()
+						error("Cannot modify read-only table", 2)
+					end,
+				})
+			elseif aY == "cursor" then
+				Q, R = self.internalState.peripheral.call(self.id, "getCursorPos")
+				return fU(process, {
+					__index = function(k, aY)
+						if aY == "x" then
+							return Q
+						elseif aY == "y" then
+							return R
+						end
+					end,
+					__newindex = function(k, aY, z)
+						if aY == "x" then
+							Q = z
+							self.internalState.peripheral.call(self.id, "setCursorPos", Q, R)
+						elseif aY == "y" then
+							R = z
+							self.internalState.peripheral.call(self.id, "setCursorPos", Q, R)
+						else
+							error("Cannot modify member '" .. aY .. "'", 2)
+						end
+					end,
+				})
+			elseif aY == "title" then
+				return ga
+			elseif aY == "isOpen" then
+				return self.internalState.printer.open
+			elseif aY == "write" then
+				return dS
+			elseif aY == "close" then
+				return gb
+			end
+		end,
+		__newindex = function(k, aY, z)
+			if not self.internalState.printer.open then
+				error("attempt to use closed page", 2)
+			end
+			if aY == "cursor" then
+				if type(z) ~= "table" then
+					error("bad value for 'cursor' (expected table, got " .. type(z) .. ")", 2)
+				end
+				expect.field(z, "x", "number")
+				expect.field(z, "y", "number")
+				Q, R = z.x, z.y
+				self.internalState.peripheral.call(self.id, "setCursorPos", Q, R)
+			elseif aY == "title" then
+				if type(z) ~= "string" and z ~= nil then
+					error("bad value for 'title' (expected string, got " .. type(z) .. ")", 2)
+				end
+				ga = z
+				self.internalState.peripheral.call(self.id, "setPageTitle", ga)
+			else
+				error("Cannot modify member '" .. aY .. "'", 2)
+			end
+		end,
+	})
+end
+function fS.peripheral_printer:init()
+	fT(self)
+	self.displayName = "Speaker at " .. self.id
+	self.internalState.printer = { open = false }
+end
+fW("printer")
+local gc = {
+	name = "peripheral_redstone_relay_side",
+	type = "redstone",
+	properties = { "input", "output", "bundledInput", "bundledOutput" },
+	methods = {},
+}
+function gc.methods:getInput()
+	return g4(self.internalState.peripheral.call(self.id, "getAnalogInput", self.internalState.redstone.side))
+end
+function gc.methods:getOutput()
+	return g4(self.internalState.peripheral.call(self.id, "getAnalogOutput", self.internalState.redstone.side))
+end
+function gc.methods:setOutput(process, S)
+	S = expect(1, S, "number", "boolean", "nil") or 0
+	if S == false then
+		S = 0
+	elseif S == true then
+		S = 15
+	end
+	expect.range(S, 0, 15)
+	self.internalState.peripheral.call(self.id, "setAnalogOutput", self.internalState.redstone.side, S)
+end
+function gc.methods:getBundledInput()
+	return self.internalState.peripheral.call(self.id, "getBundledInput", self.internalState.redstone.side)
+end
+function gc.methods:getBundledOutput()
+	return self.internalState.peripheral.call(self.id, "getBundledOutput", self.internalState.redstone.side)
+end
+function gc.methods:setBundledOutput(process, S)
+	expect(1, S, "number")
+	expect.range(S, 0, 65535)
+	return self.internalState.peripheral.call(self.id, "setBundledOnput", self.internalState.redstone.side, S)
+end
+function gc:init()
+	if not self.internalState.redstone or not self.internalState.redstone.side then
+		error("No assigned side on redstone device!", 2)
+	end
+	self.displayName = "Redstone Relay '" .. self.id .. "' on side " .. self.internalState.redstone.side
+end
+fS.peripheral_redstone_relay =
+	{ name = "peripheral_redstone_relay", type = "redstone_relay", properties = {}, methods = {} }
+function fS.peripheral_redstone_relay:init()
+	for k, c in ipairs({ "top", "bottom", "left", "right", "front", "back" }) do
+		local bG = hardware.add(self, c)
+		bG.internalState.redstone = { side = c }
+		hardware.register(bG, gc)
+	end
+end
+fW("redstone_relay")
+fS.peripheral_speaker = { name = "peripheral_speaker", type = "speaker", properties = {}, methods = {} }
+function fS.peripheral_speaker.methods:playNote(process, gd, ge, gf)
+	expect(1, gd, "string")
+	expect(2, ge, "number", "nil")
+	expect(3, gf, "number", "nil")
+	if ge then
+		expect.range(ge, 0, 3)
+	end
+	if gf then
+		expect.range(gf, 0, 24)
+	end
+	return self.internalState.peripheral.call(self.id, "playNote", gd, ge, gf)
+end
+function fS.peripheral_speaker.methods:playSound(process, O, ge, gg)
+	expect(1, O, "string")
+	expect(2, ge, "number", "nil")
+	expect(3, gg, "number", "nil")
+	if ge then
+		expect.range(ge, 0, 3)
+	end
+	if gg then
+		expect.range(gg, 0.5, 2.0)
+	end
+	return self.internalState.peripheral.call(self.id, "playNote", O, ge, gg)
+end
+function fS.peripheral_speaker.methods:playAudio(gh, ge)
+	expect(1, gh, "table")
+	expect(2, ge, "number", "nil")
+	if ge then
+		expect.range(ge, 0, 3)
+	end
+	return self.internalState.peripheral.call(self.id, "playAudio", gh, ge)
+end
+fS.peripheral_speaker.methods.stop = fX("stop")
+function fS.peripheral_speaker:init()
+	fT(self)
+	self.displayName = "Speaker at " .. self.id
+end
+fW("speaker")
+eventHooks.speaker_audio_empty = eventHooks.speaker_audio_empty or {}
+eventHooks.speaker_audio_empty[#eventHooks.speaker_audio_empty + 1] = function(aO)
+	local eb = getNodeById(aO[2])
+	if not eb then
+		syslog.log(
+			{ level = "notice", module = "Hardware" },
+			"Received " .. aO[1] .. " event for device ID " .. aO[2] .. ", but no device node was found; ignoring"
+		)
+		return
+	end
+	hardware.broadcast(eb, "speaker_audio_empty", { device = hardware.path(eb) })
+end
+local gi = {
+	fS.peripheral_command,
+	fS.peripheral_computer,
+	fS.peripheral_drive,
+	fS.peripheral_energy_storage,
+	fS.peripheral_fluid_storage,
+	fS.peripheral_inventory,
+	fS.peripheral_monitor,
+	fS.peripheral_printer,
+	fS.peripheral_speaker,
+}
+function registerDriver(fy)
+	local gj = fy.init
+	fy.init = function(eb)
+		fT(eb)
+		if gj then
+			return gj(eb)
+		end
+	end
+	fy.__callback = fV(fy, fy.type)
+	hardware.listen(fy.__callback, deviceTreeRoot)
+	gi[#gi + 1] = fy
+	for k, eb in ipairs({ hardware.find("modem") }) do
+		if not eb.metadata.wireless then
+			hardware.listen(fy.__callback, eb)
+			eb.internalState.modem.callbacks[#eb.internalState.modem.callbacks + 1] = f
+		end
+	end
+end
+function deregisterDriver(fy)
+	if not fy.__callback then
+		return
+	end
+	hardware.unlisten(fy.__callback)
+	for k, c in ipairs({ hardware.find(fy.type) }) do
+		hardware.deregister(c, fy)
+	end
+	for o, c in ipairs(fR) do
+		if c == fy then
+			table.remove(fR, o)
+			break
+		end
+	end
+	for k, eb in ipairs({ hardware.find("modem") }) do
+		if not eb.metadata.wireless then
+			hardware.unlisten(fy.__callback)
+			for o, c in ipairs(eb.internalState.modem.callbacks) do
+				if c == fy.__callback then
+					table.remove(eb.internalState.modem.callbacks, o)
+					break
+				end
+			end
+		end
+	end
+end
+fS.peripheral_modem = { name = "peripheral_modem", type = "modem", properties = { "remainingChannels" }, methods = {} }
+function fS.peripheral_modem.methods:getRemainingChannels()
+	local u = 128
+	for k in pairs(self.internalState.modem) do
+		u = u - 1
+	end
+	return u
+end
+function fS.peripheral_modem.methods:open(process, gk)
+	if not self.internalState.modem[gk] then
+		self.internalState.peripheral.call(self.id, "open", gk)
+		self.internalState.modem[gk] = {}
+	end
+	self.internalState.modem[gk][process] = true
+end
+function fS.peripheral_modem.methods:isOpen(process, gk)
+	return not not (self.internalState.modem[gk] and self.internalState.modem[gk][process])
+end
+function fS.peripheral_modem.methods:close(process, gk)
+	if not self.internalState.modem[gk] then
+		return
+	end
+	self.internalState.modem[gk][process] = nil
+	if not next(self.internalState.modem[gk]) then
+		self.internalState.peripheral.call(self.id, "close", gk)
+		self.internalState.modem[gk] = nil
+	end
+end
+function fS.peripheral_modem.methods:closeAll(process)
+	for gk = 0, 65535 do
+		if self.internalState.modem[gk] then
+			self.internalState.modem[gk][process] = nil
+			if not next(self.internalState.modem[gk]) then
+				self.internalState.peripheral.call(self.id, "close", gk)
+				self.internalState.modem[gk] = nil
+			end
+		end
+	end
+end
+function fS.peripheral_modem.methods:transmit(process, gk, gl, gm)
+	expect(1, gk, "number")
+	gl = expect(2, gl, "number", "nil") or gk
+	return self.internalState.peripheral.call(self.id, "transmit", gk, gl, gm)
+end
+function fS.peripheral_modem:init()
+	fT(self)
+	self.metadata.wireless = self.internalState.peripheral.call(self.id, "isWireless")
+	self.displayName = (self.metadata.wireless and "Wireless" or "Wired") .. " modem at " .. self.id
+	self.internalState.modem = {}
+	self.internalState.modem.channels = {}
+	self.internalState.peripheral.call(self.id, "closeAll")
+	if not self.metadata.wireless then
+		self.internalState.modem.callbacks = {}
+		for k, c in ipairs(gi) do
+			local f = fV(c, c.type)
+			hardware.listen(f, self)
+			self.internalState.modem.callbacks[#self.internalState.modem.callbacks + 1] = f
+		end
+		local f = fV(fS["peripheral_computer"], "turtle")
+		hardware.listen(f, self)
+		self.internalState.modem.callbacks[#self.internalState.modem.callbacks + 1] = f
+		for k, O in ipairs(self.internalState.peripheral.call(self.id, "getNamesRemote")) do
+			hardware.add(self, O)
+		end
+	end
+end
+function fS.peripheral_modem:deinit()
+	if not self.metadata.wireless then
+		for k, c in ipairs(self.internalState.modem.callbacks) do
+			hardware.unlisten(c)
+		end
+	end
+end
+fW("modem")
+eventHooks.modem_message = eventHooks.modem_message or {}
+eventHooks.modem_message[#eventHooks.modem_message + 1] = function(aO)
+	local eb = getNodeById(aO[2]) or hardware.get(aO[2])
+	if not eb then
+		syslog.log(
+			{ level = "notice", module = "Hardware" },
+			"Received " .. aO[1] .. " event for device ID " .. aO[2] .. ", but no device node was found; ignoring"
+		)
+		return
+	end
+	local as = false
+	for c in pairs(eb.listeners) do
+		if (eb.internalState.modem[aO[3]] or {})[c] then
+			c.eventQueue[#c.eventQueue + 1], as =
+				{
+					"modem_message",
+					{ device = hardware.path(eb), channel = aO[3], replyChannel = aO[4], message = aO[5], distance = aO[6] },
+				},
+				true
+			wakeup(c)
+		end
+	end
+	return as
+end
+fS.loopback_modem = { name = "loopback_modem", type = "modem", properties = { "remainingChannels" }, methods = {} }
+function fS.loopback_modem.methods:getRemainingChannels()
+	local u = 128
+	for k in pairs(self.internalState.modem) do
+		u = u - 1
+	end
+	return u
+end
+function fS.loopback_modem.methods:open(process, gk)
+	if not self.internalState.modem[gk] then
+		self.internalState.modem[gk] = {}
+	end
+	self.internalState.modem[gk][process] = true
+end
+function fS.loopback_modem.methods:isOpen(process, gk)
+	return self.internalState.modem[gk] and self.internalState.modem[gk][process]
+end
+function fS.loopback_modem.methods:close(process, gk)
+	self.internalState.modem[gk][process] = nil
+	if not next(self.internalState.modem[gk]) then
+		self.internalState.modem[gk] = nil
+	end
+end
+function fS.loopback_modem.methods:closeAll(process)
+	for gk = 0, 65535 do
+		self.internalState.modem[gk][process] = nil
+		if not next(self.internalState.modem[gk]) then
+			self.internalState.modem[gk] = nil
+		end
+	end
+end
+function fS.loopback_modem.methods:transmit(process, gk, gl, gm)
+	expect(1, gk, "number")
+	gl = expect(2, gl, "number", "nil") or gk
+	os.queueEvent("modem_message", self.uuid, gk, gl, gm, 0)
+end
+function fS.loopback_modem:init()
+	self.metadata.wireless = true
+	self.displayName = "Loopback modem"
+	self.internalState.modem = {}
+	self.internalState.modem.channels = {}
+end
+local function gn(go)
+	local info = { scheme = "" }
+	for G in go:gmatch(".") do
+		if info.fragment then
+			if G:match("[%w%-%._~%%@:/!%$&'%(%)%*%+,;=/?]") then
+				info.fragment = info.fragment .. G
+			else
+				error("Invalid URI", 3)
+			end
+		elseif info.query then
+			if G == "#" then
+				info.fragment = ""
+			elseif G:match("[%w%-%._~%%@:/!%$&'%(%)%*%+,;=/?]") then
+				info.query = info.query .. G
+			else
+				error("Invalid URI", 3)
+			end
+		elseif info.path then
+			if G == "/" and info.path == "/" and not info.host then
+				info.path, info.host = nil, ""
+			elseif G == "?" then
+				info.query = ""
+			elseif G == "#" then
+				info.fragment = ""
+			elseif G:match("[%w%-%._~%%@:/!%$&'%(%)%*%+,;=/]") then
+				info.path = info.path .. G
+			else
+				error("Invalid URI", 3)
+			end
+		elseif info.port then
+			if tonumber(G) then
+				info.port = info.port .. G
+			elseif G == "/" then
+				info.path = "/"
+			else
+				error("Invalid URI", 3)
+			end
+		elseif info.host then
+			if G == "@" and not info.user then
+				info.user, info.host = info.host, ""
+			elseif G == ":" then
+				info.port = ""
+			elseif G == "/" then
+				info.path = "/"
+			elseif G:match("[%w%-%._~%%/!%$&'%(%)%*%+,;=]") then
+				info.host = info.host .. G
+			else
+				error("Invalid URI", 3)
+			end
+		else
+			if G == ":" then
+				info.path = ""
+			elseif G:match(info.scheme == "" and "[%a%+%-%.]" or "[%w%+%-%.]") then
+				info.scheme = info.scheme .. G
+			else
+				error("Invalid URI", 3)
+			end
+		end
+	end
+	if info.port then
+		info.port = tonumber(info.port)
+	end
+	return info
+end
+local function gp(gq)
+	if gq:match("^%d+$") then
+		return tonumber(gq)
+	elseif gq:match("^%d+%.%d+$") then
+		return tonumber(gq:match("^%d+")) * 0x1000000 + tonumber(gq:match("^%d+%.(%d+)"))
+	elseif gq:match("^%d+%.%d+%.%d+$") then
+		return tonumber(gq:match("^(%d+)")) * 0x1000000
+			+ tonumber(gq:match("^%d+%.(%d+)")) * 0x10000
+			+ tonumber(gq:match("^%d+%.%d+%.(%d+)"))
+	elseif gq:match("^%d+%.%d+%.%d+%.%d+$") then
+		return tonumber(gq:match("^(%d+)")) * 0x1000000
+			+ tonumber(gq:match("^%d+%.(%d+)")) * 0x10000
+			+ tonumber(gq:match("^%d+%.%d+%.(%d+)")) * 0x100
+			+ tonumber(gq:match("^%d+%.%d+%.%d+%.(%d+)"))
+	else
+		error("Invalid IP address", 2)
+	end
+end
+local function gr(u)
+	if not u then
+		return nil
+	end
+	return ("%d.%d.%d.%d"):format(
+		bit32.band(bit32.rshift(u, 24), 0xFF),
+		bit32.band(bit32.rshift(u, 16), 0xFF),
+		bit32.band(bit32.rshift(u, 8), 0xFF),
+		bit32.band(u, 0xFF)
+	)
+end
+local function gs(gt)
+	local bI = ""
+	for o = 1, gt do
+		bI = bI .. string.char(math.random(0, 255))
+	end
+	return bI
+end
+local function gu(u)
+	return bit32.bnot(2 ^ (32 - u) - 1)
+end
+local function gv(V)
+	local S = 0
+	while bit32.btest(V, 0x80000000) do
+		V, S = bit32.lshift(V, 1), S + 1
+	end
+	return S
+end
+local function gw(eb)
+	if not eb then
+		error("No such device")
+	end
+	for k, c in pairs(eb.drivers) do
+		if c.type == "modem" then
+			return eb
+		end
+	end
+	error("Not a modem")
+end
+local gx = 0
+local gy = {}
+local gz = { maxn = 0, [0] = {} }
+local gA = {}
+local gB = { send = {}, recv = {} }
+local gC = {}
+local gD = {}
+local gE = {}
+local gF = setmetatable({}, { __mode = "k" })
+local gG = { arp = {}, socket = {} }
+local gH = {}
+local function gI(gJ, gK)
+	local gL = {}
+	for F in pairs(gJ.devices) do
+		gL[F] = true
+	end
+	if gC[gK] and gC[gK].listen and gC[gK].listen.process == gJ.process then
+		for F in pairs(gC[gK].listen.devices) do
+			gL[F] = nil
+		end
+	end
+	if gC[gK] then
+		for k, bI in pairs(gC[gK]) do
+			if bI.process == gJ.process then
+				for F in pairs(bI.devices) do
+					gL[F] = nil
+				end
+			end
+		end
+	end
+	for F in pairs(gL) do
+		hardware.call(gJ.process, hardware.get(F), "close", gK)
+	end
+end
+function gB.send.link(info, gM, aA)
+	expect(2, gM, "number", "nil")
+	expect.field(info, "device", "table")
+	local bQ = { PhoenixNetworking = true, type = "link", source = os.computerID(), destination = gM, payload = aA }
+	if gM == os.computerID() then
+		os.queueEvent("modem_message", info.device.id, info.outPort or 0, info.inPort or 0, bQ, 0)
+	else
+		hardware.call(info.process or KERNEL, info.device, "transmit", info.outPort or 0, info.inPort or 0, bQ)
+	end
+end
+function gB.send.arp_request(info, gq)
+	expect.field(info, "device", "table")
+	expect(2, gq, "string")
+	hardware.call(
+		info.process or KERNEL,
+		info.device,
+		"transmit",
+		0,
+		0,
+		{
+			PhoenixNetworking = true,
+			type = "arp",
+			reply = false,
+			source = os.computerID(),
+			sourceIP = gy[info.device.uuid] and gr(gy[info.device.uuid].ip),
+			destinationIP = gq,
+		}
+	)
+end
+function gB.send.arp_reply(info, gM, gN)
+	expect.field(info, "device", "table")
+	expect(2, gM, "number")
+	expect(3, gN, "string", "nil")
+	hardware.call(
+		info.process or KERNEL,
+		info.device,
+		"transmit",
+		0,
+		0,
+		{
+			PhoenixNetworking = true,
+			type = "arp",
+			reply = true,
+			source = os.computerID(),
+			sourceIP = gr(gy[info.device.uuid].ip),
+			destination = gM,
+			destinationIP = gN,
+		}
+	)
+end
+function gB.send.internet(info, gM, aA, gO, fz)
+	expect(2, gM, "number")
+	local e = { PhoenixNetworking = true, type = "internet", hopsLeft = gO or 15, payload = aA, destination = gr(gM) }
+	local aX = gs(32)
+	e.messageID = aX
+	local c
+	for o = gz.maxn, 0, -1 do
+		if gz[o] then
+			for k, gP in ipairs(gz[o]) do
+				if
+					bit32.band(gP.source, gP.sourceNetmask) == bit32.band(gM, gP.sourceNetmask)
+					and (not c or gv(gP.sourceNetmask) > gv(c.sourceNetmask))
+				then
+					c = gP
+				end
+			end
+		end
+	end
+	if not c then
+		local E = gB.recv.control(
+			{},
+			{ PhoenixNetworking = true, messageType = "unreachable", error = "No route to host", payload = e }
+		)
+		if fz then
+			fz()
+		end
+		return E
+	end
+	if c.action == "unicast" and gy[c.device.uuid] and gy[c.device.uuid].up then
+		info.device = c.device
+		e.source = gr(gy[c.device.uuid].ip)
+		if gA[c.device.uuid] and gA[c.device.uuid][c.destination] then
+			local E = gB.send.link(info, gA[c.device.uuid][c.destination], e)
+			if fz then
+				fz()
+			end
+			return E
+		end
+		local gQ = false
+		local fN
+		local function gR(k, gq, bU)
+			if not gQ and gp(gq) == c.destination then
+				gQ = true
+				gB.send.link(info, bU, e)
+				if fz then
+					fz()
+				end
+			end
+			if gQ then
+				for o, f in ipairs(gG.arp) do
+					if f == gR then
+						table.remove(gG.arp, o)
+						break
+					end
+				end
+			end
+		end
+		local function gS(aO)
+			if aO[2] == fN then
+				if not gQ then
+					gB.recv.control(
+						{},
+						{ PhoenixNetworking = true, messageType = "unreachable", error = "No route to host", payload = e }
+					)
+					if fz then
+						fz()
+					end
+				end
+				gQ = true
+				for o, aB in ipairs(eventHooks.timer) do
+					if aB == gS then
+						table.remove(eventHooks.timer, o)
+						break
+					end
+				end
+				for o, f in ipairs(gG.arp) do
+					if f == gR then
+						table.remove(gG.arp, o)
+						break
+					end
+				end
+			end
+		end
+		gG.arp[#gG.arp + 1] = gR
+		gB.send.arp_request(info, gr(c.destination))
+		eventHooks.timer = eventHooks.timer or {}
+		eventHooks.timer[#eventHooks.timer + 1] = gS
+		fN = os.startTimer(2)
+		return
+	elseif c.action == "broadcast" and gy[c.device.uuid] and gy[c.device.uuid].up then
+		info.device = c.device
+		e.source = gr(gy[c.device.uuid].ip)
+		local E = gB.send.link(info, nil, e)
+		if fz then
+			fz()
+		end
+		return E
+	elseif c.action == "local" and gy[c.device.uuid] and gy[c.device.uuid].up then
+		info.device = c.device
+		e.source = gr(gy[c.device.uuid].ip)
+		if gA[c.device.uuid] and gA[c.device.uuid][gM] then
+			local E = gB.send.link(info, gA[c.device.uuid][gM], e)
+			if fz then
+				fz()
+			end
+			return E
+		end
+		local gQ = false
+		local fN
+		local function gR(k, gq, bU)
+			if not gQ and gp(gq) == gM then
+				gQ = true
+				gB.send.link(info, bU, e)
+				if fz then
+					fz()
+				end
+			end
+			if gQ then
+				for o, f in ipairs(gG.arp) do
+					if f == gR then
+						table.remove(gG.arp, o)
+						break
+					end
+				end
+			end
+		end
+		local function gS(aO)
+			if aO[2] == fN then
+				if not gQ then
+					gB.recv.control(
+						{},
+						{ PhoenixNetworking = true, messageType = "unreachable", error = "No route to host", payload = e }
+					)
+					if fz then
+						fz()
+					end
+				end
+				gQ = true
+				for o, aB in ipairs(eventHooks.timer) do
+					if aB == gS then
+						table.remove(eventHooks.timer, o)
+						break
+					end
+				end
+			end
+		end
+		gG.arp[#gG.arp + 1] = gR
+		gB.send.arp_request(info, gr(gM))
+		eventHooks.timer = eventHooks.timer or {}
+		eventHooks.timer[#eventHooks.timer + 1] = gS
+		fN = os.startTimer(2)
+		return
+	elseif c.action == "unreachable" then
+		local E = gB.recv.control(
+			{},
+			{ PhoenixNetworking = true, messageType = "unreachable", error = "Destination unreachable", payload = e }
+		)
+		if fz then
+			fz()
+		end
+		return E
+	elseif c.action == "prohibit" then
+		local E = gB.recv.control(
+			{},
+			{ PhoenixNetworking = true, messageType = "unreachable", error = "Prohibited", payload = e }
+		)
+		if fz then
+			fz()
+		end
+		return E
+	elseif c.action == "blackhole" then
+		if fz then
+			fz()
+		end
+		return
+	end
+end
+function gB.send.control(info, gM, type, n, gT, gO)
+	expect(3, type, "string")
+	expect(4, n, "string", "nil")
+	return gB.send.internet(
+		info,
+		gM,
+		{ PhoenixNetworking = true, type = "control", messageType = type, error = n, payload = gT },
+		gO
+	)
+end
+gB.send.socket = {}
+local gU
+function gB.send.socket.connect(info, gq, gK, gJ)
+	for o = 1, 16384 do
+		local a1 = math.random(49152, 65535)
+		if not gC[a1] or not gC[a1][gK] then
+			gJ.localPort = a1
+			break
+		end
+	end
+	if not gJ.localPort then
+		error("Too many open sockets")
+	end
+	gJ.id = gx
+	gx = gx + 1
+	gJ.ip = gq
+	gJ.port = gK
+	gJ.sendSeq = math.floor(math.random() * 0x10000000000)
+	gJ.sendSeqNext = gJ.sendSeq + 2
+	gJ.sendSeqMax = gJ.sendSeq + 256
+	gJ.status = "syn-sent"
+	info.outPort = gK
+	info.inPort = gJ.localPort
+	gF[gJ] = function(a1)
+		if a1.type == "control" and a1.payload.destination == gr(gq) then
+			gJ.status = "error"
+			gJ.error = a1.error
+			return true
+		end
+		return false
+	end
+	gB.send.internet(
+		info,
+		gq,
+		{ PhoenixNetworking = true, type = "socket", sequence = gJ.sendSeqNext - 1, windowSize = 256, synchronize = true },
+		nil,
+		function()
+			gJ.devices = { [info.device.uuid] = true }
+			local s, n = pcall(hardware.call, info.process or KERNEL, info.device, "open", gJ.localPort)
+			if not s then
+				local gV = {}
+				for gK, bu in pairs(gC) do
+					for gW, gJ in pairs(bu) do
+						gV[#gV + 1] = gK .. " -> " .. gW
+					end
+				end
+				syslog.debug("Purging open channels", table.concat(gV, ", "))
+				gU(true)
+				s, n = pcall(hardware.call, info.process or KERNEL, info.device, "open", gJ.localPort)
+				if not s then
+					gB.send.internet(
+						info,
+						gq,
+						{ PhoenixNetworking = true, type = "socket", sequence = gJ.sendSeqNext, windowSize = 0, reset = true }
+					)
+					gJ.status = "error"
+					gJ.error = n
+					return false
+				end
+			end
+			gJ.nextUpdate = os.epoch("utc") + 5000
+			gJ.process = info.process
+			gJ.retryCount = 0
+			gC[gJ.localPort] = gC[gJ.localPort] or {}
+			gC[gJ.localPort][gK] = gJ
+			gD[gJ.id] = gJ
+		end
+	)
+end
+function gB.send.socket.data(info, aA, gJ)
+	info.outPort = gJ.port
+	info.inPort = gJ.localPort
+	aA.PhoenixNetworking = true
+	aA.type = "socket"
+	if not aA.sequence then
+		aA.sequence = gJ.sendSeqNext
+		gJ.sendSeqNext = gJ.sendSeqNext + 1
+	end
+	aA.acknowledgement = aA.acknowledgement or gJ.recvSeq - 1
+	gJ.nextAck = nil
+	if not aA.final then
+		aA.windowSize = 256
+	end
+	return gB.send.internet(info, gJ.ip, aA)
+end
+function gB.send.socket.ack(info, u, gJ)
+	gJ.lastAck = os.epoch("utc")
+	return gB.send.socket.data(info, { acknowledgement = u }, gJ)
+end
+function gB.send.socket.reset(info, gq, gK, gX, gY, gZ)
+	info.outPort = gK
+	info.inPort = gZ or gK
+	return gB.send.internet(
+		info,
+		gq,
+		{ PhoenixNetworking = true, type = "socket", sequence = gX, acknowledgement = gY, reset = true }
+	)
+end
+function gB.send.datagram(info, gq, g_, gK, aA)
+	info.outPort = gK
+	info.inPort = g_ or math.random(49152, 65535)
+	return gB.send.internet(info, gq, { PhoenixNetworking = true, type = "datagram", message = aA })
+end
+local function h0(gJ, P, ...)
+	P = P or "*l"
+	if type(P) ~= "string" and type(P) ~= "number" then
+		error("bad argument (expected string or number, got " .. type(P) .. ")", 2)
+	end
+	if gJ.buffer == "" then
+		return nil
+	end
+	P = P:gsub("^%*", "")
+	if P == "a" then
+		local t = gJ.buffer
+		gJ.buffer = ""
+		return t
+	elseif P == "l" then
+		local t, au = gJ.buffer:match("^([^\n]*)\n?()")
+		if t then
+			gJ.buffer = gJ.buffer:sub(au)
+			if select("#", ...) > 0 then
+				return t, h0(gJ, ...)
+			else
+				return t
+			end
+		else
+			return nil
+		end
+	elseif P == "L" then
+		local t, au = gJ.buffer:match("^([^\n]*\n?)()")
+		if t then
+			gJ.buffer = gJ.buffer:sub(au)
+			if select("#", ...) > 0 then
+				return t, h0(gJ, ...)
+			else
+				return t
+			end
+		else
+			return nil
+		end
+	elseif P == "n" then
+		local t, au = gJ.buffer:match("(%d+)()")
+		if t then
+			gJ.buffer = gJ.buffer:sub(au)
+			if select("#", ...) > 0 then
+				return tonumber(t), h0(gJ, ...)
+			else
+				return tonumber(t)
+			end
+		else
+			return nil
+		end
+	elseif type(P) == "number" then
+		local t = gJ.buffer:sub(1, P)
+		gJ.buffer = gJ.buffer:sub(P + 1)
+		if select("#", ...) > 0 then
+			return t, h0(gJ, ...)
+		else
+			return t
+		end
+	else
+		error("bad argument (invalid mode '" .. P .. "')", 2)
+	end
+end
+local function h1(gJ, bz, ...)
+	bz = tostring(bz)
+	gJ.outQueue[gJ.sendSeqNext] = bz
+	gB.send.socket.data({}, { payload = bz }, gJ)
+	if select("#", ...) > 0 then
+		return h1(gJ, ...)
+	end
+end
+function syscalls.__socketcall(process, aN, aX, fB, ...)
+	local gJ = gD[aX]
+	if not gJ then
+		error("No such socket")
+	end
+	local h2 = process
+	while process ~= gJ.process do
+		if process == nil then
+			error("No such socket")
+		end
+		process = processes[process.parent or -1]
+	end
+	if fB == "close" then
+		gJ.sendSeqMax = gJ.sendSeqNext
+		gB.send.socket.data({}, { final = true }, gJ)
+		gJ.status = "fin-wait"
+	elseif fB == "read" then
+		return h0(gJ, ...)
+	elseif fB == "write" then
+		return h1(gJ, ...)
+	elseif fB == "transfer" then
+		gJ.process = h2
+	else
+		error("No such method")
+	end
+end
+function syscalls.__datagramcall(process, aN, gK, aX, fB, ...)
+	local h3 = gE[gK]
+	local h2 = process
+	while process ~= h3.process do
+		if process == nil then
+			error("No such socket")
+		end
+		process = processes[process.parent or -1]
+	end
+	local gJ
+	if h3.listen then
+		for k, c in pairs(h3.open) do
+			if c.id == aX then
+				gJ = c
+				break
+			end
+		end
+		if not gJ then
+			error("No socket found for ID")
+		end
+	else
+		gJ = h3
+	end
+	if fB == "close" then
+		if h3.listen then
+			for F, c in pairs(h3.open) do
+				if c.id == aX then
+					h3.open[F] = nil
+					break
+				end
+			end
+		else
+			gE[gK] = nil
+		end
+	elseif fB == "read" then
+		local c = gJ[1]
+		gJ.n = gJ.n - 1
+		for o = 1, gJ.n do
+			gJ[o] = gJ[o + 1]
+		end
+		return c
+	elseif fB == "write" then
+		return gB.send.datagram({ process = process }, gJ.sourceIP, gK, gJ.port, ...)
+	elseif fB == "transfer" then
+		h3.process = h2
+	else
+		error("No such method")
+	end
+end
+local do_syscall = do_syscall
+local function h4(gJ)
+	local bQ = setmetatable({ id = gJ.id }, { __name = "socket" })
+	function bQ:localIP()
+		return gJ.localIP
+	end
+	function bQ:status()
+		if gJ.status == "listening" or gJ.status == "syn-sent" or gJ.status == "syn-received" then
+			return "connecting"
+		elseif gJ.status == "connected" or gJ.buffer ~= "" then
+			return "open"
+		elseif gJ.status == "error" then
+			return "error", gJ.error
+		else
+			return "closed"
+		end
+	end
+	function bQ:read(P, ...)
+		if
+			gJ.status ~= "connected"
+			and gJ.status ~= "close-wait"
+			and gJ.status ~= "fin-wait"
+			and gJ.status ~= "closed"
+		then
+			error("attempt to read from a " .. gJ.status .. " handle", 2)
+		end
+		return do_syscall("__socketcall", gJ.id, "read", P, ...)
+	end
+	function bQ:write(bz, ...)
+		if gJ.status ~= "connected" then
+			error("attempt to write to a " .. gJ.status .. " handle", 2)
+		end
+		return do_syscall("__socketcall", gJ.id, "write", bz, ...)
+	end
+	function bQ:close()
+		if gJ.status == "closing" or gJ.status == "fin-wait" or gJ.status == "closed" then
+			return
+		end
+		if
+			not (
+				gJ.status == "listening"
+				or gJ.status == "syn-sent"
+				or gJ.status == "syn-received"
+				or gJ.status == "connected"
+			)
+		then
+			error("attempt to close a " .. gJ.status .. " handle", 2)
+		end
+		return do_syscall("__socketcall", gJ.id, "close")
+	end
+	function bQ:transfer()
+		return do_syscall("__socketcall", gJ.id, "transfer")
+	end
+	return bQ
+end
+local function h5(gJ, gK)
+	local bQ = setmetatable({ id = gJ.id }, { __name = "socket" })
+	function bQ:localIP()
+		return gr(gJ.localIP)
+	end
+	function bQ:status()
+		return "open"
+	end
+	function bQ:read(P, ...)
+		return do_syscall("__datagramcall", gK, gJ.id, "read", P, ...)
+	end
+	function bQ:write(bz, ...)
+		return do_syscall("__datagramcall", gK, gJ.id, "write", bz, ...)
+	end
+	function bQ:close()
+		return do_syscall("__datagramcall", gK, gJ.id, "close")
+	end
+	function bQ:transfer()
+		return do_syscall("__datagramcall", gK, gJ.id, "transfer")
+	end
+	return bQ
+end
+function gB.recv.link(info, aA)
+	expect.field(aA, "source", "number")
+	expect.field(aA, "destination", "number")
+	expect.field(aA, "payload", "table")
+	syslog.debug("Received link message from", aA.source, "to", aA.destination)
+	if aA.destination ~= os.computerID() then
+		return
+	end
+	info.sourceID = aA.source
+	assert(aA.payload.PhoenixNetworking)
+	expect.field(aA.payload, "type", "string")
+	if not gB.recv[aA.payload.type] then
+		error("Unknown protocol '" .. aA.payload.type .. "'")
+	end
+	return gB.recv[aA.payload.type](info, aA.payload)
+end
+function gB.recv.arp(info, aA)
+	expect.field(aA, "source", "number")
+	expect.field(aA, "reply", "boolean")
+	syslog.debug("Received arp message from", aA.source)
+	if not aA.reply and aA.destinationIP and aA.sourceIP ~= aA.destinationIP then
+		local gq = gp(expect.field(aA, "destinationIP", "string"))
+		if gy[info.device.uuid] and gy[info.device.uuid].ip == gq then
+			gB.send.arp_reply(info, aA.source, aA.sourceIP)
+		end
+	end
+	if aA.sourceIP then
+		local gq = gp(expect.field(aA, "sourceIP", "string"))
+		gA[info.device.uuid] = gA[info.device.uuid] or {}
+		gA[info.device.uuid][gq] = aA.source
+		local h6 = {}
+		for o, c in ipairs(gG.arp) do
+			h6[o] = c
+		end
+		for k, c in ipairs(h6) do
+			c(c, aA.sourceIP, aA.source)
+		end
+	end
+end
+function gB.recv.internet(info, aA)
+	info.sourceIP = gp(expect.field(aA, "source", "string"))
+	local bU = gp(expect.field(aA, "destination", "string"))
+	info.localIP = bU
+	syslog.debug("Received internet message from", aA.source, "to", aA.destination)
+	expect.field(aA, "payload", "table")
+	if gH[expect.field(aA, "messageID", "number", "string")] then
+		return
+	end
+	gH[aA.messageID] = os.epoch("utc")
+	if not gy[info.device.uuid] or gy[info.device.uuid].ip ~= bU then
+		local as = false
+		for k, c in pairs(gF) do
+			as = c(aA) or as
+		end
+		return as
+	end
+	if not gA[info.device.uuid] or not gA[info.device.uuid][info.sourceIP] then
+		gA[info.device.uuid] = gA[info.device.uuid] or {}
+		gA[info.device.uuid][info.sourceIP] = info.sourceID
+		local h6 = {}
+		for o, c in ipairs(gG.arp) do
+			h6[o] = c
+		end
+		for k, c in ipairs(h6) do
+			c(c, info.sourceIP, info.sourceID)
+		end
+	end
+	info.ipPacket = aA
+	assert(aA.payload.PhoenixNetworking)
+	expect.field(aA.payload, "type", "string")
+	if not gB.recv[aA.payload.type] then
+		error("Unknown protocol '" .. aA.payload.type .. "'")
+	end
+	return gB.recv[aA.payload.type](info, aA.payload)
+end
+function gB.recv.control(info, aA)
+	expect.field(aA, "messageType", "string")
+	syslog.debug("Received control message", aA.messageType)
+	local as = false
+	if aA.messageType == "ping" then
+		gB.send.control({ device = info.device }, info.sourceIP, "pong", nil, info.ipPacket)
+	else
+		for k, c in pairs(gF) do
+			as = c({
+				type = "control",
+				messageType = aA.messageType,
+				error = aA.error,
+				payload = aA.payload,
+				sender = gr(info.sourceIP),
+			}) or as
+		end
+	end
+	return as
+end
+local function h7(c)
+	local s, E = pcall(serialize, c)
+	if s then
+		return E
+	else
+		return tostring(c)
+	end
+end
+function gB.recv.socket(info, aA)
+	expect.field(aA, "sequence", "number")
+	expect.field(aA, "acknowledgement", "number", "nil")
+	expect.field(aA, "windowSize", "number", "nil")
+	expect.field(aA, "payload", "string", "nil")
+	if info.channel == 0 or info.replyChannel == 0 then
+		syslog.debug("Received socket event on channel 0; discarding.")
+		return
+	end
+	local gJ = (gC[info.channel] or {})[info.replyChannel] or (gC[info.channel] or {}).listen
+	if not gJ then
+		if aA.acknowledgement then
+			gB.send.socket.reset(info, info.sourceIP, info.replyChannel, aA.acknowledgement, nil, info.channel)
+		else
+			gB.send.socket.reset(
+				info,
+				info.sourceIP,
+				info.replyChannel,
+				0,
+				aA.sequence + (aA.windowSize or 0),
+				info.channel
+			)
+		end
+		return
+	end
+	do
+		local bI = {}
+		for F, c in pairs(gJ) do
+			if F ~= "process" then
+				bI[F] = c
+			end
+		end
+		syslog.debug("Received socket message:", h7(aA), "\nSocket info:", h7(bI))
+	end
+	if gJ.status == "listening" then
+		if aA.reset then
+			return
+		end
+		if aA.acknowledgement then
+			gB.send.socket.reset(info, info.sourceIP, info.replyChannel, aA.acknowledgement, nil, info.channel)
+			return
+		end
+		if not aA.synchronize then
+			return
+		end
+		gJ.ip = info.sourceIP
+		gJ.localIP = gr(info.localIP)
+		gJ.port = info.replyChannel
+		gJ.recvSeq = aA.sequence + 1
+		gJ.recvSeqMax = gJ.recvSeq + (aA.windowSize or 0)
+		gJ.sendSeq = math.floor(math.random() * 0x10000000000)
+		gJ.sendSeqNext = gJ.sendSeq + 2
+		gJ.sendSeqMax = gJ.sendSeq + (aA.windowSize or 0)
+		gJ.status = "syn-received"
+		gJ.nextUpdate = os.epoch("utc") + 5000
+		gJ.retryCount = 0
+		gC[info.channel][info.replyChannel] = gJ
+		gC[info.channel].listen = nil
+		gB.send.internet(
+			{ inPort = info.channel, outPort = info.replyChannel },
+			gJ.ip,
+			{
+				PhoenixNetworking = true,
+				type = "socket",
+				sequence = gJ.sendSeqNext - 1,
+				acknowledgement = gJ.recvSeq,
+				windowSize = 256,
+				synchronize = true,
+			}
+		)
+	elseif gJ.status == "syn-sent" then
+		if aA.reset then
+			gJ.status = "error"
+			gJ.error = "Connection refused"
+			gC[info.channel][info.replyChannel] = nil
+			if gJ.process then
+				gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+					{ "handle_status_change", { id = gJ.id, status = "error" } }
+			end
+			return true
+		end
+		if not aA.synchronize or not aA.acknowledgement or aA.acknowledgement < gJ.sendSeq then
+			gB.send.socket.reset(info, info.sourceIP, info.replyChannel, aA.acknowledgement, nil, info.channel)
+			gJ.status = "error"
+			gJ.error = "Connection refused"
+			gC[info.channel][info.replyChannel] = nil
+			if gJ.process then
+				gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+					{ "handle_status_change", { id = gJ.id, status = "error" } }
+			end
+			return true
+		end
+		gJ.localIP = gr(info.localIP)
+		gJ.status = "connected"
+		gJ.sendSeq = aA.acknowledgement
+		gJ.sendSeqMax = gJ.sendSeq + 256
+		gJ.recvSeq = aA.sequence + 1
+		gJ.recvSeqMax = gJ.recvSeq + (aA.windowSize or 0)
+		gJ.outQueue = {}
+		gJ.nextUpdate = os.epoch("utc") + 2000
+		gB.send.socket.ack({}, gJ.recvSeq, gJ)
+		if gJ.process then
+			gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+				{ "handle_status_change", { id = gJ.id, status = "connected" } }
+		end
+		return true
+	else
+		if aA.sequence < gJ.recvSeq then
+			syslog.debug("Sequence out of range")
+			if aA.reset then
+				gJ.status = "error"
+				gJ.error = "Connection reset by peer"
+				gC[info.channel][info.replyChannel] = nil
+				if gJ.process then
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+						{ "handle_status_change", { id = gJ.id, status = "error" } }
+				end
+				return true
+			else
+				gB.send.socket.ack({}, gJ.recvSeq, gJ)
+				return
+			end
+		end
+		if aA.reset then
+			syslog.debug("Received reset")
+			if gJ.status == "syn-received" then
+				gJ.status = "listening"
+				return
+			elseif gJ.status == "connected" or gJ.status == "fin-wait" then
+				gJ.status = "error"
+				gJ.error = "Connection reset by peer"
+				gC[info.channel][info.replyChannel] = nil
+				if gJ.process then
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+						{ "handle_status_change", { id = gJ.id, status = "error" } }
+				end
+				return true
+			else
+				gJ.status = "closed"
+				gC[info.channel][info.replyChannel] = nil
+				gI(gJ, info.channel)
+				if gJ.process then
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+						{ "handle_status_change", { id = gJ.id, status = "closed" } }
+				end
+				return true
+			end
+		end
+		if aA.synchronize then
+			gB.send.socket.reset(info, info.sourceIP, info.replyChannel, aA.acknowledgement, nil, info.channel)
+			gJ.status = "error"
+			gJ.error = "Connection reset by host"
+			gC[info.channel][info.replyChannel] = nil
+			if gJ.process then
+				gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+					{ "handle_status_change", { id = gJ.id, status = "error" } }
+			end
+			return true
+		end
+		local as
+		if not aA.acknowledgement then
+			syslog.debug("No acknowledgement")
+			return
+		end
+		if gJ.status == "syn-received" then
+			if aA.acknowledgement >= gJ.sendSeq and aA.acknowledgement <= gJ.sendSeqNext then
+				gJ.status = "connected"
+				gJ.outQueue = {}
+				gJ.nextUpdate = os.epoch("utc") + 2000
+				if gJ.process then
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+						{ "network_request", { uri = gJ.uri, ip = gr(info.sourceIP), handle = h4(gJ) } }
+				end
+				as = true
+			else
+				gB.send.socket.reset(info, info.sourceIP, info.replyChannel, aA.acknowledgement, nil, info.channel)
+				gJ.status = "error"
+				gJ.error = "Connection reset by host"
+				gC[info.channel][info.replyChannel] = nil
+				if gJ.process then
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+						{ "handle_status_change", { id = gJ.id, status = "error" } }
+				end
+				return true
+			end
+		elseif gJ.status == "close-wait" then
+			if aA.acknowledgement == gJ.sendSeqMax then
+				syslog.debug("Socket closed")
+				gJ.status = "closed"
+				gC[info.channel][info.replyChannel] = nil
+				gI(gJ, info.channel)
+				if gJ.process then
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+						{ "handle_status_change", { id = gJ.id, status = "closed" } }
+				end
+				return true
+			end
+		elseif gJ.status == "time-wait" then
+			if aA.final then
+				gB.send.socket.ack({}, aA.sequence, gJ)
+				gJ.nextUpdate = os.epoch("utc") + 10000
+				return
+			end
+		else
+			if aA.acknowledgement > gJ.sendSeq and aA.acknowledgement <= gJ.sendSeqNext then
+				for o = gJ.sendSeq, aA.acknowledgement do
+					gJ.outQueue[o] = nil
+				end
+				gJ.sendSeq = aA.acknowledgement
+				if aA.windowSize and gJ.status ~= "fin-wait" and gJ.status ~= "closing" then
+					gJ.sendSeqMax = gJ.sendSeq + aA.windowSize
+				end
+			end
+			if gJ.status == "fin-wait" then
+				if aA.acknowledgement == gJ.sendSeqMax then
+					if not aA.final then
+						gB.send.socket.reset(
+							info,
+							info.sourceIP,
+							info.replyChannel,
+							aA.acknowledgement,
+							nil,
+							info.channel
+						)
+						gJ.status = "error"
+						gJ.error = "Connection reset by host"
+						gC[info.channel][info.replyChannel] = nil
+						if gJ.process then
+							gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+								{ "handle_status_change", { id = gJ.id, status = "error" } }
+						end
+						return true
+					end
+					gJ.status = "time-wait"
+					gJ.nextUpdate = os.epoch("utc") + 10000
+				end
+			elseif gJ.status == "closing" then
+				if aA.acknowledgement == gJ.sendSeqMax then
+					gJ.status = "time-wait"
+					gJ.nextUpdate = os.epoch("utc") + 10000
+				end
+			end
+		end
+		if gJ.status == "connected" and aA.sequence == gJ.recvSeq then
+			if aA.payload then
+				gJ.buffer = gJ.buffer .. aA.payload
+				gJ.nextAck = true
+				gJ.nextUpdate = os.epoch("utc") + 100
+				if gJ.process then
+					syslog.debug("Sending data event to PID " .. gJ.process.id)
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] = { "handle_data_ready", { id = gJ.id } }
+				end
+				as = true
+			end
+			gJ.recvSeq = gJ.recvSeq + 1
+		end
+		if aA.final then
+			syslog.debug("Got final message")
+			gJ.recvSeq = aA.sequence + 1
+			if gJ.status == "syn-received" or gJ.status == "connected" then
+				gJ.sendSeqMax = gJ.sendSeqNext
+				gB.send.socket.data({}, { final = true, acknowledgement = aA.sequence }, gJ)
+				gJ.status = "close-wait"
+				if gJ.process then
+					gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+						{ "handle_status_change", { id = gJ.id, status = "closed" } }
+				end
+				return true
+			elseif gJ.status == "fin-wait" then
+				gB.send.socket.ack({}, aA.sequence, gJ)
+				if aA.acknowledgement ~= gJ.sendSeqMax then
+					gJ.status = "closing"
+				else
+					gJ.status = "time-wait"
+					gJ.nextUpdate = os.epoch("utc") + 10000
+				end
+			else
+				gB.send.socket.ack({}, aA.sequence, gJ)
+			end
+			syslog.debug(gJ.status)
+		end
+		return as
+	end
+end
+function gU(h8)
+	local co = os.epoch("utc")
+	local cr = false
+	for gK, bu in pairs(gC) do
+		for gW, gJ in pairs(bu) do
+			if co >= gJ.nextUpdate then
+				if gJ.status == "syn-sent" then
+					gJ.status = "error"
+					gJ.error = "Connection timed out (syn-sent)"
+					gC[gK][gW] = nil
+					if gJ.process then
+						gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+							{ "handle_status_change", { id = gJ.id, status = "error" } }
+						cr = true
+					end
+				elseif gJ.status == "syn-received" then
+					gJ.retryCount = gJ.retryCount + 1
+					if gJ.retryCount > 3 then
+						gJ.status = "error"
+						gJ.error = "Connection timed out (syn-received)"
+						gC[gK][gW] = nil
+						if gJ.process then
+							gJ.process.eventQueue[#gJ.process.eventQueue + 1] =
+								{ "handle_status_change", { id = gJ.id, status = "error" } }
+							cr = true
+						end
+					else
+						gJ.nextUpdate = os.epoch("utc") + 2000
+					end
+				elseif gJ.status == "connected" then
+					for o = gJ.sendSeq + 1, gJ.sendSeqNext - 1 do
+						if gJ.outQueue[o] then
+							gB.send.socket.data({}, { sequence = o, payload = gJ.outQueue[o] }, gJ)
+						end
+					end
+					if gJ.nextAck then
+						gB.send.socket.ack({}, gJ.recvSeq - 1, gJ)
+						gJ.nextAck = nil
+					end
+					gJ.nextUpdate = os.epoch("utc") + 2000
+				elseif gJ.status == "fin-wait" then
+				elseif gJ.status == "close-wait" then
+				end
+			elseif gJ.status == "time-wait" and (co >= gJ.nextUpdate or h8) then
+				syslog.debug("Time wait finished on port " .. gK)
+				gJ.status = "closed"
+				gC[gK][gW] = nil
+				if gW ~= "listen" then
+					gI(gJ, gK)
+				end
+			end
+		end
+	end
+	return cr
+end
+function gB.recv.datagram(info, aA)
+	if not gE[info.channel] then
+		syslog.debug("Received spurious PDP message on port " .. info.channel .. ", discarding.")
+		return
+	end
+	local h3 = gE[info.channel]
+	if h3.listen then
+		local gJ = h3.open[info.sourceIP]
+		if gJ then
+			gJ.n = gJ.n + 1
+			gJ[gJ.n] = aA.message
+			h3.process.eventQueue[#h3.process.eventQueue + 1] = { "handle_data_ready", { id = gJ.id } }
+		else
+			h3.open[info.sourceIP] = {
+				id = gx,
+				sourceIP = info.sourceIP,
+				localIP = info.localIP,
+				port = info.replyChannel,
+				n = 1,
+				aA.message,
+			}
+			gx = gx + 1
+			h3.process.eventQueue[#h3.process.eventQueue + 1] = {
+				"network_request",
+				{ uri = h3.uri, ip = gr(info.sourceIP), handle = h5(h3.open[info.sourceIP], info.channel) },
+			}
+		end
+	else
+		h3.n = h3.n + 1
+		h3[h3.n] = aA.message
+		h3.process.eventQueue[#h3.process.eventQueue + 1] = { "handle_data_ready", { id = h3.id } }
+	end
+	return true
+end
+eventHooks.modem_message = eventHooks.modem_message or {}
+eventHooks.modem_message[#eventHooks.modem_message + 1] = function(aO)
+	if type(aO[5]) == "table" and aO[5].PhoenixNetworking and type(aO[5].type) == "string" and gB.recv[aO[5].type] then
+		local eb = getNodeById(aO[2]) or hardware.get(aO[2])
+		if not eb then
+			syslog.log(
+				{ level = "notice", module = "Network" },
+				"Received network event for device ID " .. aO[2] .. ", but no device node was found; ignoring"
+			)
+			return
+		end
+		if not gy[eb.uuid] or not gy[eb.uuid].up then
+			return
+		end
+		syslog.debug(aO[2], h7(aO[5]))
+		local s, n = pcall(gB.recv[aO[5].type], { channel = aO[3], replyChannel = aO[4], device = eb }, aO[5])
+		if not s then
+			syslog.log({ level = "debug", module = "Network" }, "Network event errored while processing:", n)
+		else
+			return n
+		end
+	end
+end
+local h9 = os.startTimer(1)
+eventHooks.timer = eventHooks.timer or {}
+eventHooks.timer[#eventHooks.timer + 1] = function(aO)
+	if aO[2] == h9 then
+		h9 = os.startTimer(1)
+		return gU()
+	end
+end
+local function ha(process, bY)
+	local go = gn(bY.url)
+	if not go.port then
+		error("No port specified")
+	end
+	local gq = gp(go.host)
+	local gK = go.port
+	local gJ = { process = process, buffer = "" }
+	gB.send.socket.connect({ process = process }, gq, gK, gJ)
+	return h4(gJ)
+end
+local function hb(process, bY)
+	local go = gn(bY.url)
+	if not go.port then
+		error("No port specified")
+	end
+	local hc
+	for o = 1, 16384 do
+		local a1 = math.random(49152, 65535)
+		if not gE[a1] then
+			hc = a1
+			break
+		end
+	end
+	if not hc then
+		error("Too many open sockets")
+	end
+	local gq = gp(go.host)
+	local gK = go.port
+	local gJ = { process = process, id = gx, sourceIP = gq, port = gK, n = 0 }
+	gx = gx + 1
+	gE[hc] = gJ
+	for k, c in ipairs({ hardware.find("modem") }) do
+		hardware.call(process, c, "open", hc)
+	end
+	return h5(gJ, hc)
+end
+local hd = {}
+local he = {}
+local hf = {}
+local hg = os.computerID() % 65500
+local hh = {}
+local hi, hj
+if http then
+	eventHooks.http_success = eventHooks.http_success or {}
+	eventHooks.http_success[#eventHooks.http_success + 1] = function(aO)
+		local info = hd[aO[2]]
+		if info then
+			info.handle, info.status = aO[3], "open"
+			info.process.eventQueue[#info.process.eventQueue + 1] =
+				{ "handle_status_change", { id = info.id, status = "open" } }
+			hd[aO[2]] = nil
+			return true
+		else
+			syslog.log(
+				{ level = "notice" },
+				"Received HTTP response for " .. aO[2] .. " but nobody requested it; ignoring."
+			)
+		end
+	end
+	eventHooks.http_failure = eventHooks.http_failure or {}
+	eventHooks.http_failure[#eventHooks.http_failure + 1] = function(aO)
+		local info = hd[aO[2]]
+		if info then
+			if aO[4] then
+				info.handle, info.status = aO[4], "open"
+			else
+				info.status, info.error = "error", aO[3]
+			end
+			info.process.eventQueue[#info.process.eventQueue + 1] =
+				{ "handle_status_change", { id = info.id, status = info.status } }
+			hd[aO[2]] = nil
+			return true
+		else
+			syslog.log(
+				{ level = "notice" },
+				"Received HTTP response for " .. aO[2] .. " but nobody requested it; ignoring."
+			)
+		end
+	end
+	eventHooks.websocket_success = eventHooks.websocket_success or {}
+	eventHooks.websocket_success[#eventHooks.websocket_success + 1] = function(aO)
+		local info = hd[aO[2]]
+		if info then
+			info.handle, info.status = aO[3], "open"
+			info.process.eventQueue[#info.process.eventQueue + 1] =
+				{ "handle_status_change", { id = info.id, status = "open" } }
+			return true
+		else
+			syslog.log(
+				{ level = "notice" },
+				"Received WebSocket response for " .. aO[2] .. " but nobody requested it; ignoring."
+			)
+		end
+	end
+	eventHooks.websocket_failure = eventHooks.websocket_failure or {}
+	eventHooks.websocket_failure[#eventHooks.websocket_failure + 1] = function(aO)
+		local info = hd[aO[2]]
+		if info then
+			info.status, info.error = "error", aO[3]
+			info.process.eventQueue[#info.process.eventQueue + 1] =
+				{ "handle_status_change", { id = info.id, status = info.status } }
+			return true
+		else
+			syslog.log(
+				{ level = "notice" },
+				"Received WebSocket response for " .. aO[2] .. " but nobody requested it; ignoring."
+			)
+		end
+	end
+	eventHooks.websocket_message = eventHooks.websocket_message or {}
+	eventHooks.websocket_message[#eventHooks.websocket_message + 1] = function(aO)
+		local info = hd[aO[2]]
+		if info then
+			info.buffer = info.buffer .. aO[3]
+			info.process.eventQueue[#info.process.eventQueue + 1] = { "handle_data_ready", { id = info.id } }
+			return true
+		else
+			syslog.log(
+				{ level = "notice" },
+				"Received WebSocket message for " .. aO[2] .. " but nobody requested it; ignoring."
+			)
+		end
+	end
+	eventHooks.websocket_closed = eventHooks.websocket_closed or {}
+	eventHooks.websocket_closed[#eventHooks.websocket_closed + 1] = function(aO)
+		local info = hd[aO[2]]
+		if info then
+			info.status = "closed"
+			info.process.eventQueue[#info.process.eventQueue + 1] =
+				{ "handle_status_change", { id = info.id, status = info.status } }
+			hd[aO[2]] = nil
+			return true
+		else
+			syslog.log(
+				{ level = "notice" },
+				"Received WebSocket message for " .. aO[2] .. " but it's not open; ignoring."
+			)
+		end
+	end
+	eventHooks.modem_message = eventHooks.modem_message or {}
+	eventHooks.modem_message[#eventHooks.modem_message + 1] = function(aO)
+		local as = false
+		if
+			he[aO[2]]
+			and (aO[3] == hg or aO[3] == 65535)
+			and type(aO[5]) == "table"
+			and type(aO[5].nMessageID) == "number"
+			and aO[5].nMessageID == aO[5].nMessageID
+			and not hh[aO[5].nMessageID]
+			and (aO[5].nRecipient and aO[5].nRecipient == os.computerID() or aO[3] == 65535)
+		then
+			if hf[aO[5].nSender] then
+				for k, c in ipairs(hf[aO[5].nSender]) do
+					if not c.protocol or c.protocol == aO[5].sProtocol then
+						c.buffer[#c.buffer + 1] = deepcopy(aO[5].message)
+						hh[aO[5].nMessageID] = os.clock() + 9.5
+						c.process.eventQueue[#c.process.eventQueue + 1] = { "handle_data_ready", { id = c.id } }
+						as = true
+					end
+				end
+			end
+			if hf[0xFFFFFFFF] then
+				for k, c in ipairs(hf[0xFFFFFFFF]) do
+					if not c.protocol or c.protocol == aO[5].sProtocol then
+						c.buffer[#c.buffer + 1] = deepcopy(aO[5].message)
+						hh[aO[5].nMessageID] = os.clock() + 9.5
+						c.process.eventQueue[#c.process.eventQueue + 1] = { "handle_data_ready", { id = c.id } }
+						as = true
+					end
+				end
+			end
+			for F, c in pairs(hh) do
+				if c < os.clock() then
+					hh[F] = nil
+				end
+			end
+		end
+		return as
+	end
+	local hk = http.request
+	function hi(process, bY)
+		expect.field(bY, "encoding", "string", "nil")
+		expect.field(bY, "headers", "table", "nil")
+		expect.field(bY, "method", "string", "nil")
+		expect.field(bY, "redirect", "boolean", "nil")
+		local info = { status = "ready", process = process, id = gx }
+		local bQ = setmetatable({ id = gx }, { __name = "socket" })
+		gx = gx + 1
+		function bQ:status()
+			return info.status, info.error
+		end
+		function bQ:read(P, ...)
+			if info.status ~= "open" then
+				error("attempt to read from a " .. info.status .. " handle", 2)
+			end
+			P = P or "*l"
+			if type(P) ~= "string" and type(P) ~= "number" then
+				error("bad argument (expected string or number, got " .. type(P) .. ")", 2)
+			end
+			P = P:gsub("^%*", "")
+			if P == "a" then
+				if select("#", ...) > 0 then
+					return info.handle.readAll(), self:read(...)
+				else
+					return info.handle.readAll()
+				end
+			elseif P == "l" then
+				if select("#", ...) > 0 then
+					return info.handle.readLine(false), self:read(...)
+				else
+					return info.handle.readLine(false)
+				end
+			elseif P == "L" then
+				if select("#", ...) > 0 then
+					return info.handle.readLine(true), self:read(...)
+				else
+					return info.handle.readLine(true)
+				end
+			elseif P == "n" then
+				local t
+				repeat
+					t = info.handle.read(1)
+					if not t then
+						return nil
+					end
+				until tonumber(t)
+				while true do
+					local G = info.handle.read(1)
+					if not G or not G:match("%d") then
+						break
+					end
+					t = t .. G
+				end
+				if select("#", ...) > 0 then
+					return tonumber(t), self:read(...)
+				else
+					return tonumber(t)
+				end
+			elseif type(P) == "number" then
+				if select("#", ...) > 0 then
+					return info.handle.read(P), self:read(...)
+				else
+					return info.handle.read(P)
+				end
+			else
+				error("bad argument (invalid mode '" .. P .. "')", 2)
+			end
+		end
+		function bQ:write(...)
+			if info.status ~= "ready" then
+				error("attempt to write to a " .. info.status .. " handle", 2)
+			end
+			local bz
+			if select("#", ...) > 0 then
+				bz = ""
+				for k, c in ipairs({ ... }) do
+					bz = bz .. tostring(c)
+				end
+			end
+			local hl = bY.url .. "#" .. info.id
+			local s, n = hk({
+				url = hl,
+				body = bz,
+				headers = bY.headers,
+				binary = bY.encoding == "binary" or bY.encoding == nil,
+				method = bY.method,
+				redirect = bY.redirect,
+			})
+			if s then
+				hd[hl] = info
+				info.status = "connecting"
+			else
+				info.status, info.error = "error", n
+			end
+		end
+		function bQ:close()
+			if info.status ~= "open" then
+				error("attempt to close a " .. info.status .. " handle", 2)
+			end
+			info.handle.close()
+			info.status = "closed"
+		end
+		function bQ:responseHeaders()
+			if info.status ~= "open" then
+				error("attempt to read from a " .. info.status .. " handle", 2)
+			end
+			return info.handle.getResponseHeaders()
+		end
+		function bQ:responseCode()
+			if info.status ~= "open" then
+				error("attempt to read from a " .. info.status .. " handle", 2)
+			end
+			return info.handle.getResponseCode()
+		end
+		return bQ
+	end
+	function hj(process, bY)
+		expect.field(bY, "encoding", "string", "nil")
+		expect.field(bY, "headers", "table", "nil")
+		local info = { process = process, id = gx, buffer = "" }
+		local bQ = setmetatable({ id = gx }, { __name = "socket" })
+		gx = gx + 1
+		function bQ:status()
+			return info.status, info.error
+		end
+		function bQ:read(P, ...)
+			if info.status ~= "open" then
+				error("attempt to read from a " .. info.status .. " handle", 2)
+			end
+			P = P or "*l"
+			if type(P) ~= "string" and type(P) ~= "number" then
+				error("bad argument (expected string or number, got " .. type(P) .. ")", 2)
+			end
+			if info.buffer == "" then
+				return nil
+			end
+			P = P:gsub("^%*", "")
+			if P == "a" then
+				local t = info.buffer
+				info.buffer = ""
+				return t
+			elseif P == "l" then
+				local t, au = info.buffer:match("^([^\n]*)\n?()")
+				if t then
+					info.buffer = info.buffer:sub(au)
+					if select("#", ...) > 0 then
+						return t, self:read(...)
+					else
+						return t
+					end
+				else
+					return nil
+				end
+			elseif P == "L" then
+				local t, au = info.buffer:match("^([^\n]*\n?)()")
+				if t then
+					info.buffer = info.buffer:sub(au)
+					if select("#", ...) > 0 then
+						return t, self:read(...)
+					else
+						return t
+					end
+				else
+					return nil
+				end
+			elseif P == "n" then
+				local t, au = info.buffer:match("(%d+)()")
+				if t then
+					info.buffer = info.buffer:sub(au)
+					if select("#", ...) > 0 then
+						return tonumber(t), self:read(...)
+					else
+						return tonumber(t)
+					end
+				else
+					return nil
+				end
+			elseif type(P) == "number" then
+				local t = info.buffer:sub(1, P)
+				info.buffer = info.buffer:sub(P + 1)
+				if select("#", ...) > 0 then
+					return t, self:read(...)
+				else
+					return t
+				end
+			else
+				error("bad argument (invalid mode '" .. P .. "')", 2)
+			end
+		end
+		function bQ:write(bz, ...)
+			if info.status ~= "open" then
+				error("attempt to write to a " .. info.status .. " handle", 2)
+			end
+			info.handle.send(tostring(bz), bY.encoding == "binary")
+			if select("#", ...) > 0 then
+				return self:write(...)
+			end
+		end
+		function bQ:close()
+			if info.status ~= "open" then
+				error("attempt to close a " .. info.status .. " handle", 2)
+			end
+			info.handle.close()
+			info.status = "closed"
+		end
+		local hl = bY.url .. "#" .. info.id
+		local s, n = http.websocket(hl, bY.headers)
+		if s then
+			hd[hl] = info
+			info.status = "connecting"
+		else
+			return nil, n
+		end
+		return bQ
+	end
+end
+local function hm(process, bY)
+	expect.field(bY, "device", "string", "nil")
+	local hn
+	if bY.device then
+		hn = { hardware.get(bY.device) }
+	else
+		hn = { hardware.find("modem") }
+	end
+	if #hn == 0 then
+		error("Could not find a modem", 2)
+	end
+	for k, c in ipairs(hn) do
+		gw(c)
+		if not he[c] then
+			hardware.call(process, c, "open", hg)
+			hardware.call(process, c, "open", 65535)
+			he[c] = 1
+		else
+			he[c] = he[c] + 1
+		end
+	end
+	local go = gn(bY.url)
+	if not go.host then
+		error("Missing host", 2)
+	end
+	local aX = gp(go.host)
+	local info = { process = process, id = gx, buffer = {}, protocol = go.scheme:match("rednet%+(.+)") }
+	local bQ = setmetatable({ id = gx }, { __name = "socket" })
+	gx = gx + 1
+	function bQ:status()
+		return info.closed and "closed" or "open"
+	end
+	function bQ:read(P, ...)
+		if info.closed then
+			error("attempt to read from a " .. info.status .. " handle", 2)
+		end
+		P = P or "*l"
+		if type(P) ~= "string" and type(P) ~= "number" then
+			error("bad argument (expected string or number, got " .. type(P) .. ")", 2)
+		end
+		if #info.buffer == 0 then
+			return nil
+		end
+		P = P:gsub("^%*", "")
+		if P == "a" then
+			return table.remove(info.buffer, 1)
+		elseif P == "l" then
+			info.buffer[1] = tostring(info.buffer[1])
+			local t, au = info.buffer[1]:match("^([^\n]*)\n?()")
+			if t then
+				info.buffer[1] = info.buffer[1]:sub(au)
+				if select("#", ...) > 0 then
+					return t, self:read(...)
+				else
+					return t
+				end
+			else
+				table.remove(info.buffer, 1)
+				return self:read(P, ...)
+			end
+		elseif P == "L" then
+			info.buffer[1] = tostring(info.buffer[1])
+			local t, au = info.buffer[1]:match("^([^\n]*\n?)()")
+			if t then
+				info.buffer[1] = info.buffer[1]:sub(au)
+				if select("#", ...) > 0 then
+					return t, self:read(...)
+				else
+					return t
+				end
+			else
+				table.remove(info.buffer, 1)
+				return self:read(P, ...)
+			end
+		elseif P == "n" then
+			info.buffer[1] = tostring(info.buffer[1])
+			local t, au = info.buffer[1]:match("(%d+)()")
+			if t then
+				info.buffer[1] = info.buffer[1]:sub(au)
+				if select("#", ...) > 0 then
+					return tonumber(t), self:read(...)
+				else
+					return tonumber(t)
+				end
+			else
+				table.remove(info.buffer, 1)
+				return self:read(P, ...)
+			end
+		elseif type(P) == "number" then
+			local t = ""
+			while #t < P do
+				info.buffer[1] = tostring(info.buffer[1])
+				t = t .. info.buffer[1]:sub(1, P - #t)
+				info.buffer[1] = info.buffer[1]:sub(P - #t + 1)
+				if info.buffer[1] == "" then
+					table.remove(info.buffer, 1)
+				end
+				if #info.buffer == 0 then
+					break
+				end
+			end
+			if select("#", ...) > 0 then
+				return t, self:read(...)
+			else
+				return t
+			end
+		else
+			error("bad argument (invalid mode '" .. P .. "')", 2)
+		end
+	end
+	function bQ:write(bz, ...)
+		if info.closed then
+			error("attempt to write to a " .. info.status .. " handle", 2)
+		end
+		local ho = math.random(1, 0x7FFFFFFF)
+		local e =
+			{ nMessageID = ho, nRecipient = aX, nSender = os.computerID(), message = bz, sProtocol = info.protocol }
+		if aX == os.computerID() then
+			for k, c in ipairs(hn) do
+				os.queueEvent("modem_message", c.id, hg, hg, e, 0)
+			end
+		else
+			hh[ho] = os.clock() + 9.5
+			for k, c in ipairs(hn) do
+				hardware.call(process, c, "transmit", aX == 0xFFFFFFFF and 65535 or aX % 65500, hg, e)
+				hardware.call(process, c, "transmit", 65533, hg, e)
+			end
+		end
+		if select("#", ...) > 0 then
+			return self:write(...)
+		end
+	end
+	function bQ:close()
+		if info.closed then
+			error("attempt to close a " .. info.status .. " handle", 2)
+		end
+		for k, c in ipairs(hn) do
+			he[c] = he[c] - 1
+			if he[c] == 0 then
+				hardware.call(process, c, "close", hg)
+				hardware.call(process, c, "close", 65535)
+				he[c] = nil
+			end
+		end
+		info.status = "closed"
+	end
+	return bQ
+end
+uriSchemes = { ["https?"] = hi, ["wss?"] = hj, ["rednet"] = hm, ["rednet%+%a+"] = hm, ["psp"] = ha, ["pdp"] = hb }
+function syscalls.connect(process, aN, bY)
+	if type(bY) == "string" then
+		bY = { url = bY }
+	end
+	expect(1, bY, "table")
+	expect.field(bY, "url", "string")
+	local go = gn(bY.url)
+	local bQ, n
+	for F, c in pairs(uriSchemes) do
+		if go.scheme:match(F) then
+			bQ, n = c(process, bY)
+			break
+		end
+	end
+	if not bQ and not n then
+		error("Invalid protocol " .. go.scheme)
+	end
+	if bQ then
+		for k, c in pairs(bQ) do
+			if type(c) == "function" then
+				setfenv(c, process.env)
+				debug.protect(c)
+			end
+		end
+	end
+	return bQ, n
+end
+function syscalls.listen(process, aN, go)
+	expect(1, go, "string")
+	local hp = gn(go)
+	if http and http.addListener then
+		if hp.scheme == "http" then
+			http.addListener(hp.port or 80)
+			return
+		elseif hp.scheme == "ws" then
+			http.websocket(hp.port or 80)
+			return
+		end
+	end
+	if hp.scheme == "psp" then
+		if not hp.port then
+			error("Missing port")
+		end
+		if gC[hp.port] and gC[hp.port].listen then
+			error("Port already open")
+		end
+		local gq = gp(hp.host)
+		local gL = {}
+		for F, c in pairs(gy) do
+			if c.up and (gq == 0 or c.ip == gq) then
+				local fC = hardware.get(F)
+				if not pcall(hardware.call, process, fC, "open", hp.port) then
+					local gV = {}
+					for gK, bu in pairs(gC) do
+						for gW, gJ in pairs(bu) do
+							gV[#gV + 1] = gK .. " -> " .. gW .. " (" .. gJ.status .. ")"
+						end
+					end
+					syslog.debug("Purging open channels", table.concat(gV, ", "))
+					gU(true)
+					hardware.call(process, fC, "open", hp.port)
+				end
+				gL[fC.uuid] = true
+			end
+		end
+		local gJ = {
+			localPort = hp.port,
+			id = gx,
+			devices = gL,
+			status = "listening",
+			process = process,
+			nextUpdate = math.huge,
+			retryCount = 0,
+			uri = go,
+			buffer = "",
+		}
+		gx = gx + 1
+		gC[hp.port] = gC[hp.port] or {}
+		gC[hp.port].listen = gJ
+		gD[gJ.id] = gJ
+		return
+	elseif hp.scheme == "pdp" then
+		if not hp.port then
+			error("Missing port")
+		end
+		if gE[hp.port] then
+			error("Port already open")
+		end
+		local gq = gp(hp.host)
+		for F, c in pairs(gy) do
+			if c.up and (gq == 0 or c.ip == gq) then
+				hardware.call(process, hardware.get(F), "open", hp.port)
+			end
+		end
+		gE[hp.port] = { process = process, listen = true, open = {} }
+		return
+	end
+	error("Invalid protocol " .. hp.scheme)
+end
+function syscalls.unlisten(process, aN, go)
+	expect(1, go, "string")
+	local hp = gn(go)
+	if http and http.addListener then
+		if hp.scheme == "http" then
+			http.removeListener(hp.port or 80)
+			return
+		elseif hp.scheme == "ws" then
+			return
+		end
+	end
+	if hp.scheme == "psp" then
+		if not hp.port then
+			error("Missing port")
+		end
+		if not gC[hp.port] or not gC[hp.port].listen then
+			return
+		end
+		if gC[hp.port].listen.process ~= process then
+			error("Port open in another process")
+		end
+		for F in pairs(gC[hp.port].listen.devices) do
+			hardware.call(process, hardware.get(F), "close", hp.port)
+		end
+		gC[hp.port].listen = nil
+		return
+	elseif hp.scheme == "pdp" then
+		if not hp.port then
+			error("Missing port")
+		end
+		if not gE[hp.port] then
+			return
+		end
+		local gq = gp(hp.host)
+		for F, c in pairs(gy) do
+			if c.up and (gq == 0 or c.ip == gq) then
+				hardware.call(process, hardware.get(F), "close", hp.port)
+			end
+		end
+		gE[hp.port] = nil
+		return
+	end
+	error("Invalid protocol " .. hp.scheme)
+end
+function syscalls.ipconfig(process, aN, fD, info)
+	if info and process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, fD, "string")
+	expect(2, info, "table", "nil")
+	local eb = gw(hardware.get(fD))
+	local X = gy[eb.uuid]
+	if not X then
+		if info then
+			expect.field(info, "ip", "string", "number")
+			expect.field(info, "netmask", "string", "number")
+			X = { up = true }
+			gy[eb.uuid] = X
+			hardware.call(KERNEL, eb, "open", 0)
+		else
+			return nil
+		end
+	end
+	if info then
+		expect.field(info, "ip", "string", "number", "nil")
+		expect.field(info, "netmask", "string", "number", "nil")
+		expect.field(info, "up", "boolean", "nil")
+		local hq, hr
+		if X.ip then
+			for k, c in ipairs(gz[0]) do
+				if c.source == bit32.band(X.ip, X.netmask) and c.netmask == X.netmask then
+					hq = c
+				elseif
+					c.source == bit32.bor(bit32.band(X.ip, X.netmask), bit32.bnot(X.netmask))
+					and c.netmask == 0xFFFFFFFF
+				then
+					hr = c
+				end
+			end
+		end
+		if info.ip then
+			if gA[eb.uuid] then
+				gA[eb.uuid][X.ip] = nil
+			end
+			if type(info.ip) == "number" then
+				X.ip = bit32.band(info.ip, 0xFFFFFFFF)
+			else
+				X.ip = gp(info.ip)
+			end
+			if hq then
+				hq.source = bit32.band(X.ip, X.netmask)
+			end
+			if hr then
+				hr.source = bit32.bor(bit32.band(X.ip, X.netmask), bit32.bnot(X.netmask))
+			end
+			gA[eb.uuid] = gA[eb.uuid] or {}
+			gA[eb.uuid][X.ip] = os.computerID()
+		end
+		if info.netmask then
+			if type(info.netmask) == "number" then
+				X.netmask = gu(info.netmask)
+			else
+				X.netmask = gp(info.netmask)
+			end
+			if hq then
+				hq.source = bit32.band(X.ip, X.netmask)
+			end
+			if hr then
+				hr.source = bit32.bor(bit32.band(X.ip, X.netmask), bit32.bnot(X.netmask))
+			end
+		end
+		if info.up ~= nil then
+			X.up = info.up
+			if X.up then
+				hardware.call(KERNEL, eb, "open", 0)
+			else
+				hardware.call(KERNEL, eb, "close", 0)
+			end
+		end
+		if not hq then
+			gz[0][#gz[0] + 1] =
+				{ source = bit32.band(X.ip, X.netmask), sourceNetmask = X.netmask, action = "local", device = eb }
+		end
+		if not hr then
+			gz[0][#gz[0] + 1] = {
+				source = bit32.bor(bit32.band(X.ip, X.netmask), bit32.bnot(X.netmask)),
+				sourceNetmask = 0xFFFFFFFF,
+				action = "broadcast",
+				device = eb,
+			}
+		end
+	end
+	return { ip = gr(X.ip), netmask = gv(X.netmask), up = X.up }
+end
+function syscalls.routelist(process, aN, u)
+	u = expect(1, u, "number", "nil") or 1
+	expect.range(u, 0)
+	if not gz[u] then
+		return nil
+	end
+	local as = {}
+	for o, X in ipairs(gz[u]) do
+		as[o] = {
+			source = gr(X.source),
+			sourceNetmask = gv(X.sourceNetmask),
+			action = X.action,
+			device = X.device and hardware.path(X.device),
+			destination = X.destination and gr(X.destination),
+		}
+	end
+	return as
+end
+local hs = { unicast = true, broadcast = true, ["local"] = true, unreachable = true, prohibit = true, blackhole = true }
+function syscalls.routeadd(process, aN, bY)
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, bY, "table")
+	expect.field(bY, "source", "string", "number")
+	expect.field(bY, "sourceNetmask", "string", "number")
+	expect.field(bY, "action", "string")
+	expect.field(
+		bY,
+		"device",
+		"string",
+		bY.action ~= "unicast" and bY.action ~= "broadcast" and bY.action ~= "local" and "nil" or nil
+	)
+	expect.field(bY, "destination", "string", bY.action ~= "unicast" and "nil" or nil)
+	expect.range(expect.field(bY, "table", "number", "nil") or 1, 1)
+	bY.table = bY.table or 1
+	if not hs[bY.action] then
+		error("bad field 'action' (invalid option '" .. bY.action .. "')")
+	end
+	local X = {}
+	if type(bY.source) == "number" then
+		X.source = bit32.band(bY.source, 0xFFFFFFFF)
+	else
+		X.source = gp(bY.source)
+	end
+	if type(bY.sourceNetmask) == "number" then
+		X.sourceNetmask = gu(bY.sourceNetmask)
+	else
+		X.sourceNetmask = gp(bY.sourceNetmask)
+	end
+	X.source = bit32.band(X.source, X.sourceNetmask)
+	X.action = bY.action
+	X.device = bY.device and gw(hardware.get(bY.device))
+	X.destination = bY.destination and gp(bY.destination)
+	gz[bY.table] = gz[bY.table] or {}
+	for k, c in ipairs(gz[bY.table]) do
+		if c.source == X.source and c.sourceNetmask == X.sourceNetmask then
+			error("Route already exists")
+		end
+	end
+	gz[bY.table][#gz[bY.table] + 1] = X
+	gz.maxn = math.max(gz.maxn, bY.table)
+end
+function syscalls.routedel(process, aN, ht, V, u)
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, ht, "string", "number")
+	expect(2, V, "string", "number")
+	u = expect(3, u, "number", "nil") or 1
+	expect.range(u, 1)
+	if type(V) == "number" then
+		V = gu(V)
+	else
+		V = gp(V)
+	end
+	if type(ht) == "number" then
+		ht = bit32.band(ht, V)
+	else
+		ht = bit32.band(gp(ht), V)
+	end
+	if not gz[u] then
+		error("Route table does not exist")
+	end
+	for o, c in ipairs(gz[u]) do
+		if c.source == ht and c.sourceNetmask == V then
+			table.remove(gz[u], o)
+			return
+		end
+	end
+end
+function syscalls.arplist(process, aN, fD)
+	expect(1, fD, "string")
+	local eb = gw(hardware.get(fD))
+	local as = {}
+	for F, c in pairs(gA[eb.uuid] or {}) do
+		as[gr(F)] = c
+	end
+	return as
+end
+function syscalls.arpset(process, aN, fD, gq, aX)
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, fD, "string")
+	expect(2, gq, "string", "number")
+	expect(3, aX, "number")
+	local eb = gw(hardware.get(fD))
+	if type(gq) == "string" then
+		gq = gp(gq)
+	else
+		gq = bit32.band(gq, 0xFFFFFFFF)
+	end
+	gA[eb.uuid] = gA[eb.uuid] or {}
+	gA[eb.uuid][gq] = aX
+end
+local hu = { ping = true, pong = true, unreachable = true, timeout = true }
+function syscalls.netcontrol(process, aN, gq, l, n, gO)
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, gq, "string", "number")
+	expect(2, l, "string")
+	expect(3, n, "string", "nil")
+	expect(4, gO, "number", "nil")
+	if not hu[l] then
+		error("bad argument #2 (invalid option '" .. l .. "')")
+	end
+	if type(gq) == "string" then
+		gq = gp(gq)
+	else
+		gq = bit32.band(gq, 0xFFFFFFFF)
+	end
+	gB.send.control({ process = process }, gq, l, n, gO)
+end
+function syscalls.netevent(process, aN, dP)
+	if process.user ~= "root" then
+		error("Permission denied")
+	end
+	expect(1, dP, "boolean", "nil")
+	if dP == true then
+		gF[process] = function(aA)
+			process.eventQueue[#process.eventQueue + 1] = { "network_event", deepcopy(aA) }
+			return true
+		end
+	elseif dP == false then
+		gF[process] = nil
+	end
+	return gF[process] ~= nil
+end
+function syscalls.checkuri(process, aN, go) end
+function registerLoopback()
+	local eb = hardware.get("/lo")
+	if eb then
+		gy[eb.uuid] = { ip = 0x7F000001, netmask = 0xFF000000, up = true }
+		gz[0][#gz[0] + 1] = { source = 0x7F000000, sourceNetmask = 0xFF000000, action = "local", device = eb }
+		gz[0][#gz[0] + 1] = { source = 0x7FFFFFFF, sourceNetmask = 0xFFFFFFFF, action = "broadcast", device = eb }
+		gA[eb.uuid] = setmetatable({}, {
+			__index = function()
+				return os.computerID()
+			end,
+		})
+		syslog.log("Configured IP for loopback device")
+	end
+end
+function syscalls.listmodules()
+	local as = {}
+	for F in pairs(modules) do
+		as[#as + 1] = F
+	end
+	return as
+end
+function syscalls.loadmodule(process, aN, bs)
+	expect(1, bs, "string")
+	if process.user ~= "root" then
+		error("Could not load kernel module: Permission denied", 2)
+	end
+	local bZ = filesystem.stat(process, bs)
+	if bZ.type == "directory" then
+		error("Could not load kernel module: Is a directory", 2)
+	end
+	if bZ.owner ~= "root" or bZ.worldPermissions.write then
+		error("Insecure permissions set on kernel module, refusing to load", 2)
+	end
+	local O = bs:match("([^%./]+)[^/]*$")
+	syslog.log("Loading kernel module " .. O .. " from " .. bs)
+	local H, n = filesystem.open(process, bs, "rb")
+	if H then
+		local bz = H.readAll() or ""
+		H.close()
+		local J, n = load(bz, "@" .. bs)
+		if J then
+			local s, E = pcall(J, bs)
+			if s then
+				modules[O] = E or true
+			else
+				syslog.log({ level = "error" }, "Kernel module " .. O .. " threw an error:", E)
+			end
+		else
+			syslog.log({ level = "error" }, "Could not load " .. O .. ":", n)
+		end
+	else
+		syslog.log({ level = "error" }, "Could not open " .. bs .. ":", n)
+	end
+end
+function syscalls.unloadmodule(process, aN, O)
+	expect(1, O, "string")
+	if process.user ~= "root" then
+		error("Could not load kernel module: Permission denied", 2)
+	end
+	if type(modules[O]) == "table" and modules[O].unload then
+		modules[O].unload(process, aN)
+	end
+	modules[O] = nil
+end
+function syscalls.callmodule(process, aN, O, aW, ...)
+	expect(1, O, "string")
+	expect(2, aW, "string")
+	if not modules[O] then
+		error("Module '" .. O .. "' does not exist", 2)
+	elseif type(modules[O]) ~= "table" then
+		error("Module '" .. O .. "' does not have a callable interface", 2)
+	elseif aW == "unload" or type(modules[O][aW]) ~= "function" then
+		error("Module '" .. O .. "' does not have a method '" .. aW .. "'", 2)
+	end
+	return modules[O][aW](process, aN, ...)
+end
+syslog.log("Loading kernel modules from /lib/modules")
+local s, hv = pcall(filesystem.list, KERNEL, "/lib/modules")
+if s then
+	for k, c in ipairs(hv) do
+		local a1 = filesystem.combine("/lib/modules", c)
+		local bZ = filesystem.stat(KERNEL, a1)
+		if bZ.type ~= "directory" then
+			local s, n = pcall(syscalls.loadmodule, KERNEL, nil, a1)
+			if not s then
+				syslog.log({ level = "error" }, "Could not load module from " .. a1 .. ": " .. n)
+			end
+		end
+	end
+else
+	syslog.log({ level = "notice" }, "Could not open /lib/modules:", hv)
+end
+xpcall(hardware.register, function(error)
+	panic("An error occurred while registering devices: " .. error)
+end, deviceTreeRoot, rootDriver)
+local aM = { n = 0 }
+local hw = processes[syscalls.fork(KERNEL, nil, function() end, "init")]
+local hx = hw.id
+local hy, hz
+if args.init then
+	hy, hz = pcall(syscalls.exec, hw, nil, args.initrd and "/init" or args.init)
+end
+if not hy then
+	syslog.log({ level = "error", process = 0 }, "Could not load init:", hz)
+	syslog.log("Could not find provided init, trying default locations")
+	for k, c in ipairs({ "/sbin/init", "/etc/init", "/bin/init", "/bin/sh" }) do
+		syslog.log("Trying", c)
+		hy, hz = pcall(syscalls.exec, hw, nil, c)
+		if not hy then
+			syslog.log({ level = "error", process = 0 }, "Could not load init:", hz)
+		end
+		if hy then
+			break
+		end
+	end
+	if not hy then
+		panic("No working init found")
+	end
+end
+syslog.log("Starting init from " .. processes[hx].name)
+local aQ = false
+local hA = setmetatable({}, { __mode = "k" })
+function wakeup(process)
+	if #process.eventQueue > 0 and not hA[process] then
+		aQ = false
+	end
+end
+local dq = coroutine.yield
+function coroutine.yield(...)
+	if coroutine.running() == mainThread then
+		error("attempt to yield from kernel main thread", 2)
+	end
+	return dq(...)
+end
+debug.protect(coroutine.yield)
+eventHooks.key = eventHooks.key or {}
+eventHooks.key[#eventHooks.key + 1] = function(aO)
+	if keysHeld.ctrl and keysHeld.shift and aO[2] == keys.f10 then
+		local aT = currentTTY
+		local dE = terminal.makeTTY(term, term.getSize())
+		currentTTY = dE
+		terminal.write(dE, "Entering debug console.\n")
+		terminal.redraw(dE, true)
+		local bf = true
+		while bf do
+			terminal.write(dE, "lua> ")
+			terminal.redraw(dE)
+			while true do
+				local aO = { dq() }
+				if aO[1] == "char" or aO[1] == "paste" then
+					if dE.flags.cbreak then
+						dE.buffer = dE.buffer .. aO[2]
+					else
+						dE.preBuffer = dE.preBuffer .. aO[2]
+					end
+					if dE.flags.echo then
+						terminal.write(dE, aO[2])
+						terminal.redraw(dE)
+					end
+				elseif aO[1] == "key" then
+					if aO[2] == keys.enter then
+						if dE.flags.cbreak then
+							dE.buffer = dE.buffer .. "\n"
+						else
+							dE.buffer = dE.buffer .. dE.preBuffer .. "\n"
+							dE.preBuffer = ""
+						end
+						if dE.flags.echo then
+							terminal.write(dE, "\n")
+							terminal.redraw(dE)
+						end
+						break
+					elseif aO[2] == keys.backspace then
+						if dE.flags.cbreak then
+						elseif #dE.preBuffer > 0 then
+							dE.preBuffer = dE.preBuffer:sub(1, -2)
+							if dE.flags.echo then
+								terminal.write(dE, "\b \b")
+								terminal.redraw(dE)
+							end
+						end
+					end
+				end
+			end
+			local J, n = load(
+				"return " .. dE.buffer,
+				"=lua",
+				"t",
+				setmetatable({
+					exit = function()
+						bf = false
+					end,
+					ps = function()
+						local as = {}
+						for F, c in pairs(processes) do
+							as[F] = c.name
+						end
+						return as
+					end,
+				}, { __index = _G })
+			)
+			if not J then
+				J, n = load(
+					dE.buffer,
+					"=lua",
+					"t",
+					setmetatable({
+						exit = function()
+							bf = false
+						end,
+						ps = function()
+							local as = {}
+							for F, c in pairs(processes) do
+								as[F] = c.name
+							end
+							return as
+						end,
+					}, { __index = _G })
+				)
+			end
+			dE.buffer = ""
+			if J then
+				local E = table.pack(pcall(J))
+				if E[1] then
+					for o = 2, E.n do
+						if pretty_print then
+							pretty_print(dE, E[o])
+						else
+							local bI = tostring(E[o])
+							if type(E[o]) == "table" then
+								local s, hB = pcall(serialize, E[o])
+								if s and hB then
+									bI = hB
+								end
+							end
+							terminal.write(dE, bI .. "\n")
+						end
+					end
+				else
+					terminal.write(dE, "\x1b[31m" .. E[2] .. "\x1b[0m\n")
+				end
+			else
+				terminal.write(dE, "\x1b[31m" .. n .. "\x1b[0m\n")
+			end
+			terminal.redraw(dE)
+		end
+		currentTTY = aT
+		terminal.redraw(currentTTY, true)
+	end
+end
+local hC =
+	{ char = true, key = true, key_up = true, mouse_click = true, mouse_up = true, mouse_drag = true, mouse_scroll = true, paste = true }
+local s, n = xpcall(function()
+	while processes[hx] do
+		if not aQ then
+			os.queueEvent("__event_queue_back")
+		end
+		while true do
+			local aO = table.pack(dq())
+			local O = aO[1]
+			if O == "__event_queue_back" then
+				break
+			end
+			local hD = false
+			if eventHooks[O] then
+				for k, c in ipairs(eventHooks[O]) do
+					hD = c(aO) or hD
+				end
+			end
+			if eventParameterMap[O] then
+				local aS = {}
+				for o = 2, #eventParameterMap[O] + 1 do
+					aS[eventParameterMap[O][o - 1]] = aO[o]
+				end
+				if O == "key" or O == "key_up" then
+					aS.keycode = keymap[aS.keycode]
+					aS.ctrlHeld = keysHeld.ctrl
+					aS.altHeld = keysHeld.alt
+					aS.shiftHeld = keysHeld.shift
+				end
+				if O == "mouse_scroll" then
+					aS.direction = aS.direction > 0
+				end
+				if hC[O] and currentTTY.frontmostProcess then
+					currentTTY.frontmostProcess.eventQueue[#currentTTY.frontmostProcess.eventQueue + 1] = { O, aS }
+					hD = true
+				elseif O == "timer" or O == "alarm" then
+					local hE
+					if O == "timer" then
+						hE = timerMap[aO[2]]
+					else
+						hE, aS.id = alarmMap[aO[2]], bit32.bor(aS.id, 0x80000000)
+					end
+					if hE then
+						hE.eventQueue[#hE.eventQueue + 1], hD = { O, aS }, true
+					end
+				end
+			end
+			if aQ and hD then
+				break
+			end
+		end
+		aQ = true
+		hA = setmetatable({}, { __mode = "k" })
+		for dc, process in pairs(processes) do
+			if dc ~= 0 and not process.paused then
+				local g2, aO = false, nil
+				local aP = true
+				for fc, aN in pairs(process.threads) do
+					if not g2 and aN.status == "suspended" then
+						aO = table.remove(process.eventQueue, 1)
+						g2 = true
+					end
+					if aO or aN.status ~= "suspended" then
+						local hF
+						aP, hF = executeThread(process, aN, aO or aM, aP, aQ)
+						aQ = hF and aQ
+					else
+						aP = false
+					end
+				end
+				if aP then
+					process.isDead = true
+					if process.lastReturnValue then
+						if dc == hx then
+							init_retval = process.lastReturnValue.value or process.lastReturnValue.error
+						elseif processes[process.parent] then
+							process.lastReturnValue.id = dc
+							processes[process.parent].eventQueue[#processes[process.parent].eventQueue + 1] =
+								{ "process_complete", process.lastReturnValue }
+						end
+					end
+					reap_process(process)
+					processes[dc] = nil
+					aQ = false
+				end
+				hA[process] = true
+			end
+		end
+		terminal.redraw(currentTTY)
+	end
+end, debug.traceback)
+if not s then
+	syslog.log({ level = "critical", traceback = true }, n)
+end
+if postkill then
+	postkill()
+end
+if init_retval ~= nil then
+	syslog.log({ level = 4 }, "init exited with result", init_retval)
+end
+panic("init program exited")

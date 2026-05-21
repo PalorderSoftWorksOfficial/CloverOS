@@ -264,11 +264,11 @@ if not fs.exists(defaultProfile) then
 	if handle then
 		handle.write(
 			'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"\n'
-			.. 'PS1="%u@%h:%w$ "\n'
-			.. 'MANPATH="/usr/share/man:/usr/local/share/man:/etc/man"\n'
-			.. 'LANG="en_US.UTF-8"\n'
-			.. 'TERM="xterm-256color"\n'
-			.. 'MOTD="/etc/motd"\n'
+				.. 'PS1="%u@%h:%w$ "\n'
+				.. 'MANPATH="/usr/share/man:/usr/local/share/man:/etc/man"\n'
+				.. 'LANG="en_US.UTF-8"\n'
+				.. 'TERM="xterm-256color"\n'
+				.. 'MOTD="/etc/motd"\n'
 		)
 		handle.close()
 	end
@@ -278,14 +278,14 @@ if not fs.exists(osReleaseFile) then
 	if handle then
 		handle.write(
 			'NAME="CloverOS"\n'
-			.. 'VERSION="1.0 (Ubuntu-inspired)"\n'
-			.. 'ID=cloveros\n'
-			.. 'ID_LIKE=ubuntu\n'
-			.. 'PRETTY_NAME="CloverOS 1.0 (Ubuntu-inspired)"\n'
-			.. 'VERSION_CODENAME=clover\n'
-			.. 'HOME_URL="https://github.com/palordersoftworksofficial/CloverOS"\n'
-			.. 'SUPPORT_URL="https://github.com/palordersoftworksofficial/CloverOS/issues"\n'
-			.. 'BUG_REPORT_URL="https://github.com/palordersoftworksofficial/CloverOS/issues"\n'
+				.. 'VERSION="1.0 (Ubuntu-inspired)"\n'
+				.. "ID=cloveros\n"
+				.. "ID_LIKE=ubuntu\n"
+				.. 'PRETTY_NAME="CloverOS 1.0 (Ubuntu-inspired)"\n'
+				.. "VERSION_CODENAME=clover\n"
+				.. 'HOME_URL="https://github.com/palordersoftworksofficial/CloverOS"\n'
+				.. 'SUPPORT_URL="https://github.com/palordersoftworksofficial/CloverOS/issues"\n'
+				.. 'BUG_REPORT_URL="https://github.com/palordersoftworksofficial/CloverOS/issues"\n'
 		)
 		handle.close()
 	end
@@ -570,6 +570,7 @@ end
 local completionInfo = {}
 local aliases = {}
 local shellEnv = {}
+local builtins = {}
 local function getCommandDirs()
 	local dirs = {}
 	local seen = {}
@@ -630,7 +631,7 @@ local function listCommands()
 	for _, dir in ipairs(getCommandDirs()) do
 		-- Ensure the directory path is resolved as absolute to avoid issues with relative path resolution
 		local resolvedDir = path.resolve(dir)
-		
+
 		if fs.exists(resolvedDir) and fs.isDir(resolvedDir) then
 			for _, file in ipairs(fs.list(resolvedDir)) do
 				local full = fs.combine(resolvedDir, file)
@@ -1005,6 +1006,16 @@ local function completePrograms(prefix)
 	local results = {}
 	local seen = {}
 
+	for builtinName in pairs(builtins) do
+		if startsWith(builtinName, prefix) then
+			local suffix = builtinName:sub(#prefix + 1)
+			if not seen[suffix] then
+				seen[suffix] = true
+				results[#results + 1] = suffix
+			end
+		end
+	end
+
 	for aliasName in pairs(aliases) do
 		if startsWith(aliasName, prefix) then
 			local suffix = aliasName:sub(#prefix + 1)
@@ -1107,6 +1118,9 @@ end
 
 registerCompletion("help", function()
 	local items = { "exit", "shutdown", "reboot", "installer", "run" }
+	for name in pairs(builtins) do
+		items[#items + 1] = name
+	end
 	local commands = listCommands()
 	for name in pairs(commands) do
 		items[#items + 1] = name
@@ -1142,7 +1156,6 @@ registerCompletion("run", function(index, current)
 	return items
 end)
 local commandHistory = {}
-local shellEnv = {}
 local function shellUsage(cmd, usage)
 	Terminal.print("Usage: " .. cmd .. (usage and (" " .. usage) or ""))
 end
@@ -1220,7 +1233,7 @@ table.contains = function(t, v)
 	return false
 end
 
-local builtins = {
+builtins = {
 	help = function()
 		Terminal.print("Available commands:")
 		Terminal.print("  help")
@@ -1336,15 +1349,31 @@ local builtins = {
 		end
 
 		local target = table.remove(args, 1)
-		local commands = listCommands()
-		local targetPath = commands[resolveAlias(target)]
+		local resolved = resolveAlias(target)
 
-		if not targetPath then
+		if builtins[resolved] then
+			local ok, err = pcall(builtins[resolved], table.unpack(args))
+			shellEnv["?"] = ok and "0" or "1"
+			if not ok then
+				Terminal.print("Error: " .. tostring(err))
+			end
+			return
+		end
+
+		local commandPath = process.resolve(resolved)
+		if not commandPath and fs.exists(resolved) then
+			commandPath = resolvePath(resolved)
+		end
+		if not commandPath then
 			Terminal.print("No such program")
 			return
 		end
 
-		process.run(targetPath, table.unpack(args))
+		local ok, err = pcall(process.run, commandPath, table.unpack(args))
+		shellEnv["?"] = ok and "0" or "1"
+		if not ok then
+			Terminal.print("Error: " .. tostring(err))
+		end
 	end,
 
 	cd = function(path)
@@ -1508,24 +1537,27 @@ local builtins = {
 		end
 		-- check builtin help usage and command metadata
 		if builtins[cmd] and type(builtins[cmd]) == "function" then
-			Terminal.print("No manual entry for builtin: " .. cmd)
+			Terminal.print("Builtin command: " .. cmd)
+			Terminal.print("Use help to view available shell builtins and commands.")
 			return
 		end
 		local commands = listCommands()
-		local path = commands[cmd]
+		local commandPath = commands[cmd]
 		local manPath = shellEnv.MANPATH or "/etc/man"
-		local resolvedManPath = path.resolve(manPath)
-		local manFile = fs.combine(resolvedManPath, cmd .. ".man")
-		if fs.exists(manFile) and not fs.isDir(manFile) then
-			printFile(manFile)
-			return
+		for segment in manPath:gmatch("[^:]+") do
+			local resolvedManPath = path.resolve(segment)
+			local manFile = fs.combine(resolvedManPath, cmd .. ".man")
+			if fs.exists(manFile) and not fs.isDir(manFile) then
+				printFile(manFile)
+				return
+			end
 		end
-		if not path then
+		if not commandPath then
 			Terminal.print("No manual entry for: " .. cmd)
 			return
 		end
 		-- try to read header comments as manual
-		local header = readCommandHeader(path, 200)
+		local header = readCommandHeader(commandPath, 200)
 		if header and #header > 0 then
 			for _, line in ipairs(header) do
 				Terminal.print(line)
@@ -1660,11 +1692,11 @@ local builtins = {
 
 	hostnamectl = function(action, target)
 		if not action then
-			Terminal.print("   Static hostname: " .. (shellEnv.HOSTNAME or "CloverOS"))
+			Terminal.print("   Static hostname: " .. tostring(shellEnv.HOSTNAME or "CloverOS"))
 			Terminal.print("         Icon name: computer")
 			Terminal.print("           Chassis: n/a")
-			Terminal.print("        Machine ID: " .. (shellEnv.MACHINE_ID or "0000000000000000"))
-			Terminal.print("           Boot ID: " .. (shellEnv.BOOT_ID or "00000000000000000000"))
+			Terminal.print("        Machine ID: " .. tostring(shellEnv.MACHINE_ID or "0000000000000000"))
+			Terminal.print("           Boot ID: " .. tostring(shellEnv.BOOT_ID or "00000000000000000000"))
 			Terminal.print("  Operating System: CloverOS 1.0 (Ubuntu-inspired)")
 			Terminal.print("            Kernel: CloverOS shell")
 			Terminal.print("      Architecture: cc")
@@ -1673,7 +1705,7 @@ local builtins = {
 		action = action:lower()
 		if action == "set-hostname" and target then
 			shellEnv.HOSTNAME = target
-			Terminal.print("Hostname set to " .. target)
+			Terminal.print("Hostname set to " .. tostring(target))
 		else
 			Terminal.print("hostnamectl: unknown action")
 		end
@@ -1877,22 +1909,19 @@ local builtins = {
 	end,
 
 	hostname = function()
-		if settingsLoaded and editionSettings.envType == "craftos" then
-			Terminal.print("CloverOS-CraftOS")
-		else
-			Terminal.print("CloverOS")
-		end
+		Terminal.print(shellEnv.HOSTNAME or "CloverOS")
 	end,
 
 	status = function()
-		local s = kernel.status()
-		Terminal.print("Name: " .. s.name)
-		Terminal.print("Version: " .. s.version)
-		Terminal.print("Build: " .. s.build)
-		Terminal.print("Uptime: " .. tostring(kernel.date("%H:%M:%S", os.time())))
-		Terminal.print("Booted: " .. tostring(s.booted))
-		Terminal.print("Shutdown requested: " .. tostring(s.shutdownRequested))
-		Terminal.print("Reboot requested: " .. tostring(s.rebootRequested))
+		local s = kernel.status() or {}
+		local uptime = tostring(s.uptime or "unknown")
+		Terminal.print("Name: " .. tostring(s.name or "CloverOS"))
+		Terminal.print("Version: " .. tostring(s.version or "1.0"))
+		Terminal.print("Build: " .. tostring(s.build or "unknown"))
+		Terminal.print("Uptime: " .. uptime)
+		Terminal.print("Booted: " .. tostring(s.booted or false))
+		Terminal.print("Shutdown requested: " .. tostring(s.shutdownRequested or false))
+		Terminal.print("Reboot requested: " .. tostring(s.rebootRequested or false))
 		Terminal.print("User: " .. tostring(currentUser or "root"))
 	end,
 
@@ -1926,19 +1955,71 @@ local builtins = {
 	end,
 
 	df = function()
+		local stat = fs.stat and fs.stat("/") or nil
+		local total, free = nil, nil
+
+		if stat then
+			total = stat.capacity or stat.total or stat.size
+			free = stat.freeSpace or stat.free or stat.available
+		end
+
+		if total and free then
+			local used = total - free
+			local percent = 0
+			if total > 0 then
+				percent = math.floor((used / total) * 100)
+			end
+			Terminal.print("Filesystem 1K-blocks Used Available Use% Mounted on")
+			Terminal.print(string.format("rootfs %d %d %d %d%% /", total, used, free, percent))
+			return
+		end
+
+		local freeSpace = fs.getFreeSpace and fs.getFreeSpace("/") or nil
+		if freeSpace then
+			Terminal.print("Filesystem 1K-blocks Used Available Use% Mounted on")
+			Terminal.print(string.format("rootfs %d %d %d %d%% /", freeSpace, 0, freeSpace, 0))
+			return
+		end
+
 		Terminal.print("Filesystem 1K-blocks Used Available Use% Mounted on")
 		Terminal.print("rootfs 1024 512 512 50% /")
 	end,
 
 	du = function(path)
-		path = path or "."
-		Terminal.print("4 " .. path)
+		local target = resolvePath(path or ".")
+		if not fs.exists(target) then
+			Terminal.print("No such file or directory: " .. tostring(path or "."))
+			return
+		end
+		local function calcSize(entry)
+			if fs.isDir(entry) then
+				local total = 0
+				for _, child in ipairs(fs.list(entry) or {}) do
+					total = total + calcSize(fs.combine(entry, child))
+				end
+				return total
+			end
+			if fs.getSize then
+				return fs.getSize(entry) or 0
+			end
+			return 0
+		end
+		local total = calcSize(target)
+		Terminal.print(tostring(total) .. "\t" .. target)
 	end,
 
-	find = function(dir, name)
-		if not dir or not name then
+	find = function(...)
+		local args = { ... }
+		local dir = args[1]
+		local pattern = "*"
+		if not dir then
 			Terminal.print("Usage: find <dir> -name <pattern>")
 			return
+		end
+		if args[2] == "-name" then
+			pattern = args[3] or "*"
+		elseif args[2] then
+			pattern = args[2]
 		end
 
 		local target = resolvePath(dir)
@@ -1951,15 +2032,13 @@ local builtins = {
 			return
 		end
 
-		local pattern = name
-		if pattern:sub(1, 1) == [[" ]] or pattern:sub(1, 1) == "'" then
-			pattern = pattern:sub(2, -2)
+		local function escapePattern(text)
+			return text:gsub("([%^%$%(%)%%%.%[%]%+%-%])", "%%%1")
 		end
-		local luaPattern = pattern:gsub("([%^%$%(%)%%%.%[%]%+%-%?])", "%%%1")
-		luaPattern = "^" .. luaPattern:gsub("\\%*", ".*") .. "$"
+		local luaPattern = "^" .. escapePattern(pattern):gsub("%%%*", ".*"):gsub("%%%?", ".") .. "$"
 
 		local function scan(path)
-			for _, entry in ipairs(fs.list(path)) do
+			for _, entry in ipairs(fs.list(path) or {}) do
 				local full = fs.combine(path, entry)
 				if entry:match(luaPattern) then
 					Terminal.print(full)
@@ -1979,11 +2058,16 @@ local builtins = {
 			return
 		end
 		local downloader = process.resolve("wget")
-		if downloader then
-			local resolvedDownloader = path.resolve(downloader)
-			return process.run(resolvedDownloader, url)
+		if not downloader then
+			Terminal.print("wget: command not available")
+			shellEnv["?"] = "1"
+			return
 		end
-		Terminal.print("wget: command not available")
+		local ok, err = pcall(process.run, downloader, url)
+		shellEnv["?"] = ok and "0" or "1"
+		if not ok then
+			Terminal.print("Error: " .. tostring(err))
+		end
 	end,
 
 	ping = function(host)
@@ -1992,11 +2076,16 @@ local builtins = {
 			return
 		end
 		local pingCmd = process.resolve("ping")
-		if pingCmd then
-			local resolvedPingCmd = path.resolve(pingCmd)
-			return process.run(resolvedPingCmd, host)
+		if not pingCmd then
+			Terminal.print("ping: command not available")
+			shellEnv["?"] = "1"
+			return
 		end
-		Terminal.print("ping: command not available")
+		local ok, err = pcall(process.run, pingCmd, host)
+		shellEnv["?"] = ok and "0" or "1"
+		if not ok then
+			Terminal.print("Error: " .. tostring(err))
+		end
 	end,
 
 	useradd = function(user)
@@ -2008,8 +2097,22 @@ local builtins = {
 			Terminal.print("useradd: user '" .. user .. "' already exists")
 			return
 		end
-		users[user] = { uid = 1000, gid = 1000, home = "/home/" .. user, shell = "/bin/sh", password = "x" }
+		local nextUid = 1000
+		for _, info in pairs(users) do
+			if type(info.uid) == "number" and info.uid >= nextUid then
+				nextUid = info.uid + 1
+			end
+		end
+		users[user] = { uid = nextUid, gid = 1000, home = "/home/" .. user, shell = "/bin/sh", password = "x" }
+		if not groups.users then
+			groups.users = { gid = 1000, members = {} }
+		end
+		if type(groups.users.members) ~= "table" then
+			groups.users.members = {}
+		end
+		table.insert(groups.users.members, user)
 		saveUsers()
+		saveGroups()
 		ensureDirectory(users[user].home)
 		Terminal.print("useradd: user '" .. user .. "' added")
 	end,
@@ -2019,12 +2122,35 @@ local builtins = {
 			Terminal.print("Usage: userdel <username>")
 			return
 		end
+		if user == "root" then
+			Terminal.print("userdel: cannot remove root user")
+			return
+		end
 		if not users[user] then
 			Terminal.print("userdel: user '" .. user .. "' does not exist")
 			return
 		end
 		users[user] = nil
+		for _, ginfo in pairs(groups) do
+			if type(ginfo.members) == "table" then
+				for i = #ginfo.members, 1, -1 do
+					if ginfo.members[i] == user then
+						table.remove(ginfo.members, i)
+					end
+				end
+			end
+		end
 		saveUsers()
+		saveGroups()
+		if currentUser == user then
+			currentUser = "root"
+			shellEnv.USER = currentUser
+			shellEnv.HOME = users[currentUser] and users[currentUser].home or ROOT or "/"
+			if process and type(process.setDir) == "function" then
+				process.setDir(shellEnv.HOME)
+			end
+			shellEnv.PWD = process.dir()
+		end
 		Terminal.print("userdel: user '" .. user .. "' deleted")
 	end,
 
@@ -2050,6 +2176,12 @@ local builtins = {
 		local pass = readInput("Password: ", true)
 		if pass == users[user].password then
 			currentUser = user
+			shellEnv.USER = currentUser
+			shellEnv.HOME = users[user].home or ROOT or "/"
+			if process and type(process.setDir) == "function" then
+				process.setDir(shellEnv.HOME)
+			end
+			shellEnv.PWD = process.dir()
 			Terminal.print("su: switched to " .. user)
 		else
 			Terminal.print("su: incorrect password")
@@ -2070,17 +2202,21 @@ local builtins = {
 			if not ok then
 				Terminal.print("Error: " .. tostring(err))
 			end
-		else
-			local commands = listCommands()
-			if commands[resolved] then
-				local ok, err = pcall(process.run, commands[resolved], table.unpack(args))
-				shellEnv["?"] = ok and "0" or "1"
-				if not ok then
-					Terminal.print("Error: " .. tostring(err))
-				end
-			else
-				Terminal.print("sudo: " .. cmd .. ": command not found")
-			end
+			return
+		end
+		local commandPath = process.resolve(resolved)
+		if not commandPath and fs.exists(resolved) then
+			commandPath = resolvePath(resolved)
+		end
+		if not commandPath then
+			Terminal.print("sudo: " .. cmd .. ": command not found")
+			shellEnv["?"] = "1"
+			return
+		end
+		local ok, err = pcall(process.run, commandPath, table.unpack(args))
+		shellEnv["?"] = ok and "0" or "1"
+		if not ok then
+			Terminal.print("Error: " .. tostring(err))
 		end
 	end,
 
@@ -2090,11 +2226,16 @@ local builtins = {
 			return
 		end
 		local editor = process.resolve("edit")
-		if editor then
-			local resolvedEditor = path.resolve(editor)
-			return process.run(resolvedEditor, file)
+		if not editor then
+			Terminal.print("nano: editor not available")
+			shellEnv["?"] = "1"
+			return
 		end
-		Terminal.print("nano: editor not available")
+		local ok, err = pcall(process.run, editor, file)
+		shellEnv["?"] = ok and "0" or "1"
+		if not ok then
+			Terminal.print("Error: " .. tostring(err))
+		end
 	end,
 
 	vim = function(file)
@@ -2103,11 +2244,16 @@ local builtins = {
 			return
 		end
 		local editor = process.resolve("edit")
-		if editor then
-			local resolvedEditor = path.resolve(editor)
-			return process.run(resolvedEditor, file)
+		if not editor then
+			Terminal.print("vim: editor not available")
+			shellEnv["?"] = "1"
+			return
 		end
-		Terminal.print("vim: editor not available")
+		local ok, err = pcall(process.run, editor, file)
+		shellEnv["?"] = ok and "0" or "1"
+		if not ok then
+			Terminal.print("Error: " .. tostring(err))
+		end
 	end,
 
 	id = function(user)
@@ -2187,12 +2333,25 @@ local builtins = {
 	end,
 
 	dmesg = function()
-		for _, line in ipairs(kernel.journal()) do
+		if type(kernel.journal) ~= "function" then
+			Terminal.print("dmesg: journal unavailable")
+			return
+		end
+		local lines = kernel.journal()
+		if not lines or type(lines) ~= "table" then
+			Terminal.print("dmesg: no journal entries")
+			return
+		end
+		for _, line in ipairs(lines) do
 			Terminal.print(line)
 		end
 	end,
 
 	journalctl = function()
+		if type(kernel.journal) ~= "function" then
+			Terminal.print("journalctl: journal unavailable")
+			return
+		end
 		local lines = kernel.journal()
 		Terminal.print(
 			"-- Logs begin at "
@@ -2201,6 +2360,10 @@ local builtins = {
 				.. kernel.date("%Y-%m-%d %H:%M:%S")
 				.. " --"
 		)
+		if not lines or type(lines) ~= "table" then
+			Terminal.print("journalctl: no journal entries")
+			return
+		end
 		for _, line in ipairs(lines) do
 			Terminal.print(line)
 		end
@@ -2222,7 +2385,9 @@ local builtins = {
 				return
 			end
 			Terminal.print("● " .. service .. ".service - loaded active running")
-			Terminal.print("     Loaded: loaded (/lib/systemd/system/" .. service .. ".service; enabled; vendor preset: enabled)")
+			Terminal.print(
+				"     Loaded: loaded (/lib/systemd/system/" .. service .. ".service; enabled; vendor preset: enabled)"
+			)
 			Terminal.print("     Active: active (running) since " .. kernel.date("%Y-%m-%d %H:%M:%S") .. "; 1min ago")
 			Terminal.print("   Main PID: 1 (init)")
 			Terminal.print("      Tasks: 1 (limit: 512)")
@@ -2640,7 +2805,7 @@ local function runShell()
 	Terminal.clear()
 	Terminal.print("Welcome to CloverOS Ubuntu-style Shell. Type help for available commands.")
 
-	local history = {}
+	local history = commandHistory
 
 	-- initialize basic shell environment
 	local defaultPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -2657,6 +2822,9 @@ local function runShell()
 	shellEnv.PWD = process.dir()
 	shellEnv["?"] = "0"
 	loadShellProfiles()
+	if not shellEnv.PATH or shellEnv.PATH == "" then
+		shellEnv.PATH = process.path() or defaultPath
+	end
 	displayMotd()
 
 	while true do
@@ -2681,6 +2849,9 @@ local function runShell()
 				end
 				shellEnv[name] = expandToken(value)
 				command = table.remove(parts, 1)
+			end
+			if not command then
+				goto continue_shell
 			end
 			-- expand tokens
 			for i = 1, #parts do
@@ -2708,6 +2879,7 @@ local function runShell()
 			else
 				Terminal.print("Command not found: " .. tostring(command))
 			end
+			::continue_shell::
 		end
 	end
 end

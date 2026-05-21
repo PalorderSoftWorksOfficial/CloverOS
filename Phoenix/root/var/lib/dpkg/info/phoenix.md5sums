@@ -1,0 +1,3 @@
+52e2e4ade2b1d19b52f4e2a706880e6b  boot/kernel.lua
+a15f7a2756f0e0bff48b91907689c1c3  usr/share/doc/phoenix-eula.md
+a9110ae7ced105f25be6fed41527c385  boot/config.lua.d/00-phoenix.lua

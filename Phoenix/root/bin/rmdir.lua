@@ -1,0 +1,1 @@
+local a=require"system.filesystem"local b=false;local function c(d)if not a.isDir(d)or#a.list(d)>0 then error("rmdir: "..d..": directory not empty")end;a.remove(d)if b and d:find"/"then return c(a.dirname(d))end end;for e,f in ipairs{...}do if f=="-p"then b=true else c(f)end end

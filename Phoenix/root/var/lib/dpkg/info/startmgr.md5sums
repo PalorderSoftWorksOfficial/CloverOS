@@ -1,0 +1,8 @@
+d41d8cd98f00b204e9800998ecf8427e  usr/share/man/man1/startctl.md
+2f681b48d8fd9ea8060c31a931c7f6c1  sbin/init.lua
+1f6093323d818261b3fc4d0db3966e66  etc/startmgr/system/startup.service
+99a9872f41e5aae13ed404f4b1fb6a0b  sbin/shutdown.lua
+d2439cbe3dccf4c8e86575b5ef2d19b3  lib/startmgr.lua
+d41d8cd98f00b204e9800998ecf8427e  usr/share/man/man1/shutdown.md
+02794145e8ba948a089985bb283f3dcc  sbin/startctl.lua
+d41d8cd98f00b204e9800998ecf8427e  usr/share/man/man1/startmgr.md

@@ -1,0 +1,9 @@
+44304a9aa632161afa6524d6bc03e42a  usr/bin/sha256sum.lua
+0b23c04f92d6d68601b90ebc0acdba3d  usr/bin/md5sum.lua
+89854efcea24687d4f30272d0225950a  usr/bin/sha224sum.lua
+124dbf6c8623dbc523f29b8c2a7a366c  usr/lib/sha2.lua
+f1245ba271f47d6318e39fac55a96258  usr/bin/sha1sum.lua
+368538cdc6f626d57abd0198700058d3  usr/bin/shasum.lua
+5b6687a44f299b26cb8e8d97b0469fd4  usr/bin/sha512sum.lua
+3d3f60e38d1e37fea659736e340ddeb9  usr/bin/b2sum.lua
+88b53fee64630fb7bbfa178142d1c92d  usr/bin/sha384sum.lua

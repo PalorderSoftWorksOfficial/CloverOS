@@ -1,0 +1,1 @@
+local a=require"system.process"local b=require"system.util"local c=assert(b.argparse({n="number"},...))if not c[1]then error("Usage: nice [-n <increment>] <program> [args...]")end;local d=a.fork(function()a.nice(c.n or 10)a.execp(table.unpack(c))end,c[1])local e,f;repeat e,f=coroutine.yield()until e=="process_complete"and f.id==d;return f.value

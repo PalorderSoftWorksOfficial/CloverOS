@@ -16,6 +16,7 @@ CloverOS is a Lua-based operating system for CC:Tweaked and CraftOS. The reposit
 - `netinstall.lua` — network installer used to deploy CloverOS files.
 - `files.manifest` — file list used by the installer for full installs.
 - `craftos_env_test.lua` — environment compatibility check.
+- `Phoenix/` — Phoenix OS reference material used as a shell and boot architecture guide.
 - `CC-tweaked/`, `CraftOS-PC/`, `CraftOS-PC-Accelerated/` — platform-specific assets or integrations.
 - `sync.sh` — repository sync helper.
 
@@ -24,6 +25,7 @@ CloverOS is a Lua-based operating system for CC:Tweaked and CraftOS. The reposit
 ### Keep CC:Tweaked / CraftOS compatibility
 - Prefer APIs and patterns available in CC:Tweaked / CraftOS.
 - Avoid assumptions about native OS features that do not exist in the target runtime.
+- Use Phoenix OS as a reference for shell and boot architecture while preserving CloverOS-specific boot discovery and runtime behavior.
 - Treat filesystem paths, drives, and mounts as part of the runtime contract.
 
 ### Preserve boot and install behavior

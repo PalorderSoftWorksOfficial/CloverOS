@@ -1,0 +1,1 @@
+local a=require"startmgr"local b=require"system.util"local c=assert(b.argparse({user=false},...))local d;if not c.user then d="root"end;if not a[c[1]]then error("Invalid operation")end;if c[1]=="list"then local e,f=a.list(d)for g,h in pairs(f)do print(g..": "..(h.running and"running"or"stopped"))end else print(a[c[1]](c[2],d))end

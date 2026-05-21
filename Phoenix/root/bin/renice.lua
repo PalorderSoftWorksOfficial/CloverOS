@@ -1,0 +1,1 @@
+local a=require"system.process"local b=require"system.util"local c=assert(b.argparse({n="number"},...))if not c[1]or not c.n then error("Usage: renice -n <increment> <PID...>")end;for d,e in ipairs(c)do e=tonumber(e)or error("renice: argument "..e.." is not a PID")a.nice(c.n,e)end
