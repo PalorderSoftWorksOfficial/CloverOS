@@ -45,7 +45,7 @@ mergeTables(API, API2)
 
 local osAPIFunc = {
 	version = function()
-		return "CloverOS GNU/Linux 2.0.0"
+		return "CloverOS v1.0.0"
 	end,
 	author = function()
 		return "CloverOS Team"
@@ -92,7 +92,7 @@ local function safeFindOS(fileName)
 end
 local kernel = {
 	_name = "CloverOS Kernel",
-	_version = "2.0.0",
+	_version = "1.0.0",
 	_build = "2026-05-11",
 	_startedAt = os.clock(),
 	_services = {},
@@ -2312,7 +2312,7 @@ local function DISK_ROOT()
 	end
 
 	for i = 0, 99 do
-		local root = "/disk" .. (i == 0 and "" or tostring(i))
+		local root = "/disk" .. (i == 1 and "" or i)
 		if isCloverRoot(root) then
 			return root
 		end
