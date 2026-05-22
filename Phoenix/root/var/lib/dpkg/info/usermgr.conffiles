@@ -1,0 +1,4 @@
+/etc/passwd
+/etc/shadow
+/etc/motd
+/etc/skel/.cashrc

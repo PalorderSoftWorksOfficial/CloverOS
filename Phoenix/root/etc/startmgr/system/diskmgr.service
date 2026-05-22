@@ -1,0 +1,11 @@
+local process = require "system.process"
+
+unit.description = "Disk Manager"
+service.restart = "always"
+service.restartTime = 0
+install.wantedBy = "startup"
+
+function start()
+    service.pid[1] = process.startbg("/usr/libexec/diskmgr")
+    return true
+end

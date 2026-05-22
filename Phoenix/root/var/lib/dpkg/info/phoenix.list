@@ -1,0 +1,9 @@
+/
+/boot/
+/boot/config.lua.d/
+/boot/config.lua.d/00-phoenix.lua
+/boot/kernel.lua
+/usr/
+/usr/share/
+/usr/share/doc/
+/usr/share/doc/phoenix-eula.md

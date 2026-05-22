@@ -1,0 +1,1 @@
+local a=assert(...,"basename: missing path")if a==""then print"."elseif a:match"^/+$"then print"/"else local b=a:gsub("/+$",""):match"[^/]+$"local c=select(2,...)if c and b~=c then b=b:gsub(c.."$","")end;print(b)end

@@ -1,0 +1,7 @@
+if ... == "configure" then
+    coroutine.yield("syscall", "chmod", "/usr/bin/login.lua", nil, {setuser = true})
+    coroutine.yield("syscall", "chmod", "/usr/bin/passwd.lua", nil, {setuser = true})
+    coroutine.yield("syscall", "chmod", "/usr/bin/su.lua", nil, {setuser = true})
+    coroutine.yield("syscall", "chmod", "/usr/bin/sudo.lua", nil, {setuser = true})
+    return true
+else return true end

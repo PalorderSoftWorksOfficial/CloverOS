@@ -1,0 +1,10 @@
+/
+/etc/
+/etc/startmgr/
+/etc/startmgr/system/
+/etc/startmgr/system/diskmgr.service
+/etc/startmgr/system/startup.service.wants/
+/usr/
+/usr/libexec/
+/usr/libexec/diskmgr.lua
+/etc/startmgr/system/startup.service.wants/diskmgr.service

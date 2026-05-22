@@ -1,0 +1,10 @@
+local process = require "system.process"
+
+unit.description = "User Manager"
+service.restart = "always"
+service.restartTime = 0
+
+function start()
+    service.pid[1] = process.startbg("/usr/libexec/usermgr")
+    return true
+end

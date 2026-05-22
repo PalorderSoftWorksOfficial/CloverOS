@@ -1,0 +1,16 @@
+94f3f1673bbfa8596df3c7bd66bdb444  usr/bin/dpkg.lua
+d41d8cd98f00b204e9800998ecf8427e  usr/share/man/man8/dpkg.md
+d41d8cd98f00b204e9800998ecf8427e  usr/share/man/man8/components.md
+76fe1d9953d075f6811758c949da30d2  usr/lib/dpkg/deb.lua
+8ed0455495f6d0c4456249006281b069  usr/bin/dpkg-deb.lua
+fe7d452efa9f06e888ab5dcf2e167ed1  usr/lib/dpkg/trigger.lua
+ee8d434c364fa8c02a622d3a061db437  usr/lib/dpkg/init.lua
+d41d8cd98f00b204e9800998ecf8427e  usr/share/man/man8/update.md
+6b4db8ad793341893d392ace5a084eab  usr/lib/dpkg/query.lua
+0b9e4c3020d8d775a34920b3098eb458  usr/lib/dpkg/divert.lua
+d5e27e7174a1fea197a7f2d6a4fe2335  usr/bin/dpkg-query.lua
+ba58b004afcc6edbe9f409f5b0877d33  usr/bin/dpkg-divert.lua
+aab6bf7c06734a559f26f40128f89df0  usr/bin/components.lua
+ddb74df4a7ad2b15c614ab754ee5f4a9  usr/bin/update.lua
+637f90e0ca1924d17008cf6073e19887  usr/bin/dpkg-trigger.lua
+c1b4ca58881e6ac1f122c2381a87de10  usr/lib/dpkg/control.lua

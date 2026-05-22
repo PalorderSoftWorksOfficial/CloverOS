@@ -1,0 +1,1 @@
+local a=require"system.process"local b={...}local c=a.getenv()while#b>0 do if b[1]=="-i"then for d in pairs(c)do c[d]=nil end;table.remove(b,1)elseif b[1]:find("=")then local d,e=table.remove(b,1):match"^([^=]+)=(.*)$"c[d]=e else break end end;if#b==0 then for d,e in pairs(c)do print(d.."="..e)end else return a.execp(table.unpack(b))end

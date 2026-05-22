@@ -1,0 +1,5 @@
+unit.description = "Startup Tasks"
+unit.requires = {}
+
+function start() return true end
+function stop() return true end

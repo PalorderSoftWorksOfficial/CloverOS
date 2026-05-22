@@ -1,0 +1,1 @@
+local a={...}if a[1]=="-u"then table.remove(a,1)end;if#a==0 then a[1]="-"end;for b,c in ipairs(a)do if c=="-"then io.stdout:write(io.stdin:read("*a"))else local d,e=io.open(c,"rb")if not d then error("cat: "..c..": "..e)end;io.stdout:write(d:read("*a"))d:close()end end

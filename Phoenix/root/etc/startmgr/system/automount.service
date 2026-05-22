@@ -1,0 +1,11 @@
+local process = require "system.process"
+
+unit.description = "Automatically mount filesystems"
+service.restart = "no"
+service.restartTime = 0
+install.wantedBy = "startup"
+
+function start()
+    service.pid[1] = process.startbg("/bin/mount", "-a")
+    return true
+end

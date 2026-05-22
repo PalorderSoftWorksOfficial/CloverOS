@@ -1,0 +1,6 @@
+/
+/boot/
+/boot/config.lua
+/boot/config.lua.d/
+/boot/config.lua.d/99-craftos.lua
+/boot/pxboot.lua

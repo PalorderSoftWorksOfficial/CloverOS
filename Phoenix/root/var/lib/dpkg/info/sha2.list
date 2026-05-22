@@ -1,0 +1,13 @@
+/
+/usr/
+/usr/bin/
+/usr/bin/b2sum.lua
+/usr/bin/md5sum.lua
+/usr/bin/sha1sum.lua
+/usr/bin/sha224sum.lua
+/usr/bin/sha256sum.lua
+/usr/bin/sha384sum.lua
+/usr/bin/sha512sum.lua
+/usr/bin/shasum.lua
+/usr/lib/
+/usr/lib/sha2.lua

@@ -1,4 +1,4 @@
-defaultentry = "CloverOS"
+defaultentry = "CloverOS Ubuntu"
 timeout = 10
 backgroundcolor = colors.black
 selectcolor = colors.orange
@@ -68,7 +68,7 @@ local ROOT = findCloverRoot()
 local KERNEL = findKernel(ROOT)
 local KERNELAPI = findKernelApi(ROOT)
 local BIOS = findBios(ROOT)
-menuentry("CloverOS")({
+menuentry("CloverOS Ubuntu")({
 	description("Boot CloverOS."),
 	chainloader(KERNEL),
 })

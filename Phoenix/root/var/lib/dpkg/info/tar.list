@@ -1,0 +1,10 @@
+/
+/bin/
+/bin/tar.lua
+/lib/
+/lib/tar.lua
+/usr/
+/usr/share/
+/usr/share/man/
+/usr/share/man/man1/
+/usr/share/man/man1/tar.md

@@ -1,0 +1,13 @@
+local process = require "system.process"
+
+unit.description = "Login Prompt"
+unit.requires = {"usermgr"}
+unit.after = {"usermgr"}
+service.restart = "always"
+service.restartTime = 0
+install.wantedBy = "startup"
+
+function start()
+    service.pid[1] = process.start("/usr/bin/login")
+    return true
+end

@@ -1,0 +1,99 @@
+[May 12 15:19:01] kernel[0] [Info]: Starting Phoenix version 0.0.9 PRERELEASE NONFREE Mon Sep 15 23:39:00 2025 PREEMPT
+[May 12 15:19:01] kernel[0] [Info]: Initialized system logger
+[May 12 15:19:01] kernel[0] [Info]: System started at 1778591941861 on computer 1
+[May 12 15:19:01] kernel[0] [Info]: Computer host is ComputerCraft 1.112.0 (CraftOS-PC v2.8.3)
+[May 12 15:19:01] kernel[0] [Debug]: Key table sizes: 211 46
+[May 12 15:19:01] kernel[0] [Info]: Loading kernel modules from /lib/modules
+[May 12 15:19:01] kernel[0] [Info]: Loading kernel module spanfs from /lib/modules/spanfs.lua
+[May 12 15:19:01] kernel[0] (spanfs) [Info]: spanfs is now loaded
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type computer on device / using driver root
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /redstone
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /redstone/top
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type redstone on device /redstone/top using driver root_redstone
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /redstone/bottom
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type redstone on device /redstone/bottom using driver root_redstone
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /redstone/left
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type redstone on device /redstone/left using driver root_redstone
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /redstone/right
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type redstone on device /redstone/right using driver root_redstone
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /redstone/front
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type redstone on device /redstone/front using driver root_redstone
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /redstone/back
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type redstone on device /redstone/back using driver root_redstone
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Added new device at /lo
+[May 12 15:19:01] kernel[0] (Hardware) [Info]: Registered device with type modem on device /lo using driver loopback_modem
+[May 12 15:19:01] kernel[0] [Info]: Configured IP for loopback device
+[May 12 15:19:01] kernel[0] [Info]: Starting init from /install_stage2.lua
+[May 12 15:19:02] kernel[0] [Debug]: Reaping process 3 (/usr/bin/dpkg.lua)
+[May 12 15:19:02] kernel[0] [Debug]: Reaping process 4 (/usr/bin/dpkg.lua)
+[May 12 15:19:03] kernel[0] [Debug]: Creating link /etc/startmgr/system/startup.service.wants/automount.service.dpkg-new  =>  /etc/startmgr/system/automount.service
+[May 12 15:19:03] kernel[0] [Debug]: Reaping process 6 (/var/lib/dpkg/info/baseutils.postinst)
+[May 12 15:19:03] kernel[0] [Debug]: Reaping process 5 (/usr/bin/dpkg.lua)
+[May 12 15:19:03] kernel[0] [Debug]: Reaping process 7 (/usr/bin/dpkg.lua)
+[May 12 15:19:03] kernel[0] [Debug]: Reaping process 8 (/usr/bin/dpkg.lua)
+[May 12 15:19:04] kernel[0] [Debug]: Reaping process 10 (/bin/man.lua)
+[May 12 15:19:04] kernel[0] [Debug]: Reaping process 9 (/usr/bin/dpkg.lua)
+[May 12 15:19:04] kernel[0] [Debug]: Reaping process 12 (/bin/man.lua)
+[May 12 15:19:04] kernel[0] [Debug]: Reaping process 11 (/usr/bin/dpkg.lua)
+[May 12 15:19:05] kernel[0] [Debug]: Reaping process 13 (/usr/bin/dpkg.lua)
+[May 12 15:19:05] kernel[0] [Debug]: Creating link /etc/startmgr/system/startup.service.wants/diskmgr.service.dpkg-new  =>  /etc/startmgr/system/diskmgr.service
+[May 12 15:19:05] kernel[0] [Debug]: Reaping process 14 (/usr/bin/dpkg.lua)
+[May 12 15:19:05] kernel[0] [Debug]: Reaping process 15 (/usr/bin/dpkg.lua)
+[May 12 15:19:05] kernel[0] [Debug]: Creating link /etc/startmgr/system/startup.service.wants/login.service.dpkg-new  =>  /etc/startmgr/system/login.service
+[May 12 15:19:06] kernel[0] [Debug]: Reaping process 17 (/var/lib/dpkg/info/usermgr.postinst)
+[May 12 15:19:06] kernel[0] [Debug]: Reaping process 18 (/bin/man.lua)
+[May 12 15:19:06] kernel[0] [Debug]: Reaping process 16 (/usr/bin/dpkg.lua)
+[May 12 15:19:06] kernel[0] [Debug]: Reaping process 19 (/usr/bin/dpkg.lua)
+[May 12 15:19:06] kernel[0] [Debug]: Reaping process 20 (/usr/bin/dpkg.lua)
+[May 12 15:19:06] kernel[0] [Debug]: Reaping process 21 (/usr/bin/dpkg.lua)
+[May 12 15:19:07] kernel[0] [Debug]: Reaping process 22 (/usr/bin/dpkg.lua)
+[May 12 15:19:07] kernel[0] [Debug]: Reaping process 23 (/usr/bin/dpkg.lua)
+[May 12 15:19:07] kernel[0] [Debug]: Reaping process 25 (/bin/man.lua)
+[May 12 15:19:07] kernel[0] [Debug]: Reaping process 24 (/usr/bin/dpkg.lua)
+[May 12 15:19:08] kernel[0] [Debug]: Creating link /usr/bin/apt-add-repository.lua.dpkg-new  =>  /usr/bin/add-apt-repository.lua
+[May 12 15:19:08] kernel[0] [Debug]: Creating link /usr/lib/apt/methods/https.lua.dpkg-new  =>  /usr/lib/apt/methods/http.lua
+[May 12 15:19:08] kernel[0] [Debug]: Reaping process 26 (/usr/bin/dpkg.lua)
+[May 12 15:19:09] kernel[0] [Debug]: Reaping process 27 (/usr/bin/dpkg.lua)
+[May 12 15:19:09] kernel[0] [Debug]: Reaping process 29 (/usr/bin/useradd.lua)
+[May 12 15:19:09] <Syscall Failure> kernel[0] (remove) [Debug]: kernel:1: /root/var/log/default.log: Het proces heeft geen toegang tot het bestand omdat het door een ander
+proces wordt gebruikt.
+stack traceback:
+	[C]: in function 'error'
+	kernel:1: in function <kernel:1>
+	(...tail calls...)
+	[C]: in function 'xpcall'
+	kernel:1: in function <kernel:1>
+[May 12 15:19:09] kernel[0] [Debug]: Reaping process 2 (tty helper)
+[May 12 15:23:11] kernel[0] [Info]: System is restarting.
+[May 12 15:23:11] kernel[0] [Info]: Sending SIGTERM to all processes
+[May 12 15:23:11] kernel[0] [Info]: Sending SIGKILL to all processes
+[May 12 15:23:11] kernel[0] [Debug]: Reaping process 1 (/install_stage2.lua)
+[May 12 15:23:11] <Syscall Failure> kernel[0] (devcall) [Debug]: kernel:1: attempt to get length of field 'eventQueue' (a nil value)
+stack traceback:
+	kernel:1: in function 'queueEvent'
+	kernel:1: in function 'killProcess'
+	kernel:1: in function 'g0'
+	kernel:1: in function <kernel:1>
+	(...tail calls...)
+	[C]: in function 'xpcall'
+	kernel:1: in function <kernel:1>
+[May 12 15:23:11] kernel[0] [Debug]: Reaping process 28 (/usr/libexec/usermgr.lua)
+[May 12 15:23:11] kernel[0] [Debug]: Reaping process 1 (/install_stage2.lua)
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver loopback_modem has been deregistered from device /lo
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /lo has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver root_redstone has been deregistered from device /redstone/front
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /redstone/front has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver root_redstone has been deregistered from device /redstone/bottom
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /redstone/bottom has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver root_redstone has been deregistered from device /redstone/back
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /redstone/back has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver root_redstone has been deregistered from device /redstone/left
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /redstone/left has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver root_redstone has been deregistered from device /redstone/top
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /redstone/top has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver root_redstone has been deregistered from device /redstone/right
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /redstone/right has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Device at /redstone has been removed
+[May 12 15:23:11] kernel[0] (Hardware) [Info]: Driver root has been deregistered from device /
+[May 12 15:23:11] kernel[0] [Info]: Rebooting system
+[May 12 15:23:11] kernel[0] [Info]: Syncing filesystem

@@ -1,0 +1,1 @@
+local a=require"system.hardware"if...then local b=assert(a.wrap(...),"No such device")local c=b.state;if c and c.id then print("This drive has disk #"..c.id)else error("No disk in drive")end else print("This is computer #"..a.info("/").metadata.id)end

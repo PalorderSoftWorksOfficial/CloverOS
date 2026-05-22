@@ -1,0 +1,1 @@
+if ... == "triggered" then return coroutine.yield("syscall", "exec", "/bin/man.lua", "-u") end

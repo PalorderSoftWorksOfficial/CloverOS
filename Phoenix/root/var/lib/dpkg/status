@@ -1,0 +1,207 @@
+Package: muxzcat
+Priority: optional
+Version: 1.1-1
+Architecture: phoenix
+Status: install ok installed
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Section: libraries
+Description: LZMA/XZ decompression library
+ Provides functions for decompressing LZMA and XZformat compressed files.
+
+Package: aes
+Priority: optional
+Version: 1.0-1
+Architecture: phoenix
+Status: install ok installed
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Section: libraries
+Description: AES encryption library
+ Provides functions to encrypt and decrypt datausing the AES algorithm. Supports 128, 192, 256bit keys, and ECB or CBC cipher modes.
+
+Package: usermgr
+Priority: standard
+Version: 0.1.3-1
+Essential: yes
+Section: admin
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Architecture: phoenix
+Description: user account manager
+ Manager service to handle user accounts, includinglogin, passwords, creation, and deletion.
+
+Package: libdeflate
+Priority: optional
+Version: 1.0.2-3
+Architecture: phoenix
+Status: install ok installed
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Section: libraries
+Description: DEFLATE/zlib compression library
+ Provides compression and decompression for DEFLATEformatted archives, including zlib and gzip files.
+
+Package: pxboot
+Priority: required
+Version: 0.1.3-1
+Architecture: phoenix
+Section: admin
+Status: install ok installed
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Essential: yes
+Description: Multipurpose bootloader for ComputerCraft
+ A bootloader for ComputerCraft operating systemswith built-in UnBIOS functionality, a configurableselection menu, and more. Designed for Phoenix,but supports other OSes as well, including CraftOS.
+
+Package: phoenix
+Priority: required
+Version: 0.0.9-1
+Essential: yes
+Section: kernel
+Status: install ok installed
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Architecture: phoenix
+Description: Phoenix kernel
+ The kernel for the Phoenix operating system.
+
+Package: mpi
+Priority: optional
+Version: 1.0-1
+Architecture: phoenix
+Status: install ok installed
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Section: libraries
+Description: Multi-precision integer library
+ Provides functions for working with multi-precision integers, with functions for RSAencryption included.
+
+Package: ar
+Priority: standard
+Version: 1.1.1-1
+Architecture: phoenix
+Section: utils
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: ar archive format library and program
+ Allows creating and extracting ar/.a archives.
+
+Package: diskmgr
+Priority: standard
+Version: 1.0.1-1
+Architecture: phoenix
+Section: utils
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: disk auto mounting manager
+ Manager service to handle automatically mountingattached disks.
+
+Package: startmgr
+Priority: standard
+Version: 0.1.2-1
+Essential: yes
+Section: admin
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Architecture: phoenix
+Description: Phoenix service manager and init system
+ Provides automatic service management facilitiesfor Phoenix systems.
+
+Package: pgp
+Priority: standard
+Version: 0.2-1
+Architecture: phoenix
+Section: utils
+Status: install ok installed
+Depends: libsystem, ccryptolib, sha2, aes, mpi
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: OpenPGP implementation for Phoenix
+ Implements the OpenPGP (RFC 4880/9580) standardcryptography scheme in Phoenix, including GPGextensions.
+
+Package: libsystem
+Priority: required
+Version: 0.1.6-1
+Architecture: phoenix
+Section: libraries
+Status: install ok installed
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Essential: yes
+Description: System libraries for Phoenix
+ Provides convenient wrapper functions for usingPhoenix syscalls, as well as various usefulcomponents for programs.
+
+Package: dpkg
+Priority: required
+Version: 0.2.9-1
+Architecture: phoenix
+Section: admin
+Status: install ok installed
+Depends: ar, diff, libdeflate, libsystem, muxzcat, sha2, tar
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: Debian Package Manager for Phoenix
+ A port of the Debian Package Manager to thePhoenix operating system, written in Lua.
+
+Package: ccryptolib
+Priority: optional
+Version: 1.2.2-1
+Architecture: phoenix
+Section: libraries
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: cryptography library for Phoenix
+ An integrated collection of cryptographicprimitives written in Lua using the ComputerCraft/Phoenix system API.
+
+Package: tar
+Priority: important
+Version: 1.0.1-2
+Architecture: phoenix
+Section: utils
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: TAR archive format library and program
+ Allows creating and extracting TAR archives.
+
+Package: diff
+Priority: important
+Version: 1.0-1
+Architecture: phoenix
+Section: utils
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: File comparison library and utility
+ Provides a library for comparing files, as well asprograms for comparing and patching using the lib.
+
+Package: sha2
+Priority: optional
+Version: 12-1
+Architecture: phoenix
+Section: libraries
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: SHA-1, SHA-2, SHA-3, BLAKE2 and BLAKE3 functions written in pure Lua and optimized for speed.
+ This module contains functions to calculate SHA digest:   MD5, SHA-1,   SHA-224, SHA-256, SHA-512/224, SHA-512/256, SHA-384, SHA-512,   SHA3-224, SHA3-256, SHA3-384, SHA3-512, SHAKE128, SHAKE256,   HMAC,   BLAKE2b, BLAKE2s, BLAKE2bp, BLAKE2sp, BLAKE2Xb, BLAKE2Xs,   BLAKE3, BLAKE3_KDFWritten in pure Lua.Compatible with:   Lua 5.1, Lua 5.2, Lua 5.3, Lua 5.4, Fengari, LuaJIT 2.0/2.1 (any CPU endianness).Main feature of this module: it was heavily optimized for speed.For every Lua version the module contains particular implementation branch to get benefits from version-specific features.   - branch for Lua 5.1 (emulating bitwise operators using look-up table)   - branch for Lua 5.2 (using bit32/bit library), suitable for both Lua 5.2 with native "bit32" and Lua 5.1 with external library "bit"   - branch for Lua 5.3/5.4 (using native 64-bit bitwise operators)   - branch for Lua 5.3/5.4 (using native 32-bit bitwise operators) for Lua built with LUA_INT_TYPE=LUA_INT_INT   - branch for LuaJIT without FFI library (useful in a sandboxed environment)   - branch for LuaJIT x86 without FFI library (LuaJIT x86 has oddity because of lack of CPU registers)   - branch for LuaJIT 2.0 with FFI library (bit.* functions work only with Lua numbers)   - branch for LuaJIT 2.1 with FFI library (bit.* functions can work with "int64_t" arguments)
+
+Package: apt
+Priority: standard
+Version: 0.2.2-1
+Architecture: phoenix
+Section: admin
+Status: install ok installed
+Depends: libsystem (>= 0.1.6), dpkg (>= 0.2.6), sha2, pgp, libdeflate, muxzcat
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: Advanced Package Tool for Phoenix
+ A port of the Debian Advanced Package Tool to thePhoenix operating system, written in Lua.
+
+Package: baseutils
+Priority: important
+Version: 0.2.2-1
+Architecture: phoenix
+Section: utils
+Status: install ok installed
+Depends: libsystem
+Maintainer: JackMacWindows <jackmacwindowslinux@gmail.com>
+Description: base utility set for Phoenix
+ Contains a standard set of POSIX utilities for Phoenix.
+
