@@ -257,10 +257,27 @@ local function login()
     Terminal.print("")
     local username = readInput("New username: ")
     local password = readInput("New password: ", true)
+
+    -- ensure we have valid values to avoid nil concatenation or indexing
+    if not username or username == "" then
+      username = "user" .. tostring(math.random(1000, 9999))
+    end
+    if password == nil then
+      password = ""
+    end
+
     users[username] = { uid = 1000, gid = 1000, home = "/home/" .. username, shell = "/bin/sh", password = password }
     saveUsers()
-    groups.users.members = {username}
+
+    -- ensure the users group exists before adding members
+    if not groups.users then
+      groups.users = { gid = 1000, members = {} }
+    elseif not groups.users.members then
+      groups.users.members = {}
+    end
+    table.insert(groups.users.members, username)
     saveGroups()
+
     currentUser = username
     ensureDirectory(users[currentUser].home)
     Terminal.print("Account created. Starting CloverOS...")
@@ -1753,7 +1770,7 @@ local builtins = {
     end
     Terminal.print("Changing password for " .. user)
     local newpass = readInput("New password: ", true)
-    users[user].password = newpass
+    users[user].password = tostring(newpass or "")
     saveUsers()
     Terminal.print("passwd: password updated successfully")
   end,
