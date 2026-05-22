@@ -220,6 +220,12 @@ CC-tweaked/rom/startup.lua
 CNAME
 CloverOS_API.lua
 CloverOS_OS.lua
+os/accounts.lua
+os/boot.lua
+os/init.lua
+os/rootfs.lua
+os/sh.lua
+os/_sh_body.lua
 CraftOS-PC-Accelerated/bios.lua
 CraftOS-PC-Accelerated/rom/apis/colors.lua
 CraftOS-PC-Accelerated/rom/apis/colours.lua
@@ -741,7 +747,6 @@ boot/cpu_shared.lua
 boot/kernel.lua
 boot/kernel/drivers/example.lua
 boot/kernel_nullboot.lua
-boot/pxboot.lua
 boot/riscv.lua
 boot/x86.lua
 craftos_env_test.lua

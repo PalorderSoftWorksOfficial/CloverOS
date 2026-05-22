@@ -1006,11 +1006,11 @@ local function findCloverRoot()
 	return "/"
 end
 
-local function findPXBOOT(root)
+local function findKernelBoot(root)
 	local candidates = {
-		root .. "/boot/pxboot.lua",
-		root .. "/pxboot.lua",
-		"boot/pxboot.lua",
+		root .. "/boot/kernel.lua",
+		root .. "/kernel.lua",
+		"boot/kernel.lua",
 	}
 
 	for _, path in ipairs(candidates) do
@@ -1022,7 +1022,7 @@ local function findPXBOOT(root)
 	return nil
 end
 local ROOT = findCloverRoot()
-local PXBOOT = findPXBOOT(ROOT)
+local KERNEL_BOOT = findKernelBoot(ROOT)
 function quit(bypass, method)
 	if bypass then
 		listenBreak = true
@@ -1032,7 +1032,9 @@ function quit(bypass, method)
 		term.clear()
 		os.pullEvent = pullEvent
 		sleep(1.2)
-		shell.run(PXBOOT)
+		if KERNEL_BOOT then
+			shell.run(KERNEL_BOOT)
+		end
 		error()
 	elseif method == "exit" then
 		if confirm(method) then

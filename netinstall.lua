@@ -491,7 +491,7 @@ print(
 sleep(1)
 
 local minuxChoice = nil
-menuOptions("Do you also want to install Minux OS? CloverOS is inspired by it.", { "Yes", "No" }, {
+menuOptions("Do you also want to install Minux OS alongside CloverOS?", { "Yes", "No" }, {
 	function()
 		minuxChoice = true
 	end,
