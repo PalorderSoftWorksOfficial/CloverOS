@@ -1,5 +1,5 @@
 -- CloverOS main interface and shell
----@diagnostic disable: undefined-global
+
 -- luacheck: globals peripheral fs shell term colors textutils read write os
 if not kernel then
   error(
@@ -472,8 +472,11 @@ local function DISK_ROOT()
   return nil
 end
 local completionInfo = {}
+local commandMeta = {}
 local aliases = {}
 ShellEnv = {}
+local commandHistory = {}
+local shellEnv = {}
 local function getCommandDirs()
   local dirs = {}
   local seen = {}
@@ -945,11 +948,6 @@ registerCompletion("run", function(index, current)
   table.sort(items)
   return items
 end)
-local commandHistory = {}
-local shellEnv = {}
-local function shellUsage(cmd, usage)
-  Terminal.print("Usage: " .. cmd .. (usage and (" " .. usage) or ""))
-end
 
 local function resolvePath(p)
   if not p or p == "" then
@@ -1022,7 +1020,10 @@ table.contains = function(t, v)
   return false
 end
 
-local builtins = {
+local readCommandHeader
+
+local builtins
+builtins = {
   help = function()
     Terminal.print("Available commands:")
     Terminal.print("  help")
@@ -1796,11 +1797,31 @@ local builtins = {
       Terminal.print("Usage: sudo <command>")
       return
     end
-    -- for simplicity, just run as root
+    -- for simplicity, attempt to run a global function or an external program as "root"
     local cmd = table.remove(args, 1)
-    if builtins[cmd] then
-      builtins[cmd](table.unpack(args))
+    local executed = false
+
+    -- try a global function first (if present)
+    if type(_G[cmd]) == "function" then
+      local ok, err = pcall(_G[cmd], table.unpack(args))
+      if not ok then
+        Terminal.print("sudo: error running " .. cmd .. ": " .. tostring(err))
+      end
+      executed = true
     else
+      -- try an external program from command directories
+      local commands = listCommands()
+      local pathCmd = commands[cmd]
+      if pathCmd then
+        local ok, err = pcall(process.run, pathCmd, table.unpack(args))
+        if not ok then
+          Terminal.print("sudo: error running " .. cmd .. ": " .. tostring(err))
+        end
+        executed = true
+      end
+    end
+
+    if not executed then
       Terminal.print("sudo: " .. cmd .. ": command not found")
     end
   end,
@@ -2148,8 +2169,6 @@ local builtins = {
 	end
 end,
 }
-local commandMeta = {}
-
 local function trim(s)
   return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
@@ -2158,7 +2177,7 @@ local function startsWith(s, prefix)
   return s:sub(1, #prefix) == prefix
 end
 
-local function readCommandHeader(path, maxLines)
+readCommandHeader = function(path, maxLines)
   local f = fs.open(path, "r")
   if not f then
     return nil
@@ -2179,7 +2198,6 @@ local function readCommandHeader(path, maxLines)
   f.close()
   return lines
 end
-
 local function parseCommandMeta(path)
   local header = readCommandHeader(path, 40)
   if not header then
@@ -2320,6 +2338,8 @@ local function isKernelShutdownOrReboot()
 end
 local function runShell()
   autoRegisterCompletions()
+  -- use a distinct local name to reference the global builtins table for this function scope
+  local shellBuiltins = builtins or {}
   Terminal.clear()
   Terminal.print("Welcome to CloverOS Shell. Type help for available commands.")
 
@@ -2368,8 +2388,8 @@ local function runShell()
 
       local resolved = resolveAlias(command)
 
-      if builtins[resolved] then
-        local ok, err = pcall(builtins[resolved], table.unpack(parts))
+      if shellBuiltins[resolved] then
+        local ok, err = pcall(shellBuiltins[resolved], table.unpack(parts))
         -- update last exit
         shellEnv["?"] = ok and "0" or "1"
         if not ok then
