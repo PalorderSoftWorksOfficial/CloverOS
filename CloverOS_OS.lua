@@ -125,6 +125,17 @@ end
 local users = { root = { uid = 0, gid = 0, home = "/root", shell = "/bin/sh", password = "x" } }
 local groups = { root = { gid = 0, members = {"root"} }, users = { gid = 1000, members = {} } }
 
+local function isPlaceholderFirstBoot()
+  local count = 0
+  for name, info in pairs(users) do
+    count = count + 1
+    if name ~= "root" or type(info) ~= "table" or info.uid ~= 0 or info.gid ~= 0 or info.password ~= "x" then
+      return false
+    end
+  end
+  return count == 1
+end
+
 local function loadUsers()
   if fs.exists(ROOT .. "/etc/passwd") then
     local h = fs.open(ROOT .. "/etc/passwd", "r")
@@ -251,25 +262,28 @@ end
 
 local function login()
   loadUsers()
-  if not next(users) then
+  local firstBoot = isPlaceholderFirstBoot()
+  if not next(users) or firstBoot then
     Terminal.clear()
     Terminal.centerText(2, "CloverOS Setup", colors.white, colors.blue)
     Terminal.print("")
+    if firstBoot then
+      Terminal.print("Fresh install detected. Leave both fields blank for a default user.")
+    end
     local username = readInput("New username: ")
     local password = readInput("New password: ", true)
 
-    -- ensure we have valid values to avoid nil concatenation or indexing
-    if not username or username == "" then
-      username = "user" .. tostring(math.random(1000, 9999))
+    if username == nil or username == "" then
+      username = "user"
     end
     if password == nil then
       password = ""
     end
 
+    users = {}
     users[username] = { uid = 1000, gid = 1000, home = "/home/" .. username, shell = "/bin/sh", password = password }
     saveUsers()
 
-    -- ensure the users group exists before adding members
     if not groups.users then
       groups.users = { gid = 1000, members = {} }
     elseif not groups.users.members then
@@ -280,7 +294,7 @@ local function login()
 
     currentUser = username
     ensureDirectory(users[currentUser].home)
-    Terminal.print("Account created. Starting CloverOS...")
+    Terminal.print("Account created: " .. username .. ". Starting CloverOS...")
     kernel.sleep(1.2)
     return
   end
@@ -322,9 +336,9 @@ local function simulateLoading()
     "   _____ _                      ____   _____ ",
     "  / ____| |                    / __ \\ / ____|",
     " | |    | | _____   _____ _ __| |  | | (___  ",
-    " | |    | |/ _ \\ \\ / / _ \\ '__| |  | |\\___ \\ ",
-    " | |____| | (_) \\ V /  __/ |  | |__| |____) |",
-    "  \\_____|_|\\___/ \\_/ \\___|_|   \\____/|_____/ ",
+    " | |    | |/ _ \\ \\ / / _ \\ '__| |  | |\\___ \",
+    " | |____| | (_) |\\ V /  __/ |  | |__| |____) |",
+    "  \\_____|_|\\___/ \\/ \\___|_|   \\____/|_____/ ",
   }
 
   for i, line in ipairs(logo) do
@@ -385,8 +399,6 @@ local function simulateLoading()
     "[INIT] Starting scheduler...",
     "[INIT] Loading terminal driver...",
     "[SERVICES] Starting audio manager...",
-    "[SERVICES] Starting display server...",
-    "[SERVICES] Starting update checker...",
     "[OK] Boot tasks completed.",
     "[OK] Kernel online."
   }
@@ -1235,7 +1247,6 @@ builtins = {
       return
     end
 
-    -- search PATH
     local pathEnv = shellEnv.PATH or process.path() or "/bin"
     for p in pathEnv:gmatch("[^:]+") do
       local candidate = fs.combine(p, resolved)
@@ -1259,7 +1270,6 @@ builtins = {
       elseif arg == "-l" then
         longFormat = true
       elseif arg:sub(1, 1) == "-" then
-        -- ignore unknown option
       else
         target = arg
       end
@@ -1291,7 +1301,6 @@ builtins = {
 
   export = function(name, value)
     if not name or name == "" then
-      -- print all
       for k, v in pairs(shellEnv) do
         Terminal.print(k .. "=" .. tostring(v))
       end
@@ -1305,7 +1314,6 @@ builtins = {
       Terminal.print("Usage: man <command>")
       return
     end
-    -- check builtin help usage and command metadata
     if builtins[cmd] and type(builtins[cmd]) == "function" then
       Terminal.print("No manual entry for builtin: " .. cmd)
       return
@@ -1322,7 +1330,6 @@ builtins = {
       Terminal.print("No manual entry for: " .. cmd)
       return
     end
-    -- try to read header comments as manual
     local header = readCommandHeader(path, 200)
     if header and #header > 0 then
       for _, line in ipairs(header) do
@@ -1556,14 +1563,14 @@ builtins = {
       return
     end
 
-    local a = resolvePath(src)
-    local b = resolvePath(dst)
-    if not fs.exists(a) then
+    local source = resolvePath(src)
+    local target = resolvePath(dst)
+    if not fs.exists(source) then
       Terminal.print("Source not found: " .. tostring(src))
       return
     end
 
-    fs.copy(a, b)
+    fs.copy(source, target)
   end,
 
   mv = function(src, dst)
@@ -1572,32 +1579,32 @@ builtins = {
       return
     end
 
-    local a = resolvePath(src)
-    local b = resolvePath(dst)
-    if not fs.exists(a) then
+    local source = resolvePath(src)
+    local target = resolvePath(dst)
+    if not fs.exists(source) then
       Terminal.print("Source not found: " .. tostring(src))
       return
     end
 
-    fs.move(a, b)
+    fs.move(source, target)
   end,
 
-  stat = function(path)
-    if not path or path == "" then
+  stat = function(target)
+    if not target or target == "" then
       Terminal.print("Usage: stat <path>")
       return
     end
 
-    local target = resolvePath(path)
-    if not fs.exists(target) then
-      Terminal.print("Not found: " .. tostring(path))
+    local resolved = resolvePath(target)
+    if not fs.exists(resolved) then
+      Terminal.print("Not found: " .. tostring(target))
       return
     end
 
-    Terminal.print("Path: " .. target)
-    Terminal.print("Type: " .. (fs.isDir(target) and "directory" or "file"))
-    if not fs.isDir(target) then
-      Terminal.print("Size: " .. tostring(fs.getSize(target)))
+    Terminal.print("Path: " .. resolved)
+    Terminal.print("Directory: " .. tostring(fs.isDir(resolved)))
+    if not fs.isDir(resolved) then
+      Terminal.print("Size: " .. tostring(fs.getSize(resolved)))
     end
   end,
 
@@ -1797,11 +1804,9 @@ builtins = {
       Terminal.print("Usage: sudo <command>")
       return
     end
-    -- for simplicity, attempt to run a global function or an external program as "root"
     local cmd = table.remove(args, 1)
     local executed = false
 
-    -- try a global function first (if present)
     if type(_G[cmd]) == "function" then
       local ok, err = pcall(_G[cmd], table.unpack(args))
       if not ok then
@@ -1809,7 +1814,6 @@ builtins = {
       end
       executed = true
     else
-      -- try an external program from command directories
       local commands = listCommands()
       local pathCmd = commands[cmd]
       if pathCmd then
@@ -1970,234 +1974,83 @@ builtins = {
       if installedOnly then
         local installed = getInstalledPackages()
         if #installed == 0 then
-          Terminal.print("No packages installed.")
-          return
-        end
-        for _, name in ipairs(installed) do
-          Terminal.print(name)
-        end
-        return
-      end
-      local names = listAvailablePackages()
-      if #names == 0 then
-        Terminal.print("No packages available.")
-        return
-      end
-      for _, name in ipairs(names) do
-        Terminal.print(name)
-      end
-      return
-    end
-    local subcmd = command:lower()
-    if subcmd == "search" then
-      if not pkg then
-        Terminal.print("Usage: apt search <term>")
-        return
-      end
-      local termLower = pkg:lower()
-      local found = false
-      for _, name in ipairs(listAvailablePackages()) do
-        local metadata = readPackageMetadata(name)
-        if metadata then
-          local desc = tostring(metadata.description or "")
-          if name:lower():find(termLower, 1, true) or desc:lower():find(termLower, 1, true) then
-            Terminal.print(name .. " - " .. desc)
-            found = true
+          Terminal.print("No packages installed")
+        else
+          for _, name in ipairs(installed) do
+            Terminal.print(name)
           end
         end
+        return
       end
-      if not found then
-        Terminal.print("No packages matched: " .. pkg)
+      Terminal.print("Available packages:")
+      for _, name in ipairs(listAvailablePackages()) do
+        Terminal.print("  " .. name)
       end
       return
     end
-    if subcmd == "info" then
-      if not pkg then
+    command = command:lower()
+    if command == "search" then
+      if not pkg or pkg == "" then
+        Terminal.print("Usage: apt search <query>")
+        return
+      end
+      local query = pkg:lower()
+      local matches = {}
+      for _, name in ipairs(listAvailablePackages()) do
+        if name:lower():find(query, 1, true) then
+          table.insert(matches, name)
+        end
+      end
+      if #matches == 0 then
+        Terminal.print("No packages found")
+      else
+        for _, name in ipairs(matches) do
+          Terminal.print(name)
+        end
+      end
+    elseif command == "info" then
+      if not pkg or pkg == "" then
         Terminal.print("Usage: apt info <package>")
         return
       end
       local metadata = readPackageMetadata(pkg)
       if not metadata then
-        Terminal.print("apt: package not found: " .. pkg)
+        Terminal.print("Package not found: " .. tostring(pkg))
         return
       end
-      for k, v in pairs(metadata) do
-        Terminal.print(tostring(k) .. ": " .. tostring(v))
-      end
+      Terminal.print("Name: " .. tostring(metadata.name or pkg))
+      Terminal.print("Version: " .. tostring(metadata.version or "unknown"))
+      Terminal.print("Description: " .. tostring(metadata.description or ""))
+      Terminal.print("App: " .. tostring(metadata.app == true))
       Terminal.print("Installed: " .. tostring(isPackageInstalled(pkg)))
-      return
-    end
-    if subcmd == "install" then
-      if not pkg then
+    elseif command == "install" then
+      if not pkg or pkg == "" then
         Terminal.print("Usage: apt install <package>")
         return
       end
       local ok, err = installPackage(pkg)
-      if not ok then
-        Terminal.print(err)
-      else
+      if ok then
         Terminal.print("Installed " .. pkg)
+      else
+        Terminal.print(err or "Install failed")
       end
-      return
-    end
-    if subcmd == "remove" or subcmd == "uninstall" then
-      if not pkg then
+    elseif command == "remove" or command == "uninstall" then
+      if not pkg or pkg == "" then
         Terminal.print("Usage: apt remove <package>")
         return
       end
       local ok, err = removePackage(pkg)
-      if not ok then
-        Terminal.print(err)
-      else
+      if ok then
         Terminal.print("Removed " .. pkg)
+      else
+        Terminal.print(err or "Remove failed")
       end
-      return
+    else
+      Terminal.print("Usage: apt <list|search|info|install|remove>")
     end
-    Terminal.print("apt: unknown command")
   end,
-  screenfetch = function()
-	local fs = kernel.fs
-	local term = kernel.term
-	local computer = kernel.computer
-	local system = kernel.system
-
-	local logo = {
-		"\x1b[30;40m                \x1b[0m",
-		"\x1b[30;40m  \x1b[33;106m\x88\x1b[96;43m\x8F\x1b[96;40m\x90 \x1b[30;106m\x9F\x1b[96;40m\x90   \x1b[30;106m\x9F\x1b[96;43m\x8F\x1b[33;106m\x84\x1b[30;40m  \x1b[0m",
-		"\x1b[96;40m \x9A\x1b[33;106m\x89\x84\x1b[33;41m\x82\x1b[33;40m\x94\x1b[30;106m\x95 \x1b[96;40m\x90 \x1b[30;43m\x97\x1b[33;41m\x81\x1b[33;106m\x88\x86\x1b[30;106m\x9A\x1b[30;40m \x1b[0m",
-		"\x1b[30;106m\x9F\x1b[96;43m\x9B\x8C\x1b[96;41m\x95 \x1b[33;40m\x95\x1b[30;106m\x95 \x96\x1b[30;40m \x1b[30;43m\x95\x1b[96;41m \x1b[31;106m\x95\x1b[96;43m\x8C\x1b[33;106m\x98\x1b[96;40m\x90\x1b[0m",
-		"\x1b[30;106m\x95\x1b[33;106m\x8C\x84\x1b[96;41m\x95 \x1b[30;43m\x8A\x1b[30;106m\x95\x1b[96;100m\x8F\x8F\x1b[96;40m\x95\x1b[30;43m\x85\x1b[96;41m \x1b[31;106m\x95\x1b[33;106m\x88\x8C\x1b[96;40m\x95\x1b[0m",
-		"\x1b[96;40m\x8A\x1b[96;43m\x9C\x8E\x1b[31;106m\x82\x1b[33;41m \x82\x1b[90;106m\x95\x1b[33;106m\x90\x1b[96;43m\x9F\x1b[96;100m\x95\x1b[33;41m\x81 \x1b[31;106m\x81\x1b[96;43m\x8D\x1b[33;106m\x93\x1b[96;40m\x85\x1b[0m",
-		"\x1b[30;40m \x1b[96;43m\x9E\x1b[33;106m\x8C\x1b[96;43m\x9B\x1b[31;106m\x82\x1b[96;41m\x90\x1b[90;106m\x95\x1b[33;106m\x85\x8A\x1b[96;100m\x95\x1b[31;106m\x9F\x81\x1b[33;106m\x98\x8C\x92\x1b[30;40m \x1b[0m",
-		"\x1b[96;40m \x82\x1b[33;106m\x86\x99\x99\x1b[96;100m\x95\x1b[33;106m\x8A\x88\x81\x85\x1b[90;106m\x95\x1b[96;43m\x99\x99\x1b[33;106m\x89\x1b[106;40m\x81 \x1b[0m",
-		"\x1b[33;40m  \x82\x8B\x1b[90;106m \x96 \x1b[33;106m\x95\x1b[96;43m\x95\x1b[96;106m \x1b[96;100m\x96\x1b[96;106m \x1b[33;40m\x87\x81  \x1b[0m",
-		"\x1b[96;40m     \x83\x8B\x8F\x8F\x87\x83     \x1b[0m",
-		"\x1b[30;40m                \x1b[0m",
-	}
-
-	local function formatTime(seconds)
-		local h = math.floor(seconds / 3600)
-		local m = math.floor(seconds / 60) % 60
-		local s = seconds % 60
-
-		local out = s .. "s"
-		if m > 0 or h > 0 then
-			out = m .. "m " .. out
-		end
-		if h > 0 then
-			out = h .. "h " .. out
-		end
-		return out
-	end
-
-	local function formatBytes(bytes)
-		if bytes >= 1073741824 then
-			return ("%.3g GiB"):format(bytes / 1073741824)
-		elseif bytes >= 1048576 then
-			return ("%.3g MiB"):format(bytes / 1048576)
-		elseif bytes >= 1024 then
-			return ("%.3g kiB"):format(bytes / 1024)
-		else
-			return ("%.3g B"):format(bytes)
-		end
-	end
-
-	local function trimAnsi(text, maxVisible)
-		local visible = 0
-		local inEscape = false
-
-		for ch, idx in text:gmatch("(.)()") do
-			if inEscape then
-				if ch == "m" then
-					inEscape = false
-				end
-			elseif ch == "\x1b" then
-				inEscape = true
-			else
-				visible = visible + 1
-				if visible == maxVisible then
-					return text:sub(1, idx)
-				end
-			end
-		end
-
-		return text
-	end
-
-	local leftName = system.hostname() or ("Computer " .. tostring(computer.id()))
-	local rightName = computer.label() or ("Computer " .. tostring(computer.id()))
-
-	local lines = {
-		"\x1b[96m" .. leftName .. "\x1b[0m@\x1b[96m" .. rightName,
-		("-%s"):format(("-"):rep(math.max(0, #leftName + #rightName - 1))),
-	}
-
-	local function addLine(name, value)
-		lines[#lines + 1] = "\x1b[96m" .. name .. "\x1b[0m: " .. value
-	end
-
-	addLine("OS", "CloverOS " .. tostring(system.versionString()))
-	addLine("Uptime", formatTime(math.floor(system.uptime() or 0)))
-	addLine("Runtime", "CraftOS " .. tostring(kernel.computer.version()))
-	addLine("Lua", _VERSION)
-	addLine("CC Version", tostring(kernel.computer.version()))
-	addLine("Resolution", table.concat({ term.getSize() }, "x"))
-
-	local stat = fs.stat and fs.stat("/") or nil
-	if stat then
-		addLine("Disk Space", formatBytes(stat.freeSpace) .. " / " .. formatBytes(stat.capacity))
-	end
-
-	if collectgarbage then
-		addLine("Memory", formatBytes(collectgarbage("count") * 1024))
-	end
-
-	lines[#lines + 1] = ""
-	lines[#lines + 1] = "\x1b[40m   \x1b[41m   \x1b[42m   \x1b[43m   \x1b[44m   \x1b[45m   \x1b[46m   \x1b[47m   \x1b[0m"
-	lines[#lines + 1] = "\x1b[100m   \x1b[101m   \x1b[102m   \x1b[103m   \x1b[104m   \x1b[105m   \x1b[106m   \x1b[107m   \x1b[0m"
-	lines[#lines + 1] = ""
-
-	local width = term.getSize() - 18
-	for i = 1, math.max(#logo, #lines) do
-		local right = trimAnsi(lines[i] or "", width)
-		local row = (logo[i] or "                ") .. "  " .. right
-		if i == 1 then
-			io.write(row)
-		else
-			print(row)
-		end
-	end
-end,
 }
-local function trim(s)
-  return (s:gsub("^%s+", ""):gsub("%s+$", ""))
-end
 
-local function startsWith(s, prefix)
-  return s:sub(1, #prefix) == prefix
-end
-
-readCommandHeader = function(path, maxLines)
-  local f = fs.open(path, "r")
-  if not f then
-    return nil
-  end
-
-  local lines = {}
-  for _ = 1, maxLines do
-    local line = f.readLine()
-    if not line then
-      break
-    end
-    lines[#lines + 1] = line
-    if not startsWith(trim(line), "--") then
-      break
-    end
-  end
-
-  f.close()
-  return lines
-end
 local function parseCommandMeta(path)
   local header = readCommandHeader(path, 40)
   if not header then
@@ -2338,14 +2191,12 @@ local function isKernelShutdownOrReboot()
 end
 local function runShell()
   autoRegisterCompletions()
-  -- use a distinct local name to reference the global builtins table for this function scope
   local shellBuiltins = builtins or {}
   Terminal.clear()
   Terminal.print("Welcome to CloverOS Shell. Type help for available commands.")
 
   local history = {}
 
-  -- initialize basic shell environment
   shellEnv.PATH = process.path() or "/bin"
   shellEnv.USER = "root"
   shellEnv.HOME = ROOT or "/"
@@ -2380,7 +2231,6 @@ local function runShell()
         shellEnv[name] = expandToken(value)
         command = table.remove(parts, 1)
       end
-      -- expand tokens
       for i = 1, #parts do
         parts[i] = expandToken(parts[i])
       end
@@ -2390,7 +2240,6 @@ local function runShell()
 
       if shellBuiltins[resolved] then
         local ok, err = pcall(shellBuiltins[resolved], table.unpack(parts))
-        -- update last exit
         shellEnv["?"] = ok and "0" or "1"
         if not ok then
           Terminal.print("Error: " .. tostring(err))
@@ -2436,7 +2285,6 @@ local function getCustomApps()
     end
   end
 
-  -- Add installed apt apps
   for _, pkg in ipairs(getInstalledPackages()) do
     local metadata = readPackageMetadata(pkg)
     if metadata and metadata.app then
@@ -2465,7 +2313,6 @@ local function getCustomApps()
     end
   end
 
-  -- Add turtle apps if turtle edition
   if settingsLoaded and editionSettings.turtle then
     local turtleAppsDir = ROOT .. "/etc/apt/packages"
     if fs.exists(turtleAppsDir) and fs.isDir(turtleAppsDir) then
@@ -2611,9 +2458,8 @@ local function desktop()
     },
   }
 
-  -- For soft install, remove File Manager
   if settingsLoaded and editionSettings.softinstall then
-    table.remove(options, 2) -- remove File Manager
+    table.remove(options, 2)
   end
 
   while true do
