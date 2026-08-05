@@ -7,11 +7,17 @@ local FILES = {
 	"boot/config.lua",
 	"boot/kernel.lua",
 	"boot/pxboot.lua",
+	"runtime/root.lua",
+	"runtime/users.lua",
+	"runtime/ui.lua",
+	"runtime/packages.lua",
+	"runtime/shell.lua",
 	"files.manifest",
 }
 
 local DIRS = {
 	"boot",
+	"runtime",
 	"etc",
 	"etc/man",
 	"usr",
