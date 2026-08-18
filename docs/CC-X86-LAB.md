@@ -16,7 +16,7 @@ main.lua examples/add.bin
 
 ## CloverOS workflow
 
-Use the CC-X86 Lab launcher from the CloverOS applications directory to assemble and run the CloverOS x86 boot probe.
+Use the `ccx86` shell command or the CC-X86 Lab launcher from the CloverOS applications directory to assemble and run the CloverOS x86 boot probe.
 
 The launcher assembles `examples/cloveros_boot.asm` into a temporary guest binary and runs it with debug tracing enabled. A successful probe prints:
 
