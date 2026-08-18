@@ -32,7 +32,9 @@ CC:X86 is a WIP 32-bit x86 emulator for CC:Tweaked. It provides the virtual CPU,
 
 CloverOS stays useful as a native CC:Tweaked operating system, while CC:X86 stays useful as an independent emulator and virtual-hardware project. The two projects share an experimental target without becoming tightly coupled.
 
-The CloverOS repository includes an `apps/ccx86_lab.lua` launcher and `docs/CC-X86-LAB.md` for the integration workflow.
+The CloverOS repository includes an `apps/ccx86_lab.lua` launcher, a `ccx86` shell command, and `docs/CC-X86-LAB.md` for the integration workflow.
+
+Run `ccx86` from the CloverOS shell to assemble and execute the current CloverOS x86 boot probe.
 
 ---
 
