@@ -16,7 +16,15 @@ main.lua examples/add.bin
 
 ## CloverOS workflow
 
-Use the CC-X86 Lab launcher from the CloverOS applications directory to open the emulator with the example guest program.
+Use the CC-X86 Lab launcher from the CloverOS applications directory to assemble and run the CloverOS x86 boot probe.
+
+The launcher assembles `examples/cloveros_boot.asm` into a temporary guest binary and runs it with debug tracing enabled. A successful probe prints:
+
+```text
+CLOVEROS-X86 OK
+```
+
+The probe verifies the custom CPUID leaf, maximum custom leaf, and `CLOVEROS-X86` vendor string before reporting success through port `0xE9`.
 
 The launcher is intentionally a thin wrapper. It does not copy emulator internals into CloverOS and it does not make CloverOS depend on the emulator being installed.
 
@@ -31,6 +39,4 @@ The separation keeps both projects useful independently:
 
 ## Future integration
 
-The current custom CPUID hypervisor leaf identifies the machine as `CLOVEROS-X86`.
-
-Future work can add boot media, disk devices, interrupt delivery, protected mode, paging, and an actual CloverOS x86 bootstrap without requiring the emulator to know CloverOS application internals.
+The current boot contract provides a deterministic identity check and serial-style diagnostics. Future work can add boot media, disk devices, interrupt delivery, protected mode, paging, and an actual CloverOS x86 bootstrap without requiring the emulator to know CloverOS application internals.
