@@ -19,5 +19,10 @@ if not assembled or not fs.exists(binary) then
  return
 end
 print("Running CloverOS x86 boot probe:")
-shell.run("main.lua",binary,"--debug","--trace")
+local ok=shell.run("main.lua",binary,"--debug","--trace")
 shell.setDir(previous)
+if not ok then
+ print("CloverOS x86 boot probe failed")
+ return
+end
+print("CloverOS x86 lab completed")
