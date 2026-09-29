@@ -34,6 +34,19 @@ local function writeAll(path, data)
 	return true
 end
 
+-- Compose a URL under a repository root. A source is written by a human
+-- ("https://host/repo/") so it usually already ends in a slash, and naively
+-- gluing "/index.lua" onto that asks the server for a path with "//" in it.
+local function repoUrl(base, ...)
+	-- parentheses matter: gsub also returns a count, and inside a table
+	-- constructor that count would become a path segment
+	local out = { (tostring(base or ""):gsub("/+$", "")) }
+	for _, part in ipairs({ ... }) do
+		out[#out + 1] = (tostring(part):gsub("^/+", ""))
+	end
+	return table.concat(out, "/")
+end
+
 function M.new(paths)
 	local self = setmetatable({}, M)
 	self.paths = paths
@@ -175,6 +188,92 @@ function M:sources()
 	return out
 end
 
+-- Replace etc/apt/sources.list. Blank lines and '#' comments are dropped on
+-- write so the file stays the single place a repository is configured.
+function M:writeSources(list)
+	local lines = {
+		"# CloverOS package sources",
+		"# One repository per line: <kind> <location>",
+		"#   local <dir>   a catalog directory of <name>/package.lua",
+		"#   net   <url>   a repository serving index.lua and <name>/<file>",
+	}
+	local written = {}
+	local function emit(kind, location)
+		location = tostring(location or "")
+		if kind == "" or location == "" then
+			return
+		end
+		local key = kind .. " " .. location
+		if written[key] then
+			return
+		end
+		written[key] = true
+		lines[#lines + 1] = key
+	end
+	for _, source in ipairs(list or {}) do
+		emit(tostring(source.kind or ""):lower(), source.location)
+	end
+	-- the bundled catalog is always available, but appending it blindly would
+	-- duplicate the line the installation already ships
+	emit("local", self.catalogDir)
+	return writeAll(self.sourcesFile, table.concat(lines, "\n") .. "\n")
+end
+
+function M:addSource(kind, location)
+	kind = tostring(kind or ""):lower()
+	location = tostring(location or "")
+	if kind ~= "local" and kind ~= "net" then
+		return nil, "source kind must be 'local' or 'net'"
+	end
+	if location == "" then
+		return nil, "source needs a location"
+	end
+	if kind == "net" and not location:match("^https?://") then
+		return nil, "a net source must start with http:// or https://"
+	end
+	local list = {}
+	local data = readAll(self.sourcesFile)
+	if data then
+		for line in data:gmatch("[^\n]+") do
+			local existingKind, existingLoc = line:match("^%s*(%w+)%s+(%S+)")
+			if existingKind and existingLoc then
+				list[#list + 1] = { kind = existingKind, location = existingLoc }
+			end
+		end
+	end
+	for _, source in ipairs(list) do
+		if source.location == location then
+			return nil, "already a source: " .. location
+		end
+	end
+	list[#list + 1] = { kind = kind, location = location }
+	self:writeSources(list)
+	return true
+end
+
+function M:removeSource(location)
+	location = tostring(location or "")
+	local list, found = {}, false
+	local data = readAll(self.sourcesFile)
+	if data then
+		for line in data:gmatch("[^\n]+") do
+			local kind, loc = line:match("^%s*(%w+)%s+(%S+)")
+			if kind and loc then
+				if loc == location then
+					found = true
+				else
+					list[#list + 1] = { kind = kind, location = loc }
+				end
+			end
+		end
+	end
+	if not found then
+		return nil, "no such source: " .. location
+	end
+	self:writeSources(list)
+	return true
+end
+
 function M:update()
 	local index = {}
 	local counts = { local_sources = 0, net_sources = 0, packages = 0 }
@@ -202,7 +301,7 @@ function M:update()
 			end
 		elseif source.kind == "net" then
 			counts.net_sources = counts.net_sources + 1
-			local body, err = self:fetch(source.location .. "/index.lua")
+			local body, err = self:fetch(repoUrl(source.location, "index.lua"))
 			if body then
 				local ok, remote = pcall(textutils.unserialize, body)
 				if ok and type(remote) == "table" then
@@ -222,7 +321,11 @@ function M:update()
 					end
 				end
 			else
-				counts["error: " .. tostring(err)] = true
+				-- a repository that cannot be reached must be reported, not
+				-- quietly counted: "updated" with a missing index is worse
+				-- than a visible error
+				counts.errors = counts.errors or {}
+				counts.errors[#counts.errors + 1] = source.location .. ": " .. tostring(err)
 			end
 		end
 	end
@@ -296,6 +399,8 @@ function M:installed()
 			name = name,
 			version = tostring(meta.version or "?"),
 			auto = meta.auto and true or false,
+			source = meta.source,
+			verified = meta.verified,
 		}
 	end
 	table.sort(out, function(a, b)
@@ -458,20 +563,37 @@ end
 
 function M:installRemote(name, meta, options)
 	local base = meta.origin or ""
-	local copied, sums = {}, {}
+	local published = meta.sha256 or {}
+	local copied, sums, unverified = {}, {}, {}
 	for _, file in ipairs(meta.files) do
-		local body, err = self:fetch(base .. "/" .. name .. "/" .. file)
+		local body, err = self:fetch(repoUrl(base, name, file))
 		if not body then
 			for _, done in ipairs(copied) do
 				fs.delete(done)
 			end
 			return nil, err
 		end
+		local digest = self.hash.sha256hex(body)
+		-- A remote package is code from a machine we do not control, so a
+		-- digest published in the index is the only thing that makes the
+		-- download safe to run. Enforce it, and never write a file first.
+		local expected = published[file]
+		if type(expected) == "string" and expected ~= "" then
+			if expected:lower() ~= digest then
+				for _, done in ipairs(copied) do
+					fs.delete(done)
+				end
+				return nil, "checksum mismatch for " .. file .. " (expected " ..
+					tostring(expected) .. ", got " .. digest .. ")"
+			end
+		else
+			unverified[#unverified + 1] = file
+		end
 		local dst = self.paths:osPath(file)
 		fs.makeDir(fs.getDir(dst))
 		writeAll(dst, body)
 		copied[#copied + 1] = dst
-		sums[file] = self.hash.sha256hex(body)
+		sums[file] = digest
 	end
 	local db = self:state()
 	db[name] = {
@@ -479,7 +601,14 @@ function M:installRemote(name, meta, options)
 		files = sums,
 		auto = options.auto and true or false,
 		installedAt = os.epoch("utc"),
+		source = "net",
+		-- recorded so `apt info` and `apt verify` can say plainly that this
+		-- package came off the network without a published digest
+		verified = (#unverified == 0) and true or false,
 	}
+	if #unverified > 0 then
+		db[name].unverified = unverified
+	end
 	if not self:saveState(db) then
 		for _, done in ipairs(copied) do
 			fs.delete(done)

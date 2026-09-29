@@ -39,6 +39,7 @@ local FILES = {
 	"libs/mc-imgui.lua",
 	"etc/version.lua",
 	"etc/motd.txt",
+	"etc/apt/sources.list",
 	"bin/clear.lua",
 	"bin/ls.lua",
 	"bin/cat.lua",

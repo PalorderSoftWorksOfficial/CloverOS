@@ -1120,7 +1120,16 @@ function M.new(deps)
 			end
 		elseif action == "installed" then
 			for _, entry in ipairs(self.packages:installed()) do
-				println(entry.name .. " " .. entry.version .. (entry.auto and " [auto]" or ""))
+				local marks = ""
+				if entry.auto then
+					marks = marks .. " [auto]"
+				end
+				-- say plainly when a package came off the network without a
+				-- published digest, so nobody mistakes it for a verified one
+				if entry.verified == false then
+					marks = marks .. " [unverified]"
+				end
+				println(entry.name .. " " .. entry.version .. marks)
 			end
 		elseif action == "search" then
 			for _, name in ipairs(self.packages:search(arg or "")) do
@@ -1162,6 +1171,35 @@ function M.new(deps)
 			end
 			println(string.format("Fetched %d package(s) from %d local and %d net source(s).",
 				counts.packages or 0, counts.local_sources or 0, counts.net_sources or 0))
+			for _, problem in ipairs(counts.errors or {}) do
+				println("apt update: " .. problem)
+				self.lastStatus = 1
+			end
+		elseif action == "sources" then
+			local list = self.packages:sources()
+			for _, source in ipairs(list) do
+				println(string.format("%-6s %s", source.kind, source.location))
+			end
+		elseif action == "add-source" or action == "source" then
+			-- `...` starts at the third argument here, so the location is
+			-- rest[1] rather than select(2, ...)
+			local rest = { ... }
+			local added, addErr = self.packages:addSource(arg, rest[1])
+			if not added then
+				println("apt " .. action .. ": " .. tostring(addErr))
+				self.lastStatus = 1
+			else
+				println("added " .. tostring(arg) .. " source")
+				println("run 'apt update' to fetch its index")
+			end
+		elseif action == "remove-source" then
+			local removed, removeErr = self.packages:removeSource(arg)
+			if not removed then
+				println("apt remove-source: " .. tostring(removeErr))
+				self.lastStatus = 1
+			else
+				println("removed " .. tostring(arg))
+			end
 		elseif action == "upgrade" then
 			println("Reading package lists... Done")
 			local report = self.packages:upgrade()
@@ -1225,7 +1263,7 @@ function M.new(deps)
 				self.lastStatus = 1
 			end
 		else
-			println("usage: apt <list|installed|search|info|depends|update|upgrade|install|remove|autoremove|verify> [package]")
+			println("usage: apt <list|installed|search|info|depends|sources|add-source|remove-source|update|upgrade|install|remove|autoremove|verify> [package]")
 		end
 	end
 

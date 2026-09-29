@@ -1,0 +1,9 @@
+# CloverOS package sources
+# One repository per line: <kind> <location>
+#   local <dir>   a catalog directory of <name>/package.lua
+#   net   <url>   a repository serving index.lua and <name>/<file>
+#
+# Add a network repository with:
+#   apt add-source net https://example.com/cloveros/
+# then run `apt update` to fetch its index.
+local etc/packages

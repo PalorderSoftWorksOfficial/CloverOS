@@ -2,23 +2,41 @@ APT - package manager
 Usage: apt <action> [package]
 
 Actions:
-  list          list available packages
-  installed     list installed packages
-  search <t>    search name and description
-  info <pkg>    show package metadata
-  depends <pkg> show install order (dependencies first)
-  update        refresh package lists from sources
-  upgrade       install newer versions of installed packages
-  install <pkg> install a package and its dependencies
-  remove <pkg>  remove a package
-  autoremove    remove unneeded automatic dependencies
-  verify        check installed files against recorded checksums
+  list                 list available packages
+  installed            list installed packages
+  search <t>           search name and description
+  info <pkg>           show package metadata
+  depends <pkg>        show install order (dependencies first)
+  sources              list configured repositories
+  add-source <kind> <location>
+                       add a repository ('local <dir>' or 'net <url>')
+  remove-source <url>  drop a repository
+  update               refresh package lists from sources
+  upgrade              install newer versions of installed packages
+  install <pkg>        install a package and its dependencies
+  remove <pkg>         remove a package
+  autoremove           remove unneeded automatic dependencies
+  verify               check installed files against recorded checksums
 
 Examples:
+  apt add-source net https://example.com/cloveros/
   apt update
-  apt install moo
-  apt verify
+  apt install remotetool
+
+Repository formats:
+  local <dir>   a directory of <name>/package.lua plus a payload
+  net   <url>   serves index.lua (a serialized table of package metadata)
+                and <name>/<file> for each file in a package
+
+Integrity:
+  A network repository may publish a sha256 digest per file in its index.
+  When it does, a file whose bytes do not match is refused and nothing is
+  written. A package with no published digest installs but is listed as
+  [unverified] by 'apt installed', so it is never mistaken for a verified
+  one.
 
 Notes:
-- Sources are listed in /etc/apt/sources.list.
-- Installed files are verified with SHA-256 checksums.
+  Repositories are stored in etc/apt/sources.list; 'apt sources' and
+  'apt add-source' edit that file.
+  'apt update' reports any repository it could not reach, and exits
+  non-zero when it could not read at least one index.

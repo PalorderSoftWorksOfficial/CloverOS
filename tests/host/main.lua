@@ -1232,6 +1232,230 @@ runSuite("isolation", function()
 	_G.CLOVER_USER = nil
 end)
 
+-- ---------- remote package repositories ----------
+runSuite("aptnet", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local users = dofile("/testroot/runtime/users.lua").new(paths)
+	users:load()
+	if not users:exists("aptuser") then
+		users:createUser("aptuser", "pw")
+	end
+	users:login("aptuser")
+	local ui = dofile("/testroot/runtime/textui.lua").new(paths)
+	local shellMod = dofile("/testroot/runtime/shell.lua")
+	local packagesMod = dofile("/testroot/runtime/packages.lua")
+	local sh = shellMod.new({
+		paths = paths, users = users, ui = ui,
+		packages = packagesMod.new(paths),
+	})
+
+	local out = {}
+	local oldPrint = print
+	local function capture()
+		print = function(...)
+			local parts = {}
+			for i = 1, select("#", ...) do
+				parts[i] = tostring(select(i, ...))
+			end
+			out[#out + 1] = table.concat(parts, " ")
+		end
+	end
+	local function run(line)
+		out = {}
+		capture()
+		sh:execute(line)
+		print = oldPrint
+		return table.concat(out, "\n")
+	end
+
+	-- the sources file is part of the installation
+	if fs.exists("/testroot/etc/apt/sources.list") then
+		pass("sources.list installed")
+	else
+		fail("sources.list missing")
+	end
+
+	local pkgs = packagesMod.new(paths)
+	local function sources()
+		return run("apt sources")
+	end
+
+	-- the bundled catalog is the default source
+	if sources():find("local", 1, true) and sources():find("etc/packages", 1, true) then
+		pass("apt sources lists the bundled catalog")
+	else
+		fail("apt sources: " .. sources())
+	end
+
+	-- adding and removing a network source
+	local added = run("apt add-source net https://packages.example.com/cloveros/")
+	if added:find("added net source", 1, true) and sources():find("packages.example.com", 1, true) then
+		pass("apt add-source registers a net repository")
+	else
+		fail("apt add-source: " .. added)
+	end
+	if run("apt add-source net https://packages.example.com/cloveros/"):find("already a source", 1, true) then
+		pass("adding the same source twice is refused")
+	else
+		fail("duplicate source was accepted")
+	end
+	if run("apt add-source net ftp://example.com/"):find("http://", 1, true) then
+		pass("a non-http net source is refused")
+	else
+		fail("ftp source was accepted: " .. run("apt add-source net ftp://example.com/"))
+	end
+	if run("apt add-source banana x"):find("local", 1, true) then
+		pass("an unknown source kind is refused")
+	else
+		fail("unknown source kind accepted")
+	end
+
+	-- the file on disk is the source of truth, not just in-memory state
+	local raw = ""
+	local handle = fs.open("/testroot/etc/apt/sources.list", "r")
+	if handle then
+		raw = handle.readAll()
+		handle.close()
+	end
+	if raw:find("packages.example.com", 1, true) and raw:find("local etc/packages", 1, true) then
+		pass("sources.list was written")
+	else
+		fail("sources.list does not reflect the change")
+	end
+
+	-- a repository that serves an index
+	local hash = dofile("/testroot/runtime/hash.lua")
+	local goodBody = "print('remote tool')\n"
+	local indexBody = textutils.serialize({
+		["remotetool"] = {
+			version = "1.2.0",
+			description = "installed from the network",
+			files = { "bin/remotetool.lua" },
+			sha256 = { ["bin/remotetool.lua"] = hash.sha256hex(goodBody) },
+		},
+	})
+	shim.http.reply("https://packages.example.com/cloveros/index.lua", indexBody)
+	shim.http.reply("https://packages.example.com/cloveros/remotetool/bin/remotetool.lua", goodBody)
+
+	local updateOut = run("apt update"):gsub("\n", " | ")
+	if updateOut:find("5 package", 1, true) and updateOut:find("1 net source", 1, true) then
+		pass("apt update reads a remote index")
+	else
+		fail("apt update: " .. updateOut)
+	end
+	-- a source written with a trailing slash must still resolve, since that
+	-- is the form a human types
+	shim.http.reply("https://packages.example.com/noslash/index.lua", indexBody)
+	shim.http.reply("https://packages.example.com/noslash/remotetool/bin/remotetool.lua", goodBody)
+	run("apt add-source net https://packages.example.com/noslash/")
+	local bothOut = run("apt update"):gsub("\n", " | ")
+	if bothOut:find("6 package", 1, true) and not bothOut:find("apt update: https", 1, true) then
+		pass("a repository url with a trailing slash resolves")
+	else
+		fail("trailing slash source: " .. bothOut)
+	end
+	run("apt remove-source https://packages.example.com/noslash/")
+	run("apt update")
+	if run("apt list"):find("remotetool", 1, true) then
+		pass("the remote package appears in the catalog")
+	else
+		fail("remotetool not listed: " .. run("apt list"))
+	end
+
+	-- install it: the file must land and be marked verified
+	if run("apt install remotetool"):find("installed", 1, true) then
+		pass("remote package installed")
+	else
+		fail("apt install: " .. run("apt install remotetool"))
+	end
+	local installed = false
+	local outFile = fs.open("/testroot/bin/remotetool.lua", "r")
+	if outFile then
+		installed = outFile.readAll() == goodBody
+		outFile.close()
+	end
+	if installed then
+		pass("the remote payload was written")
+	else
+		fail("remote payload missing or wrong")
+	end
+	if run("apt installed"):find("remotetool 1.2.0", 1, true) then
+		pass("the remote package is recorded")
+	else
+		fail("apt installed: " .. run("apt installed"))
+	end
+	if not run("apt installed"):find("unverified", 1, true) then
+		pass("a digest-verified package is not flagged")
+	else
+		fail("a verified package was flagged unverified")
+	end
+	if run("apt verify"):find("all packages verified", 1, true) then
+		pass("remote package passes verification")
+	else
+		fail("apt verify: " .. run("apt verify"))
+	end
+
+	-- a mirror that serves the wrong bytes must be refused
+	run("apt remove remotetool")
+	fs.delete("/testroot/bin/remotetool.lua")
+	shim.http.reply("https://packages.example.com/cloveros/remotetool/bin/remotetool.lua",
+		"print('tampered payload')\n")
+	local tampered = run("apt install remotetool")
+	if tampered:find("checksum mismatch", 1, true) then
+		pass("a tampered download is refused")
+	else
+		fail("tampered download was installed: " .. tampered)
+	end
+	local written = fs.exists("/testroot/bin/remotetool.lua")
+	if not written then
+		pass("nothing was written for the tampered package")
+	else
+		fail("the tampered file was left on disk")
+	end
+	if not run("apt list"):find("remotetool [installed]", 1, true) then
+		pass("the tampered package is not recorded as installed")
+	else
+		fail("tampered package was recorded")
+	end
+
+	-- a package with no published digest installs but is marked unverified
+	run("apt remove-source https://packages.example.com/cloveros/")
+	shim.http.reply("https://packages.example.com/loose/index.lua", textutils.serialize({
+		["loosetool"] = {
+			version = "0.1",
+			files = { "bin/loosetool.lua" },
+		},
+	}))
+	shim.http.reply("https://packages.example.com/loose/loosetool/bin/loosetool.lua", "print('loose')\n")
+	run("apt add-source net https://packages.example.com/loose/")
+	run("apt update")
+	if run("apt install loosetool"):find("installed", 1, true) then
+		pass("a package without a digest still installs")
+	else
+		fail("apt install loosetool: " .. run("apt install loosetool"))
+	end
+	if run("apt installed"):find("loosetool 0.1 [unverified]", 1, true) then
+		pass("an unverified package is flagged")
+	else
+		fail("unverified flag missing: " .. run("apt installed"))
+	end
+
+	-- removing the source works
+	if run("apt remove-source https://packages.example.com/loose/"):find("removed", 1, true)
+		and not sources():find("packages.example.com/loose", 1, true) then
+		pass("apt remove-source drops the repository")
+	else
+		fail("apt remove-source failed")
+	end
+	if run("apt remove-source https://nope.example.com/"):find("no such source", 1, true) then
+		pass("removing an unknown source is refused")
+	else
+		fail("unknown source removal")
+	end
+end)
+
 runSuite("gnome", function()
 	freshInstall()
 	-- the boot contract: the runtime reads CLOVER_ROOT for bundled assets
