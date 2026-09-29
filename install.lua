@@ -28,6 +28,7 @@ local FILES = {
 	"runtime/users.lua",
 	"runtime/textui.lua",
 	"runtime/system.lua",
+	"runtime/access.lua",
 	"runtime/packages.lua",
 	"runtime/shell.lua",
 	"runtime/gui.lua",

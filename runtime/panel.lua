@@ -78,6 +78,32 @@ function M.new(deps)
 		end
 
 		lines[#lines + 1] = { label = "Network", value = network }
+		if self.system and self.system.state then
+			local gps = self.system.state.gps
+			if gps and gps.present then
+				local where = "no fix"
+				if gps.lat ~= nil and gps.lon ~= nil then
+					where = string.format("%.2f, %.2f", gps.lat, gps.lon)
+				end
+				lines[#lines + 1] = { label = "GPS", value = (gps.open and where or ("closed, " .. where)) }
+			end
+			local rednet = self.system.state.rednet
+			if rednet and rednet.present then
+				lines[#lines + 1] = {
+					label = "Rednet",
+					value = string.format("%d open, %d sent, %d received",
+						rednet.open, rednet.sent, rednet.received),
+				}
+			end
+			local storage = self.system.state.storage
+			if storage and (storage.disks > 0 or storage.space) then
+				lines[#lines + 1] = {
+					label = "Disks",
+					value = tostring(storage.disks) .. " attached"
+						.. (storage.space and (", " .. tostring(storage.space) .. " free") or ""),
+				}
+			end
+		end
 		lines[#lines + 1] = { label = "Volume", value = volume }
 		lines[#lines + 1] = { label = "Battery", value = battery }
 		if self.users then
@@ -94,6 +120,32 @@ function M.new(deps)
 			end
 		end
 		return lines
+	end
+
+	-- Compact one-line summary for the top bar. The status menu carries the
+	-- detail; this is only what fits in a single row next to the clock.
+	function self:statusText()
+		local parts = {}
+		if self.system and type(self.system.summary) == "function" then
+			local ok, summary = pcall(self.system.summary, self.system)
+			if ok and type(summary) == "string" and summary ~= "" then
+				parts[#parts + 1] = summary
+			end
+		end
+		if not self.system then
+			local lines = self:statusLines()
+			parts[#parts + 1] = (lines[1] and lines[1].value) or "offline"
+		end
+		local state = self.system and self.system.state
+		if state then
+			if state.gps and state.gps.lat ~= nil then
+				parts[#parts + 1] = "gps"
+			end
+			if state.rednet and state.rednet.open > 0 then
+				parts[#parts + 1] = "rn" .. state.rednet.open
+			end
+		end
+		return "[" .. table.concat(parts, "] [") .. "]"
 	end
 
 	function self:userName()
@@ -208,6 +260,32 @@ function M.new(deps)
 	end
 
 	-- ---------- drawing ----------
+	-- Works out what the bar shows for a screen `w` columns wide. Split out
+	-- from drawBar so the fitting rule is testable without a terminal: the
+	-- bar is one row, and term.write wraps when it overflows.
+	function self:barLayout(w)
+		local activities = " Activities "
+		local clock = self:clockText()
+		local user = self:userName()
+		local status = self:statusText()
+		-- shrink the optional parts until the right-hand block fits
+		local available = w - #activities - 2
+		if #status + #clock + #user + 6 > available then
+			status = truncate(status, math.max(0, math.min(#status, available - #clock - #user - 6)))
+		end
+		if #status + #clock + #user + 6 > available then
+			user = truncate(user, math.max(0, available - #status - #clock - 6))
+		end
+		local right = status .. "  " .. clock .. "  " .. user .. " "
+		return {
+			activities = activities,
+			status = status,
+			clock = clock,
+			user = user,
+			x = math.max(#activities + 2, w - #right + 1),
+		}
+	end
+
 	function self:drawBar()
 		local w, h = term.getSize()
 		term.setBackgroundColor(colors.black)
@@ -216,31 +294,26 @@ function M.new(deps)
 		term.clearLine()
 
 		-- left: Activities (opens the overview, like the GNOME super key)
-		local activities = " Activities "
+		local layout = self:barLayout(w)
 		term.setTextColor(self.menu == "app" and colors.lightGray or colors.white)
-		term.write(activities)
-		self.zones.activities = { x1 = 1, x2 = #activities }
+		term.write(layout.activities)
+		self.zones.activities = { x1 = 1, x2 = #layout.activities }
 
 		-- right: status, clock, user
-		local clock = self:clockText()
-		local user = self:userName()
-		local net = self:statusLines()[1]
-		local status = "[" .. (net and net.value or "offline") .. "]"
-		local right = status .. "  " .. clock .. "  " .. user .. " "
-		local rx = math.max(#activities + 2, w - #right + 1)
+		local rx = layout.x
 		term.setCursorPos(rx, 1)
 		term.setTextColor(self.menu == "status" and colors.lightGray or colors.white)
-		term.write(status)
-		self.zones.status = { x1 = rx, x2 = rx + #status - 1 }
-		local cx = rx + #status + 2
+		term.write(layout.status)
+		self.zones.status = { x1 = rx, x2 = rx + #layout.status - 1 }
+		local cx = rx + #layout.status + 2
 		term.setCursorPos(cx, 1)
-		term.write(clock)
-		self.zones.clock = { x1 = cx, x2 = cx + #clock - 1 }
-		local ux = cx + #clock + 2
+		term.write(layout.clock)
+		self.zones.clock = { x1 = cx, x2 = cx + #layout.clock - 1 }
+		local ux = cx + #layout.clock + 2
 		term.setCursorPos(ux, 1)
 		term.setTextColor(self.menu == "user" and colors.lightGray or colors.white)
-		term.write(user .. " ")
-		self.zones.user = { x1 = ux, x2 = ux + #user }
+		term.write(layout.user .. " ")
+		self.zones.user = { x1 = ux, x2 = ux + #layout.user }
 		term.setTextColor(colors.white)
 
 		-- centre: focused window title

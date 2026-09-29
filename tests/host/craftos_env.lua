@@ -71,8 +71,23 @@ function M.install(repoFiles)
 		return node.data
 	end
 
+	-- CC:Tweaked keeps a path absolute when the first argument is absolute.
+	-- Stripping the leading slash here would silently break every path in
+	-- the OS (display paths, the access policy, file writes), so the shim
+	-- has to behave the same way the platform does.
 	function fs.combine(...)
-		return normalize(table.concat({ ... }, "/"))
+		local parts = { ... }
+		local absolute = false
+		for i, piece in ipairs(parts) do
+			if i == 1 and type(piece) == "string" and piece:sub(1, 1) == "/" then
+				absolute = true
+			end
+		end
+		local joined = normalize(table.concat(parts, "/"))
+		if absolute then
+			return "/" .. joined
+		end
+		return joined
 	end
 
 	function fs.getName(path)

@@ -1,4 +1,6 @@
 -- grep: print lines matching a pattern
+local access = dofile(fs.combine(CLOVER_ROOT or fs.getDir(shell.getRunningProgram()),
+	"runtime/access.lua")).attach()
 local args = { ... }
 
 local ignoreCase = false
@@ -57,9 +59,14 @@ local function filter(lines, label)
 end
 
 local function readLines(path)
-	local h = fs.open(path, "r")
+	local h, err
+	if access then
+		h, err = access:openForRead(path)
+	else
+		h = fs.open(path, "r")
+	end
 	if not h then
-		printError("grep: cannot open " .. path)
+		printError("grep: " .. tostring(err or ("cannot open " .. path)))
 		return nil
 	end
 	local data = h.readAll()

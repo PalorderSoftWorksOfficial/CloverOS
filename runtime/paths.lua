@@ -15,6 +15,21 @@ end
 -- note: the root path is the plain field self.root; a root() method would
 -- be shadowed by that field and is therefore intentionally absent
 
+-- fs.combine drops the leading slash on some hosts (CraftOS-PC and the
+-- test shim both return "root/x" for combine("/root", "x")), while
+-- CC:Tweaked keeps it. Normalising here means the rest of the OS can rely on
+-- a path being absolute instead of each call site guessing.
+local function absolute(path)
+	path = tostring(path or "")
+	path = path:gsub("\\", "/")
+	if path ~= "" and path:sub(1, 1) ~= "/" then
+		return "/" .. path
+	end
+	return path
+end
+
+M.absolute = absolute
+
 function M:join(...)
 	local parts = { ... }
 	local path = self.root
@@ -27,20 +42,28 @@ end
 function M:osPath(path)
 	path = tostring(path or "")
 	if path == "" then
-		return self.root
+		return absolute(self.root)
 	end
 	if path:sub(1, 1) == "/" then
-		return fs.combine(self.root, path)
+		return absolute(fs.combine(self.root, path))
 	end
-	return fs.combine(self:cwd(), path)
+	return absolute(fs.combine(self:cwd(), path))
 end
 
 function M:displayPath(path)
-	-- fs.combine strips leading slashes, so normalize both sides before
-	-- comparing; self.root may carry a leading slash while the combined
-	-- forms do not
-	local base = fs.combine(self.root, "")
-	local full = fs.combine(self:osPath(path), "")
+	-- both sides are absolute (see M.absolute) and trailing slashes are
+	-- trimmed here rather than through fs.combine(path, ""), because how
+	-- combine treats an empty child is not defined the same way on every
+	-- host, and getting it wrong makes every access check miss its rule
+	local function trim(path)
+		path = absolute(path)
+		while #path > 1 and path:sub(-1) == "/" do
+			path = path:sub(1, -2)
+		end
+		return path
+	end
+	local base = trim(self.root)
+	local full = trim(self:osPath(path))
 	if base == "" or base == "/" then
 		return "/" .. full
 	end

@@ -19,9 +19,16 @@ end
 
 local lines = {}
 if file then
-	local h = fs.open(file, "r")
+	local access = dofile(fs.combine(CLOVER_ROOT or fs.getDir(shell.getRunningProgram()),
+		"runtime/access.lua")).attach()
+	local h, err
+	if access then
+		h, err = access:openForRead(file)
+	else
+		h = fs.open(file, "r")
+	end
 	if not h then
-		printError("head: cannot open " .. file)
+		printError("head: " .. tostring(err or ("cannot open " .. file)))
 		return 1
 	end
 	local data = h.readAll()

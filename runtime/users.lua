@@ -190,6 +190,9 @@ function M:login(name)
 		self.current = name
 		fs.makeDir(self.paths:homePath(name))
 		self.paths:setCwd(self.paths:homePath(name))
+		-- the access policy and the external commands in bin/ need to know
+		-- who is running without being handed the users module
+		_G.CLOVER_USER = name
 		return true
 	end
 	return nil, "unknown user"
@@ -197,6 +200,7 @@ end
 
 function M:logout()
 	self.current = nil
+	_G.CLOVER_USER = nil
 	return true
 end
 

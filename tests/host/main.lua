@@ -735,6 +735,102 @@ runSuite("system", function()
 	shim.detach("gps0")
 end)
 
+-- ---------- the panel reflects the hardware ----------
+runSuite("panelhw", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local systemMod = dofile("/testroot/runtime/system.lua")
+	local panelMod = dofile("/testroot/runtime/panel.lua")
+	local function makePanel(sys)
+		return panelMod.new({ users = nil, ui = nil, kernel = nil, system = sys })
+	end
+
+	-- offline: a single bracket, nothing more
+	local bare = systemMod.new({ paths = paths })
+	bare:scan()
+	local panel = makePanel(bare)
+	if panel:statusText() == "[offline]" then
+		pass("panel shows an offline computer")
+	else
+		fail("panel offline: " .. panel:statusText())
+	end
+
+	-- modem online, no fix, no rednet
+	shim.attach("modem2", "modem", {
+		isOpen = function() return true end,
+		getStatus = function() return "online" end,
+		signalStrength = function() return 2 end,
+	})
+	local sys = systemMod.new({ paths = paths })
+	sys:scan()
+	panel = makePanel(sys)
+	local text = panel:statusText()
+	if text:find("modem", 1, true) and text:find("2/4", 1, true) and not text:find("gps", 1, true) then
+		pass("panel shows the modem link and signal")
+	else
+		fail("panel modem: " .. text)
+	end
+
+	-- a GPS fix and open rednet channels appear in the compact bar
+	shim.attach("gps2", "gps", {
+		isOpen = function() return true end,
+		getPosition = function() return 10.5, 20.25, 5 end,
+	})
+	shim.attach("rednet2", "rednet", {})
+	sys:scan()
+	sys:dispatch({ "rednet_open", "rednet", 1 })
+	sys:dispatch({ "rednet_open", "rednet", 1 })
+	text = panel:statusText()
+	if text:find("gps", 1, true) and text:find("rn2", 1, true) then
+		pass("panel shows the gps fix and open rednet channels")
+	else
+		fail("panel gps/rednet: " .. text)
+	end
+
+	-- the status menu carries the detail
+	local items = panel:statusMenuItems()
+	local menu = {}
+	for _, item in ipairs(items) do
+		menu[#menu + 1] = item.label or ""
+	end
+	local body = table.concat(menu, "\n")
+	if body:find("Network: modem", 1, true) and body:find("GPS:", 1, true)
+		and body:find("Rednet:", 1, true) and body:find("2 open, 0 sent", 1, true) then
+		pass("status menu lists network, gps and rednet detail")
+	else
+		fail("status menu: " .. body)
+	end
+	if body:find("10.50, 20.25", 1, true) then
+		pass("status menu shows the position")
+	else
+		fail("status menu position missing")
+	end
+
+	-- a long status must not overflow the single-row bar
+	local longSys = systemMod.new({ paths = paths })
+	longSys.state.network = { interface = "modem-with-a-very-long-name", state = "online", connected = true, signal = 4 }
+	local longPanel = makePanel(longSys)
+	local fits = true
+	for _, width in ipairs({ 80, 60, 40, 30, 24 }) do
+		local layout = longPanel:barLayout(width)
+		local end_ = layout.x + #layout.status + #layout.clock + #layout.user + 4
+		if end_ > width or #layout.status < 1 then
+			fits = false
+			fail(string.format("bar overflows at width %d (ends at %d)", width, end_))
+		end
+	end
+	if fits then
+		pass("bar layout shrinks to fit narrow screens")
+	else
+		-- already reported above
+	end
+
+	shim.detach("modem2")
+	shim.detach("gps2")
+	shim.detach("rednet2")
+end)
+
 -- ---------- hardware commands, through the shell ----------
 runSuite("netcmd", function()
 	freshInstall()
@@ -907,6 +1003,233 @@ runSuite("netcmd", function()
 	else
 		fail("df: " .. df)
 	end
+end)
+
+-- ---------- per-user isolation ----------
+runSuite("isolation", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local users = dofile("/testroot/runtime/users.lua").new(paths)
+	users:load()
+	for _, name in ipairs({ "alice", "bob", "root" }) do
+		if not users:exists(name) then
+			users:createUser(name, "pw123")
+		end
+	end
+	if not users:isSudoer("alice") then
+		users:addToGroup("alice", "sudo")
+	end
+	users:save()
+
+	-- give bob a secret to protect
+	users:login("bob")
+	local bobHome = paths:homePath("bob")
+	fs.makeDir(bobHome)
+	local h = fs.open(fs.combine(bobHome, "secret.txt"), "w")
+	h.write("bob's private diary")
+	h.close()
+
+	local out = {}
+	local oldPrint = print
+	local sh
+	local function capture()
+		print = function(...)
+			local parts = {}
+			for i = 1, select("#", ...) do
+				parts[i] = tostring(select(i, ...))
+			end
+			out[#out + 1] = table.concat(parts, " ")
+		end
+	end
+	local function run(line)
+		out = {}
+		capture()
+		sh:execute(line)
+		print = oldPrint
+		return table.concat(out, "\n")
+	end
+
+	users:login("alice")
+	_G.CLOVER_USER = "alice"
+	local ui = dofile("/testroot/runtime/textui.lua").new(paths)
+	local packages = dofile("/testroot/runtime/packages.lua").new(paths)
+	sh = dofile("/testroot/runtime/shell.lua").new({
+		paths = paths, users = users, ui = ui, packages = packages,
+	})
+	capture()
+
+	-- the credential database must not be readable by a normal user
+	local access = dofile("/testroot/runtime/access.lua").new({ paths = paths, users = users })
+	if access:canRead("/etc/clover/users.db") == false then
+		pass("users.db is root-only")
+	else
+		fail("users.db readable by " .. tostring(access:effectiveUser()))
+	end
+	if access:canRead("/etc/clover/permissions.cfg") == false then
+		pass("permissions.cfg is root-only")
+	else
+		fail("permissions.cfg readable by a normal user")
+	end
+	-- ...but config and manuals stay readable
+	if access:canRead("/etc/motd.txt") and access:canRead("/etc/man/ls.man") then
+		pass("ordinary /etc files stay readable")
+	else
+		fail("/etc became unreadable")
+	end
+
+	-- another user's home is off limits, in both directions
+	if access:canRead("/home/bob/secret.txt") == false then
+		pass("cannot read another user's file")
+	else
+		fail("alice can read /home/bob/secret.txt")
+	end
+	if access:canWrite("/home/bob/secret.txt") == false then
+		pass("cannot write another user's file")
+	else
+		fail("alice can write /home/bob/secret.txt")
+	end
+	if access:canWrite("/home/alice") and access:canRead("/home/alice") then
+		pass("own home is fully accessible")
+	else
+		fail("own home is restricted")
+	end
+
+	-- the system tree cannot be replaced by a normal user: that would be a
+	-- route straight to root
+	local protected = { "/bin/ls.lua", "/usr/bin", "/libs/mc-imgui.lua", "/boot/kernel.lua", "/runtime/shell.lua" }
+	local allProtected = true
+	for _, path in ipairs(protected) do
+		if access:canWrite(path) then
+			allProtected = false
+			fail("writable system path: " .. path)
+		end
+	end
+	if allProtected then
+		pass("the system tree is root-owned")
+	end
+
+	-- root sees everything
+	local rootAccess = dofile("/testroot/runtime/access.lua").new({ paths = paths, users = users })
+	_G.CLOVER_ELEVATED = { active = true }
+	local rootSeesAll = rootAccess:canRead("/home/bob/secret.txt")
+	and rootAccess:canRead("/etc/clover/users.db")
+	and rootAccess:canWrite("/bin/ls.lua")
+	_G.CLOVER_ELEVATED = nil
+	if rootSeesAll then
+		pass("root bypasses the restrictions")
+	else
+		fail("root is still restricted")
+	end
+
+	-- an explicit chmod by an administrator is the documented escape hatch:
+	-- a user cannot widen access themselves, so it has to go through sudo
+	local deniedChmod = run("chmod 644 /home/bob/secret.txt")
+	if deniedChmod:find("permission denied", 1, true) then
+		pass("a user cannot chmod another user's file")
+	else
+		fail("chmod by a normal user: " .. deniedChmod)
+	end
+	run("echo pw123 | sudo -S chmod 644 /home/bob/secret.txt")
+	access:reload()
+	if access:canRead("/home/bob/secret.txt") then
+		pass("sudo chmod 644 shares another user's file deliberately")
+	else
+		fail("sudo chmod did not override the home restriction")
+	end
+	run("echo pw123 | sudo -S chmod 600 /home/bob/secret.txt")
+	access:reload()
+	if not access:canRead("/home/bob/secret.txt") then
+		pass("sudo chmod 600 takes the share back")
+	else
+		fail("chmod 600 had no effect")
+	end
+
+	-- and it survives a reload, so the decision is not just in memory
+	local reread = dofile("/testroot/runtime/access.lua").new({ paths = paths, users = users })
+	if not reread:canRead("/home/bob/secret.txt") then
+		pass("chmod is persisted")
+	else
+		fail("chmod was not persisted")
+	end
+
+	-- through the shell: cat and ls honour the policy
+	local denied = run("cat /home/bob/secret.txt")
+	if denied:find("permission denied", 1, true) and not denied:find("diary", 1, true) then
+		pass("cat refuses another user's file")
+	else
+		fail("cat: " .. denied)
+	end
+	if run("ls /home/bob"):find("permission denied", 1, true) then
+		pass("ls refuses another user's home")
+	else
+		fail("ls /home/bob: " .. run("ls /home/bob"))
+	end
+	if run("cat /etc/clover/users.db"):find("permission denied", 1, true) then
+		pass("cat refuses the user database")
+	else
+		fail("cat users.db: " .. run("cat /etc/clover/users.db"))
+	end
+	-- writing into the system tree is refused
+	local write = run("echo tampered > /bin/ls.lua")
+	if write:find("permission denied", 1, true) then
+		pass("redirect cannot overwrite a system command")
+	else
+		fail("redirect into /bin: " .. write)
+	end
+	local stillThere = ""
+	local lsFile = fs.open("/testroot/bin/ls.lua", "r")
+	if lsFile then
+		stillThere = lsFile.readAll()
+		lsFile.close()
+	end
+	if stillThere:find("ls", 1, true) and #stillThere > 100 then
+		pass("the system command is untouched")
+	else
+		fail("bin/ls.lua was damaged")
+	end
+
+	-- sudo crosses the boundary, and hands the privilege back afterwards
+	local sudoed = run("echo pw123 | sudo -S cat /home/bob/secret.txt")
+	if sudoed:find("diary", 1, true) then
+		pass("sudo can read another user's file")
+	else
+		fail("sudo cat: " .. sudoed)
+	end
+	if not access:canRead("/home/bob/secret.txt") and not access:canWrite("/bin/ls.lua") then
+		pass("privilege is not sticky after sudo")
+	else
+		fail("sudo left the session elevated")
+	end
+
+	-- history is per user
+	run("echo alice-private-command")
+	users:logout()
+	users:login("bob")
+	local bobOut = {}
+	print = function(...)
+		local parts = {}
+		for i = 1, select("#", ...) do
+			parts[i] = tostring(select(i, ...))
+		end
+		bobOut[#bobOut + 1] = table.concat(parts, " ")
+	end
+	sh:execute("history")
+	print = oldPrint
+	if table.concat(bobOut, "\n"):find("alice-private-command", 1, true) then
+		fail("bob can see alice's history")
+	else
+		pass("history is not shared between users")
+	end
+	users:login("alice")
+	capture()
+	if run("history"):find("alice-private-command", 1, true) then
+		pass("alice still has her own history")
+	else
+		fail("alice lost her history")
+	end
+	users:logout()
+	_G.CLOVER_USER = nil
 end)
 
 runSuite("gnome", function()

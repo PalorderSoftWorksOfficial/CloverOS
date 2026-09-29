@@ -17,11 +17,19 @@ while i <= #args do
 	end
 end
 
+local access = dofile(fs.combine(CLOVER_ROOT or fs.getDir(shell.getRunningProgram()),
+	"runtime/access.lua")).attach()
+
 local lines = {}
 if file then
-	local h = fs.open(file, "r")
+	local h, err
+	if access then
+		h, err = access:openForRead(file)
+	else
+		h = fs.open(file, "r")
+	end
 	if not h then
-		printError("tail: cannot open " .. file)
+		printError("tail: " .. tostring(err or ("cannot open " .. file)))
 		return 1
 	end
 	local data = h.readAll()

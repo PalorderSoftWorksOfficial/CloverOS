@@ -176,7 +176,7 @@ function M.new(deps)
 		ui = deps.ui,
 		packages = deps.packages,
 		running = true,
-		historyFile = deps.paths and deps.paths:join("var", "log", "history") or nil,
+		historyFile = nil,
 		history = {},
 		aliases = {},
 		vars = {},
@@ -235,51 +235,48 @@ function M.new(deps)
 		end
 	end
 
+	-- Access rules live in runtime/access.lua so the shell and the external
+	-- commands in bin/ enforce exactly the same policy. It is built before
+	-- effectiveUser so the two never disagree about who is running.
+	local access = dofile(self.paths:join("runtime", "access.lua")).new({
+		paths = self.paths,
+		users = self.users,
+	})
+	self.access = access
+
 	-- effective user for privilege checks (sudo switches it per command)
 	local function effectiveUser()
-		if self._elevated then
-			return "root"
-		end
-		return (self.users and self.users:currentName()) or "user"
+		return access:effectiveUser()
 	end
 
 	-- ---------- permissions (Ubuntu-style ownership on system paths) ----------
-	local function perms()
-		local data = readAll(self.permFile)
-		if not data then
-			return {}
-		end
-		local ok, db = pcall(textutils.unserialize, data)
-		if ok and type(db) == "table" then
-			return db
-		end
-		return {}
-	end
-
 	local function savePerms(db)
-		return writeAll(self.permFile, textutils.serialize(db))
+		local ok = writeAll(self.permFile, textutils.serialize(db))
+		-- the access module caches; a chmod must not be masked by a stale read
+		access:reload()
+		return ok
 	end
 
-	-- /etc is root-owned by default; everything else is writable
-	local function protectedPath(display)
-		return display:match("^/etc/?") ~= nil
+	local function perms()
+		return access:records()
 	end
 
 	local function canWrite(display)
-		local user = effectiveUser()
-		if user == "root" then
+		return access:canWrite(display)
+	end
+
+	local function denyRead(path)
+		println("sh: permission denied: " .. tostring(path))
+		self.lastStatus = 1
+		return false
+	end
+
+	-- Every user-supplied path that is about to be read goes through this
+	local function checkRead(path)
+		if access:canReadPath(path) then
 			return true
 		end
-		local record = perms()[display]
-		if record then
-			local mode = tostring(record.mode or "644")
-			local others = mode:sub(-1)
-			if record.owner == user then
-				return mode:sub(2, 2):find("w") ~= nil
-			end
-			return others:find("w") ~= nil
-		end
-		return not protectedPath(display)
+		return denyRead(access:displayOf(path))
 	end
 
 	local function denyWrite(path)
@@ -314,9 +311,23 @@ function M.new(deps)
 	end
 
 	-- ---------- history ----------
+	-- History is per user. A shared file leaked one account's commands to
+	-- another and let any user tamper with it, since var/log is writable.
+	-- `name` defaults to the account the session is on; saving passes the
+	-- account that actually owns the in-memory list, which is not the same
+	-- one at the moment the session switches over.
+	local function historyFile(name)
+		name = name or (self.users and self.users:currentName()) or effectiveUser()
+		if not self.paths or not name or name == "" then
+			return nil
+		end
+		return self.paths:join("var", "log", "history", tostring(name))
+	end
+
 	local function loadHistory()
 		self.history = {}
-		local data = readAll(self.historyFile)
+		self._historyUser = (self.users and self.users:currentName()) or nil
+		local data = readAll(historyFile(self._historyUser))
 		if not data then
 			return
 		end
@@ -326,7 +337,8 @@ function M.new(deps)
 	end
 
 	local function saveHistory()
-		if not self.historyFile then
+		local file = historyFile(self._historyUser)
+		if not file then
 			return
 		end
 		local maxKeep = 100
@@ -335,7 +347,8 @@ function M.new(deps)
 		for i = startAt, #self.history do
 			keep[#keep + 1] = self.history[i]
 		end
-		writeAll(self.historyFile, table.concat(keep, "\n") .. "\n")
+		fs.makeDir(fs.getDir(file))
+		writeAll(file, table.concat(keep, "\n") .. "\n")
 	end
 
 	-- ---------- expansion ----------
@@ -548,6 +561,9 @@ function M.new(deps)
 		end
 		local function listOne(path)
 			local target = self.paths:osPath(path)
+			if not checkRead(path) then
+				return
+			end
 			if not fs.exists(target) then
 				println("ls: no such path: " .. tostring(path))
 				self.lastStatus = 1
@@ -593,6 +609,8 @@ function M.new(deps)
 				for _, line in ipairs(self._stdin) do
 					emitLine(line)
 				end
+			elseif not checkRead(path) then
+				-- denied
 			else
 				local data = readAll(self.paths:osPath(path))
 				if not data then
@@ -1079,8 +1097,18 @@ function M.new(deps)
 		end
 		local previous = self._elevated
 		self._elevated = true
-		self:execute(sub .. (#rest > 0 and (" " .. table.concat(rest, " ")) or ""))
+		-- external commands read the access policy through this global, so
+		-- `sudo wget /etc/...` is allowed while `wget` alone is not
+		_G.CLOVER_ELEVATED = { active = true }
+		local ran, err = pcall(self.execute, self,
+			sub .. (#rest > 0 and (" " .. table.concat(rest, " ")) or ""))
 		self._elevated = previous
+		_G.CLOVER_ELEVATED = nil
+		if not ran then
+			-- re-raise so the dispatcher reports it the usual way, but only
+			-- after the elevation flag has been taken back down
+			error(err, 0)
+		end
 	end
 
 	builtins.apt = function(action, arg, ...)
@@ -1568,6 +1596,15 @@ function M.new(deps)
 		line = trim(line)
 		if line == "" then
 			return
+		end
+		-- history is per user, so pick up the right file as soon as the
+		-- session changes account (a logout followed by a login reuses the
+		-- same shell instance)
+		local who = self.users and self.users:currentName() or nil
+		if who ~= self._historyUser then
+			saveHistory()
+			self._historyUser = who
+			loadHistory()
 		end
 		if #line > 1 and line:sub(1, 1) == "!" then
 			local num = tonumber(line:sub(2))
