@@ -552,6 +552,363 @@ end)
 -- The GNOME shell is made of four modules: the panel (top bar), the overview
 -- (Activities), the launcher (shared session entry point) and the desktop that
 -- ties them together. `cloveros` is the shell builtin that starts it.
+-- ---------- system layer (CC:Tweaked hardware) ----------
+runSuite("system", function()
+	freshInstall()
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local systemMod = dofile("/testroot/runtime/system.lua")
+
+	-- a computer with nothing attached must still be describable
+	local bare = systemMod.new({ paths = paths })
+	bare:scan()
+	if bare:network().state == "offline" and bare:network().interface == "none" then
+		pass("no peripherals reports offline")
+	else
+		fail("no peripherals: " .. tostring(bare:network().state))
+	end
+	if #bare.state.peripherals == 0 then
+		pass("empty peripheral list")
+	else
+		fail("expected no peripherals, got " .. #bare.state.peripherals)
+	end
+
+	-- events the window manager needs must not be swallowed
+	if bare:dispatch({ "term_resize", 40, 20 }) == false
+		and bare:dispatch({ "mouse_click", 1, 3, 4 }) == false
+		and bare:dispatch({ "key", 257 }) == false then
+		pass("ui events are left for the window manager")
+	else
+		fail("dispatch consumed a ui event")
+	end
+
+	-- attach a modem and confirm discovery and state transitions
+	shim.attach("modem0", "modem", {
+		isOpen = function() return true end,
+		getStatus = function() return "offline" end,
+		open = function() return true end,
+		close = function() return true end,
+		signalStrength = function() return 3 end,
+	})
+	local sys = systemMod.new({ paths = paths })
+	sys:scan()
+	if sys:network().interface == "modem" then
+		pass("modem discovered as the network interface")
+	else
+		fail("network interface: " .. tostring(sys:network().interface))
+	end
+	if sys:network().signal == 3 and sys:summary() == "modem offline 3/4" then
+		pass("signal strength reaches the summary")
+	else
+		fail("summary: " .. tostring(sys:summary()))
+	end
+
+	-- a modem event flips the state to online
+	local status = "online"
+	sys:scan()
+	shim.attach("modem0", "modem", {
+		isOpen = function() return status == "online" end,
+		getStatus = function() return status end,
+		open = function() status = "online" return true end,
+		close = function() status = "offline" return true end,
+		signalStrength = function() return 3 end,
+	})
+	if sys:dispatch({ "modem" }) and sys:network().connected then
+		pass("modem event marks the link online")
+	else
+		fail("modem event did not connect: " .. tostring(sys:network().state))
+	end
+	if sys:summary() == "modem 3/4" then
+		pass("summary drops the offline marker once connected")
+	else
+		fail("summary while online: " .. tostring(sys:summary()))
+	end
+
+	-- rescanning twice must not duplicate the device list
+	local before = #sys.state.peripherals
+	sys:scan()
+	sys:scan()
+	if #sys.state.peripherals == before then
+		pass("rescan does not duplicate peripherals")
+	else
+		fail("rescan duplicated peripherals: " .. before .. " -> " .. #sys.state.peripherals)
+	end
+
+	-- gps
+	shim.attach("gps0", "gps", {
+		isOpen = function() return true end,
+		getPosition = function() return 51.5, -0.12, 64 end,
+	})
+	sys:scan()
+	if sys.state.gps.present and sys.state.gps.lat == 51.5 and sys.state.gps.lon == -0.12 then
+		pass("gps position read from the peripheral")
+	else
+		fail("gps fix: " .. tostring(sys.state.gps.lat))
+	end
+
+	-- rednet inbox: messages are recorded and bounded
+	for i = 1, 60 do
+		sys:dispatch({ "rednet_message", "rednet", i, "msg" .. i })
+	end
+	if sys.state.rednet.received == 60 and #sys:inbox() == 50 then
+		pass("rednet inbox records and is capped at 50")
+	else
+		fail("inbox: " .. #sys:inbox() .. " held, " .. tostring(sys.state.rednet.received) .. " received")
+	end
+	if sys:inbox()[1].message == "msg11" then
+		pass("inbox drops the oldest messages")
+	else
+		fail("oldest message should be msg11, got " .. tostring(sys:inbox()[1].message))
+	end
+	if sys:clearInbox() == 50 and #sys:inbox() == 0 then
+		pass("inbox can be cleared")
+	else
+		fail("clearInbox left " .. #sys:inbox())
+	end
+
+	-- hotplug
+	shim.attach("speaker0", "speaker", {})
+	sys:scan()
+	local sawSpeaker = false
+	for _, p in ipairs(sys.state.peripherals) do
+		if p.type == "speaker" then
+			sawSpeaker = true
+		end
+	end
+	if sawSpeaker and sys.state.audio.present then
+		pass("speaker attach updates the audio state")
+	else
+		fail("speaker not picked up")
+	end
+	shim.detach("speaker0")
+	if sys:dispatch({ "peripheral_detach", "speaker0" }) then
+		pass("detach event is consumed by the system layer")
+	else
+		fail("detach event not consumed")
+	end
+	local stillThere = false
+	for _, p in ipairs(sys.state.peripherals) do
+		if p.name == "speaker0" then
+			stillThere = true
+		end
+	end
+	if not stillThere then
+		pass("detach removes the device from the list")
+	else
+		fail("speaker0 still listed after detach")
+	end
+
+	-- persistence round trip
+	if sys:save() then
+		pass("state saved to var/run/system.cfg")
+	else
+		fail("save failed")
+	end
+	local reread = systemMod.new({ paths = paths })
+	if reread:load() and reread:network().interface == "modem" then
+		pass("state survives a reload")
+	else
+		fail("reload lost the network interface")
+	end
+
+	-- a damaged snapshot must not stop the OS
+	local handle = fs.open(paths:join("var", "run", "system.cfg"), "w")
+	handle.write("this is not serialized data {{{")
+	handle.close()
+	local broken = systemMod.new({ paths = paths })
+	local okLoad = pcall(function() return broken:load() end)
+	if okLoad and broken:network().state == "offline" then
+		pass("damaged snapshot falls back to defaults")
+	else
+		fail("damaged snapshot was not handled")
+	end
+
+	-- commands attach to the live hardware through system.attach()
+	shim.http.reply("https://example.com/hello.txt", "hi from clover")
+	local attached = systemMod.attach("/testroot")
+	if attached and attached:network().interface == "modem" then
+		pass("attach() rescan sees the attached modem")
+	else
+		fail("attach() did not find the modem")
+	end
+
+	shim.detach("modem0")
+	shim.detach("gps0")
+end)
+
+-- ---------- hardware commands, through the shell ----------
+runSuite("netcmd", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local users = dofile("/testroot/runtime/users.lua").new(paths)
+	users:load()
+	if not users:exists("netuser") then
+		users:createUser("netuser", "pw")
+	end
+	users:login("netuser")
+	local ui = dofile("/testroot/runtime/textui.lua").new(paths)
+	local packages = dofile("/testroot/runtime/packages.lua").new(paths)
+	local sh = dofile("/testroot/runtime/shell.lua").new({
+		paths = paths, users = users, ui = ui, packages = packages,
+	})
+
+	-- The shell only routes a program's output through its capture path when
+	-- the command has stdin, so a leading `echo |` is what makes a bare bin/
+	-- command observable. sh.captured is where emitLine puts the result.
+	local function run(line)
+		sh.captured = {}
+		sh:execute("echo | " .. line)
+		local captured = sh.captured
+		sh.captured = nil
+		return table.concat(captured, "\n")
+	end
+
+	-- every hardware command must be installed and reachable by name
+	for _, name in ipairs({ "net", "ping", "wget", "gps", "rednet", "df" }) do
+		if fs.exists("/testroot/bin/" .. name .. ".lua") then
+			pass(name .. " installed")
+		else
+			fail(name .. " not installed")
+		end
+	end
+
+	-- net with nothing attached
+	local offline = run("net")
+	if offline:find("interface: none", 1, true) and offline:find("status:    offline", 1, true) then
+		pass("net reports an offline computer")
+	else
+		fail("net offline: " .. offline)
+	end
+
+	-- net with a modem
+	shim.attach("modem1", "modem", {
+		isOpen = function() return true end,
+		getStatus = function() return "online" end,
+		signalStrength = function() return 4 end,
+	})
+	local online = run("net")
+	if online:find("interface: modem", 1, true) and online:find("status:    online", 1, true)
+		and online:find("4/4", 1, true) then
+		pass("net reports the attached modem online")
+	else
+		fail("net online: " .. online)
+	end
+	if run("net bogus"):find("usage: net", 1, true) then
+		pass("net rejects an unknown action")
+	else
+		fail("net bogus did not print usage")
+	end
+	shim.detach("modem1")
+
+	-- wget against a scripted http host; a relative path lands in the cwd
+	shim.http.reply("https://example.com/notes.txt", "clover")
+	local got = run("wget -O downloaded.txt https://example.com/notes.txt")
+	local saved = ""
+	local h = fs.open("/downloaded.txt", "r")
+	if h then
+		saved = h.readAll()
+		h.close()
+	end
+	if saved == "clover" and got:find("saved 6 bytes", 1, true) then
+		pass("wget wrote the response body")
+	else
+		fail("wget: body=" .. saved .. " output=" .. got)
+	end
+	if run("wget"):find("usage: wget", 1, true) then
+		pass("wget with no url prints usage")
+	else
+		fail("wget with no url")
+	end
+	local refused = run("wget https://example.com/missing.txt")
+	if refused:find("wget:", 1, true) and not refused:find("saved", 1, true) then
+		pass("wget reports an unreachable host")
+	else
+		fail("wget unreachable: " .. refused)
+	end
+	fs.delete("/downloaded.txt")
+
+	-- ping uses the global ping function
+	shim.http.latency("example.com", { 5, 7, 6 })
+	local pinged = run("ping example.com 3")
+	if pinged:find("3 sent, 3 received, 0.0% loss", 1, true)
+		and pinged:find("min/avg/max = 5/6.0/7 ms", 1, true) then
+		pass("ping summarises the round trips")
+	else
+		fail("ping: " .. pinged)
+	end
+	if run("ping"):find("usage: ping", 1, true) then
+		pass("ping with no host prints usage")
+	else
+		fail("ping with no host")
+	end
+	if run("ping nowhere.invalid"):find("unreachable", 1, true) then
+		pass("ping reports an unresolvable host")
+	else
+		fail("ping unresolvable: " .. run("ping nowhere.invalid"))
+	end
+
+	-- gps and rednet degrade honestly with no hardware
+	local gpsOut = run("gps")
+	if gpsOut:find("gps:    not attached", 1, true) then
+		pass("gps reports no GPS")
+	else
+		fail("gps: " .. gpsOut)
+	end
+	if run("gps open"):find("no GPS attached", 1, true) then
+		pass("gps open refuses without hardware")
+	else
+		fail("gps open: " .. run("gps open"))
+	end
+	local rednetOut = run("rednet")
+	if rednetOut:find("rednet:   not attached", 1, true) and rednetOut:find("received: 0", 1, true) then
+		pass("rednet reports no peripheral")
+	else
+		fail("rednet: " .. rednetOut)
+	end
+	if run("rednet send hi"):find("no rednet peripheral", 1, true) then
+		pass("rednet send refuses without hardware")
+	else
+		fail("rednet send: " .. run("rednet send hi"))
+	end
+	if run("rednet inbox"):find("inbox is empty", 1, true) then
+		pass("rednet inbox starts empty")
+	else
+		fail("rednet inbox: " .. run("rednet inbox"))
+	end
+
+	-- rednet with hardware: send records the message in the state
+	shim.attach("rednet0", "rednet", {
+		open = function() return true end,
+		close = function() return true end,
+		send = function() return 17 end,
+	})
+	if run("rednet open"):find("opened", 1, true) then
+		pass("rednet open succeeds with hardware")
+	else
+		fail("rednet open: " .. run("rednet open"))
+	end
+	local sent = run("rednet send hello")
+	if sent:find("sent on channel 1", 1, true) then
+		pass("rednet send succeeds")
+	else
+		fail("rednet send: " .. sent)
+	end
+	if run("rednet"):find("sent:     1", 1, true) then
+		pass("rednet counts what it sent")
+	else
+		fail("rednet counter: " .. run("rednet"))
+	end
+	shim.detach("rednet0")
+
+	-- df always reports the root
+	local df = run("df")
+	if df:find("filesystem", 1, true) and df:find("/testroot", 1, true) then
+		pass("df lists the CloverOS root")
+	else
+		fail("df: " .. df)
+	end
+end)
+
 runSuite("gnome", function()
 	freshInstall()
 	-- the boot contract: the runtime reads CLOVER_ROOT for bundled assets

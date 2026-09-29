@@ -30,6 +30,7 @@ function M.new(deps)
 		users = deps.users,
 		ui = deps.ui,
 		kernel = deps.kernel,
+		system = deps.system,
 		apps = deps.apps or {},
 		focusedTitle = "",
 		menu = nil,
@@ -42,7 +43,11 @@ function M.new(deps)
 	function self:statusLines()
 		local lines = {}
 		local peripherals = {}
-		if self.kernel and self.kernel.peripherals then
+		-- the system layer keeps a live view of the hardware; fall back to
+		-- the kernel's snapshot when the session did not create one
+		if self.system and self.system.state then
+			peripherals = self.system.state.peripherals or {}
+		elseif self.kernel and self.kernel.peripherals then
 			local ok, list = pcall(self.kernel.peripherals)
 			if ok and type(list) == "table" then
 				peripherals = list
@@ -50,12 +55,22 @@ function M.new(deps)
 		end
 
 		local network, volume, battery = "offline", "n/a", "n/a"
+		if self.system and type(self.system.summary) == "function" then
+			local ok, summary = pcall(self.system.summary, self.system)
+			if ok and type(summary) == "string" and summary ~= "" then
+				network = summary
+			end
+		else
+			for _, p in ipairs(peripherals) do
+				if p.type == "wifi" then
+					network = "wifi"
+				elseif p.type == "modem" then
+					network = "modem"
+				end
+			end
+		end
 		for _, p in ipairs(peripherals) do
-			if p.type == "wifi" then
-				network = "wifi"
-			elseif p.type == "modem" then
-				network = "modem"
-			elseif p.type == "speaker" then
+			if p.type == "speaker" then
 				volume = "available"
 			elseif p.type == "energy" then
 				battery = "present"

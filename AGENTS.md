@@ -11,6 +11,7 @@ CloverOS is a Lua-based operating system for CC:Tweaked and CraftOS. The reposit
 - `boot/` — boot and kernel code.
 - `bin/` — command executables.
 - `apps/` — user-facing applications.
+- `runtime/system.lua` — the hardware layer: peripheral discovery, network/GPS/rednet state, and event dispatch. Keep it peripheral duck-typed, never `type(p) == "userdata"`.
 - `etc/` — configuration, man pages, package metadata, and related runtime files.
 - `install.lua` — canonical installer (local and network modes).
 - `netinstall.lua` — legacy entry point; delegates to `install --net`.
@@ -25,6 +26,7 @@ CloverOS is a Lua-based operating system for CC:Tweaked and CraftOS. The reposit
 ### Keep CC:Tweaked / CraftOS compatibility
 - Prefer APIs and patterns available in CC:Tweaked / CraftOS.
 - Avoid assumptions about native OS features that do not exist in the target runtime.
+- `os.pullEventRaw` cannot be filtered without discarding the events it skips, so never drain the event queue from a command: it would eat the shell's queued keystrokes. Commands read hardware through `runtime/system.lua`'s `attach()` instead.
 - Use Phoenix OS as a reference for shell and boot architecture while preserving CloverOS-specific boot discovery and runtime behavior.
 - Treat filesystem paths, drives, and mounts as part of the runtime contract.
 

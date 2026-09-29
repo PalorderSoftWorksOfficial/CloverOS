@@ -1,0 +1,21 @@
+NET - network status
+Usage: net [status|scan|up|down]
+
+Reports the network peripheral CloverOS can see. On CC:Tweaked the network
+is whichever peripheral is attached, so a computer with a modem shows
+"modem" and one with a wifi card shows "wifi".
+
+status   (default) show interface, status, signal strength and peripherals
+scan     rescan the hardware and show what is attached
+up       open the network peripheral
+down     close the network peripheral
+
+Examples:
+  net
+  net up
+  net scan
+
+Notes:
+- A computer with no network peripheral reports "interface: none".
+- "up"/"down" need a peripheral that supports opening; several CC:Tweaked
+  builds always report online and refuse to be closed.

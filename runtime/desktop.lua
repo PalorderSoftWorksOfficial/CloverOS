@@ -34,6 +34,7 @@ function M.new(deps)
 		packages = deps.packages,
 		session = deps.session,
 		kernel = deps.kernel,
+		system = deps.system,
 		gui = deps.gui,
 		running = true,
 		requestLogout = false,
@@ -59,6 +60,7 @@ function M.new(deps)
 		ui = self.ui,
 		kernel = self.kernel,
 		apps = APPS,
+		system = self.system,
 	})
 	self.overviewUi = overviewModule.new({
 		apps = APPS,
@@ -493,6 +495,13 @@ function M.new(deps)
 				end
 			elseif kind == "timer" then
 				-- nothing to do; keeps the loop shape uniform
+			elseif self.system and self.system:dispatch(ev) then
+				-- hardware event (modem, wifi, gps, rednet, hotplug): the
+				-- system layer took it, so the window manager must not.
+				-- Persist it, or a later `rednet inbox` in a text shell
+				-- would never see what this session received.
+				self.system:save()
+				self:render()
 			else
 				if not self.overviewUi:isOpen() and not self.panel.menu then
 					local result = self.gui:pump(ev)

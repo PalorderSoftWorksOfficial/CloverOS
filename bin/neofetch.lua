@@ -13,12 +13,19 @@ pcall(function()
 	osVersion = dofile("etc/version.lua").string()
 end)
 
-local packages = 0
+local root = CLOVER_ROOT or fs.getDir(shell.getRunningProgram())
+local packages, network, devices = 0, "offline", 0
 pcall(function()
-	local root = CLOVER_ROOT or fs.getDir(fs.getDir(shell.getRunningProgram()))
 	local pathsMod = dofile(fs.combine(root, "runtime/paths.lua"))
 	local pkgMod = dofile(fs.combine(root, "runtime/packages.lua"))
 	packages = #pkgMod.new(pathsMod.new(root)):installed()
+end)
+pcall(function()
+	local sys = dofile(fs.combine(root, "runtime/system.lua")).attach(root)
+	if sys then
+		network = sys:summary()
+		devices = #sys.state.peripherals
+	end
 end)
 
 local info = {
@@ -29,6 +36,8 @@ local info = {
 	"uptime:   " .. string.format("%.1f min", os.clock() / 60),
 	"packages: " .. packages,
 	"shell:    clover-sh",
+	"net:      " .. network,
+	"devices:  " .. devices,
 	"http:     " .. (http and "enabled" or "disabled"),
 	"disk:     " .. tostring(fs.getFreeSpace("/")) .. " bytes free",
 }

@@ -626,20 +626,130 @@ function M.install(repoFiles)
 	}
 
 	-- ---------- peripheral ----------
+	-- CC:Tweaked peripherals are userdata, so production code has to
+	-- duck-type them (type(p.method) == "function") rather than compare
+	-- type(p). The shim therefore hands back plain tables with the same
+	-- method surface, which keeps that constraint honest under test.
+	local hw = { attached = {} } -- name -> { type = ..., methods = {...} }
+
+	local function peripheralProxy(name)
+		local entry = hw.attached[name]
+		if not entry then
+			return nil
+		end
+		return setmetatable({}, {
+			__index = function(_, key)
+				local fn = entry.methods[key]
+				if type(fn) == "function" then
+					return function(...)
+						return fn(...)
+					end
+				end
+				return entry.methods[key]
+			end,
+			__tostring = function()
+				return entry.type .. "(" .. name .. ")"
+			end,
+		})
+	end
+
 	_G.peripheral = {
 		getNames = function()
-			return {}
+			local names = {}
+			for name in pairs(hw.attached) do
+				names[#names + 1] = name
+			end
+			table.sort(names)
+			return names
 		end,
-		getType = function()
+		getType = function(name)
+			local entry = hw.attached[name]
+			return entry and entry.type or nil
+		end,
+		find = function(ptype)
+			for name, entry in pairs(hw.attached) do
+				if entry.type == ptype then
+					return peripheralProxy(name)
+				end
+			end
 			return nil
 		end,
-		isPresent = function()
-			return false
+		isPresent = function(name)
+			return hw.attached[name] ~= nil
 		end,
-		hasType = function()
+		hasType = function(ptype)
+			for _, entry in pairs(hw.attached) do
+				if entry.type == ptype then
+					return true
+				end
+			end
 			return false
 		end,
 	}
+
+	-- ---------- network ----------
+	-- http.get is the only way CloverOS reaches the network on CC:Tweaked.
+	-- Tests script replies through hostShim.http; an unscripted URL fails
+	-- exactly as an offline computer would.
+	local httpState = { replies = {}, failAll = false }
+
+	local function httpHandle(body, headers)
+		return {
+			readAll = function()
+				return body
+			end,
+			readLine = function()
+				return nil
+			end,
+			close = function() end,
+			getResponseHeaders = function()
+				return headers or {}
+			end,
+			getResponseCode = function()
+				return (headers and headers.code) or 200
+			end,
+		}
+	end
+
+	_G.http = {
+		get = function(url, headers)
+			if httpState.failAll then
+				return nil, "Connection refused"
+			end
+			local reply = httpState.replies[url]
+			if reply == nil then
+				return nil, "Could not connect"
+			end
+			return httpHandle(reply.body, reply.headers)
+		end,
+		post = function(url, body, headers)
+			local reply = httpState.replies[url]
+			if reply == nil then
+				return nil, "Could not connect"
+			end
+			return httpHandle(reply.body, reply.headers)
+		end,
+		checkURL = function(url)
+			return httpState.replies[url] ~= nil
+		end,
+	}
+
+	-- CC:Tweaked exposes ping as a global, not a table
+	_G.ping = function(host, count)
+		if type(host) ~= "string" or host == "" then
+			error("bad argument #1 to 'ping' (string expected)", 2)
+		end
+		local reply = httpState.replies["ping:" .. host]
+		if reply == nil then
+			error("Cannot resolve " .. host, 2)
+		end
+		local times = reply.times or { 12, 14, 15 }
+		local out = {}
+		for i = 1, (tonumber(count) or 4) do
+			out[i] = times[((i - 1) % #times) + 1]
+		end
+		return out
+	end
 
 	-- ---------- parallel ----------
 	-- cooperative scheduler: event waiters are resumed with queued events,
@@ -804,6 +914,39 @@ function M.install(repoFiles)
 		readFile = readFile,
 		writeFile = writeFile,
 		exists = fs.exists,
+		-- hardware: attach/detach models CC:Tweaked hotplug
+		attach = function(name, ptype, methods)
+			hw.attached[name] = { type = ptype, methods = methods or {} }
+			osShim.queueEvent("peripheral", name)
+		end,
+		detach = function(name)
+			local entry = hw.attached[name]
+			hw.attached[name] = nil
+			if entry then
+				osShim.queueEvent("peripheral_detach", name)
+			end
+		end,
+		hardware = function()
+			local list = {}
+			for name, entry in pairs(hw.attached) do
+				list[#list + 1] = { name = name, type = entry.type }
+			end
+			table.sort(list, function(a, b)
+				return a.name < b.name
+			end)
+			return list
+		end,
+		http = {
+			reply = function(url, body, headers)
+				httpState.replies[url] = { body = body, headers = headers }
+			end,
+			latency = function(host, times)
+				httpState.replies["ping:" .. host] = { times = times }
+			end,
+			offline = function(offline)
+				httpState.failAll = offline and true or false
+			end,
+		},
 		isShutdown = function(err)
 			return err == TERMINATED
 		end,

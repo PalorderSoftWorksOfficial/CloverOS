@@ -15,6 +15,7 @@ local candidates = {
 	"runtime/hash.lua",
 	"runtime/users.lua",
 	"runtime/textui.lua",
+	"runtime/system.lua",
 	"runtime/packages.lua",
 	"runtime/shell.lua",
 	"runtime/gui.lua",

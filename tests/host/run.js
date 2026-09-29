@@ -9,6 +9,7 @@
 //   NODE_PATH=<dir containing fengari> node tests/host/run.js [suite]
 //
 // Suites: all (default) | hash | manifest | syntax | install | install_tasks
+//         | system | netcmd | module | shell2 | gnome | gui | boot | boot_text
 //         | module | shell2 | gnome | gui | boot | boot_text
 //
 // One-time setup of the Lua VM (any prefix works):

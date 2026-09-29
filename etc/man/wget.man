@@ -1,0 +1,15 @@
+WGET - download a URL
+Usage: wget [-O <file>] [-q] <url>
+
+Fetches a URL and writes the response to a file. Without -O the name is
+derived from the URL, with non-word characters replaced by underscores.
+
+-O <file>  write to <file> instead of the derived name
+-q         print nothing on success
+
+Examples:
+  wget https://example.com/index.html
+  wget -O motd.txt https://example.com/motd.txt
+
+Notes:
+- Downloads land in the current directory, so cd first if you care.

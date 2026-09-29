@@ -1,0 +1,10 @@
+DF - free disk space
+Usage: df
+
+Reports free space on the CloverOS root and on every attached disk.
+
+Examples:
+  df
+
+Notes:
+- Only attached disks are listed; the root is always shown first.

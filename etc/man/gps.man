@@ -1,0 +1,13 @@
+GPS - position report
+Usage: gps [status|open|close]
+
+Prints whether a GPS is attached, whether it is open, and the current
+position. A CC:Tweaked GPS only reports a fix once it has been opened.
+
+status   (default) show the fix
+open     open the GPS so it starts acquiring satellites
+close    release the GPS
+
+Examples:
+  gps open
+  gps

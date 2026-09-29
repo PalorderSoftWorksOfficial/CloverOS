@@ -148,6 +148,7 @@ runtime/hash.lua     SHA-256, passwords, package checksums
 runtime/shell.lua    the shell, builtins and the `cloveros` command
 runtime/packages.lua apt-style package manager
 runtime/textui.lua   text-mode UI toolkit (login screen, menus)
+runtime/system.lua   the hardware layer: peripherals, network, gps, rednet
 runtime/gui.lua      window manager over MC-ImGui
 runtime/panel.lua    the GNOME top bar
 runtime/overview.lua Activities overview and the app grid
@@ -167,6 +168,29 @@ through it, so there is exactly one way a desktop can start.
 
 The experimental x86/amd64/RISC-V work is fully isolated from the native
 boot path and is never loaded by `startup.lua`.
+
+## Hardware
+
+On CC:Tweaked the machine is made of peripherals, so [runtime/system.lua](runtime/system.lua)
+owns that surface: it discovers what is attached, keeps the network, GPS,
+power, audio and rednet state the panel and the commands read, and turns
+`modem`, `wifi`, `gps`, `rednet_*` and hotplug events into state changes and
+journal entries instead of dropping them. A desktop session dispatches the
+hardware events it receives and persists the result to `var/run/system.cfg`,
+so a later text shell sees the same machine state.
+
+Peripherals are duck-typed, never compared with `type(p) == "userdata"`,
+which is what makes the whole layer testable on a host.
+
+| Command | Purpose |
+|---|---|
+| `net [status\|scan\|up\|down]` | the attached network peripheral and its link state |
+| `ping <host> [count]` | round trip times, resolved by the computer |
+| `wget [-O file] [-q] <url>` | download over `http.get` |
+| `gps [status\|open\|close]` | fix state and position |
+| `rednet <status\|open\|close\|send\|inbox\|clear>` | messaging between computers |
+| `df` | free space on the root and on every attached disk |
+| `neofetch` | logo plus version, network, device count, disk |
 
 ## Testing
 

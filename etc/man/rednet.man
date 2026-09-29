@@ -1,0 +1,16 @@
+REDNET - talk to other computers
+Usage: rednet <status|open|close|send|inbox|clear> [args]
+
+Sends messages between nearby computers over the rednet peripheral.
+
+status   (default) show the rednet state, message counts and computer id
+open [n]    open channel n (default 1)
+close [n]   close channel n
+send <message> [n]  send a message on channel n
+inbox    list messages received during this session
+clear    empty the inbox
+
+Examples:
+  rednet open
+  rednet send hello
+  rednet inbox

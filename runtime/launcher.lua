@@ -55,6 +55,7 @@ function M.new(deps)
 		if not ok then
 			return nil, tostring(gui)
 		end
+		local system = self:system()
 		local dok, desktop = pcall(desktopModule.new, {
 			paths = self.paths,
 			users = self.users,
@@ -63,6 +64,7 @@ function M.new(deps)
 			session = self.session,
 			kernel = self.kernel,
 			gui = gui,
+			system = system,
 		})
 		if not dok then
 			return nil, tostring(desktop)
@@ -76,6 +78,30 @@ function M.new(deps)
 			return {}
 		end
 		return stack.desktop:appList()
+	end
+
+	-- The system layer owns CC:Tweaked's hardware surface. It is created once
+	-- per session and shared by the desktop and the panel, so a modem event
+	-- updates the status area without either of them polling the hardware.
+	function self:system()
+		if self._system then
+			return self._system
+		end
+		local systemModule, err = load("system")
+		if not systemModule then
+			return nil, err
+		end
+		local ok, system = pcall(systemModule.new, {
+			paths = self.paths,
+			kernel = self.kernel,
+		})
+		if not ok then
+			return nil, tostring(system)
+		end
+		system:load()
+		system:scan()
+		self._system = system
+		return system
 	end
 
 	-- Run the desktop until the user logs out or the session ends.

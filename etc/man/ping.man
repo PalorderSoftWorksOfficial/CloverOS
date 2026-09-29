@@ -1,0 +1,13 @@
+PING - test reachability
+Usage: ping <host> [count]
+
+Sends count (default 4) probes to host and prints each round trip time,
+followed by min/avg/max and the loss percentage.
+
+Examples:
+  ping mc.hccraft.com
+  ping example.com 8
+
+Notes:
+- Resolution is done by the computer, so a computer with no network
+  peripheral cannot ping anything.
