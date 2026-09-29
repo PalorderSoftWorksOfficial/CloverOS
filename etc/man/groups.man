@@ -1,0 +1,13 @@
+GROUPS - show group membership
+Usage: groups
+       id
+
+Prints the groups of the current user. Members of the sudo group
+may use the sudo command.
+
+Examples:
+  groups
+  id
+
+Notes:
+- The first user account is automatically in the sudo group.

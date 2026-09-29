@@ -1,9 +1,10 @@
-local args={...}
-local src,dst=args[1],args[2]
-if not src or not dst then print("Usage: copy <src> <dst>") return end
-local resolvedSrc = shell.resolve(src)
-local resolvedDst = shell.resolve(dst)
-if not resolvedSrc or not fs.exists(resolvedSrc) then print("Source not found.") return end
-if fs.isDir(resolvedSrc) then print("Cannot copy directories.") return end
-fs.copy(resolvedSrc,resolvedDst)
-print("Copied "..resolvedSrc.." -> "..resolvedDst)
+local args = { ... }
+if #args < 2 then
+	print("usage: copy <src> <dst>")
+	return 1
+end
+if not fs.exists(args[1]) then
+	printError("copy: no such file: " .. args[1])
+	return 1
+end
+fs.copy(args[1], args[2])

@@ -1,0 +1,65 @@
+INSTALL - install CloverOS
+Usage: install [options] [target]
+       install <action> [target]
+
+Copies the CloverOS system tree to a target directory, writes the
+configuration an installed system needs, creates the first account, and
+records a SHA-256 manifest of everything it wrote.
+
+Actions:
+  (default)   guided installation
+  verify      check installed files against the SHA-256 manifest
+  status      print what is installed
+  disks       list installation targets
+  tasks       list available task sets
+
+Options:
+  --local              install from repository files on this computer
+  --net                install from GitHub (requires HTTP)
+  --local-source <p>   install from an explicit repository root
+  --target <path>      install target (default: /)
+  --type <mode>        erase, alongside or manual
+  --root <path>        manual layout: root mount point
+  --home <path>        manual layout: home mount point
+  --boot <path>        manual layout: boot mount point
+  --erase-data         allow the installer to erase existing data
+  --taskset <list>     comma separated task sets
+  --user <name>        initial account
+  --password <pw>      initial account password (unattended only)
+  --hostname <name>    system hostname
+  --lang <code>        locale, e.g. en-US
+  --session <name>     gnome (default) or text
+  --dry-run            show the plan without writing anything
+  --no-prompt, -y      never ask; use defaults
+  --force              do not ask for confirmation
+  --quiet, -q          less output
+  --help, -h           show the option list
+  --version, -V        print the CloverOS version
+
+Examples:
+  install --local --no-prompt
+  install /disk --local --taskset fun
+  install verify /cloveros
+  install status /cloveros
+  install tasks
+
+Task sets:
+  minimal      text shell only
+  terminal     full shell, editors and core tools
+  utilities    everyday command line tools
+  desktop      the GNOME desktop (CloverOS)
+  fun          fortune, cowsay and trains
+  development  development extras
+
+Notes:
+- What an installation writes:
+    etc/fstab                     filesystem table
+    etc/clover/mounts.cfg         mount layout
+    etc/clover/install.cfg        installation record
+    var/lib/install-manifest.sha256   integrity manifest
+    var/lib/install-status.txt    status of the last installation
+    var/log/install.log           installation log
+- `verify` compares every installed file against the manifest and reports
+  what is missing or changed.
+- An installation of type erase needs --erase-data, or it refuses to run.
+- --no-prompt uses defaults for anything not given on the command line.

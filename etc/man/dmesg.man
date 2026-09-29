@@ -1,0 +1,14 @@
+DMESG - read the kernel journal
+Usage: dmesg
+       service <list|start|stop|restart|status> [name]
+
+dmesg prints the kernel journal for this boot. service manages
+background kernel services.
+
+Examples:
+  dmesg
+  service list
+  sudo service restart netd
+
+Notes:
+- The journal is also written to /var/log/kernel.log.

@@ -6,16 +6,16 @@ CloverOS is a Lua-based operating system for CC:Tweaked and CraftOS. The reposit
 
 ## Repository map
 
-- `startup.lua` — entry point that locates the CloverOS root, loads `CloverOS_API.lua`, and starts boot flow.
-- `CloverOS_API.lua` — shared API expected to be available to the kernel and runtime.
+- `startup.lua` — entry point that locates the CloverOS root, loads `boot/loader.lua`, and starts the boot flow.
 - `CloverOS_OS.lua` — main OS/shell runtime.
 - `boot/` — boot and kernel code.
 - `bin/` — command executables.
 - `apps/` — user-facing applications.
 - `etc/` — configuration, man pages, package metadata, and related runtime files.
-- `netinstall.lua` — network installer used to deploy CloverOS files.
-- `files.manifest` — file list used by the installer for full installs.
-- `craftos_env_test.lua` — environment compatibility check.
+- `install.lua` — canonical installer (local and network modes).
+- `netinstall.lua` — legacy entry point; delegates to `install --net`.
+- `experimental/` — parked code from the pre-rewrite OS, not installed or loaded.
+- `tests/` — CraftOS-PC test suites (`bash tests/run_tests.sh`).
 - `Phoenix/` — Phoenix OS reference material used as a shell and boot architecture guide.
 - `CC-tweaked/`, `CraftOS-PC/`, `CraftOS-PC-Accelerated/` — platform-specific assets or integrations.
 - `sync.sh` — repository sync helper.

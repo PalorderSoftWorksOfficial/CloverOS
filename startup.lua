@@ -1,64 +1,39 @@
-local function findCloverRoot()
-	if fs.exists("/CloverOS_API.lua") and fs.exists("/boot/kernel.lua") then
+-- CloverOS startup: locate the installation, then run the kernel loader.
+-- This file is the CraftOS entrypoint; it must never be overwritten by the OS.
+
+local function fail(message)
+	printError("CloverOS startup: " .. tostring(message))
+	printError("Reinstall with: install")
+	error("CloverOS cannot start", 0)
+end
+
+local function findRoot()
+	if fs.exists("/CloverOS_OS.lua") and fs.exists("/boot/kernel.lua") then
 		return "/"
 	end
-
 	for i = 0, 99 do
 		local root = "/disk" .. (i == 0 and "" or i)
-		if fs.exists(root .. "/CloverOS_API.lua") and fs.exists(root .. "/boot/kernel.lua") then
+		if fs.exists(fs.combine(root, "CloverOS_OS.lua")) and fs.exists(fs.combine(root, "boot/kernel.lua")) then
 			return root
 		end
 	end
-
-	local running = shell and shell.getRunningProgram and shell.getRunningProgram() or nil
-	if running then
-		local dir = fs.getDir(running)
-		while dir and dir ~= "" do
-			if fs.exists(dir .. "/CloverOS_API.lua") and fs.exists(dir .. "/boot/kernel.lua") then
-				return dir
-			end
-			if dir == "/" then
-				break
-			end
-			dir = fs.getDir(dir)
-		end
-	end
-
 	return nil
 end
 
-local root = findCloverRoot()
+local root = findRoot()
 if not root then
-	error("CloverOS root not found. Ensure CloverOS is installed on a mounted disk or in the current directory.")
+	fail("installation not found (looked in / and /disk*)")
 end
 
-local ok, api = pcall(dofile, root .. "/CloverOS_API.lua")
-if ok and type(api) == "table" then
-	if _G then
-		rawset(_G, "CloverOS_API", api)
-		rawset(_G, "CloverOS", api)
-	end
-	if _ENV and _ENV ~= _G then
-		rawset(_ENV, "CloverOS_API", api)
-		rawset(_ENV, "CloverOS", api)
-	end
-else
-	error("Failed to load CloverOS_API: " .. tostring(api))
+local loader = fs.combine(root, "boot/loader.lua")
+if not fs.exists(loader) then
+	fail("boot/loader.lua is missing from " .. root)
 end
 
-local loaders = {
-	root .. "/boot/pxboot.lua",
-	root .. "/boot/kernel.lua",
-}
-
-for _, path in ipairs(loaders) do
-	if fs.exists(path) then
-		local launched, err = pcall(shell.run, path)
-		if launched then
-			return
-		end
-		printError("Failed to launch CloverOS via " .. path .. ": " .. tostring(err))
+local ok, err = pcall(dofile, loader, root)
+if not ok then
+	if err == "Terminated" then
+		return
 	end
+	fail("boot failed: " .. tostring(err))
 end
-
-error("No CloverOS boot loader could be started.")

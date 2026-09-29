@@ -1,0 +1,14 @@
+CHMOD - change file permissions
+Usage: chmod <mode> <path>
+       chown <user[:group]> <path>
+
+Records Unix-style permissions for a path (for example 644 or
+755). Protected paths like /etc refuse writes from non-root users.
+
+Examples:
+  chmod 600 secret.txt
+  sudo chown root /etc/motd.txt
+
+Notes:
+- ls -l shows the recorded mode and owner.
+- chown requires root.

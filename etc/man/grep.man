@@ -1,0 +1,18 @@
+GREP - filter lines matching a pattern
+Usage: grep [-i] [-v] [-n] <pattern> [file...]
+
+Prints lines that contain the pattern. With no file, reads piped
+input.
+
+Options:
+  -i  ignore case
+  -v  invert the match
+  -n  number the output lines
+
+Examples:
+  grep hello notes.txt
+  cat log.txt | grep -i error
+  ls /etc | grep man
+
+Notes:
+- The pattern matches literally; use it in pipes freely.

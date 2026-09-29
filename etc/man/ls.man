@@ -1,0 +1,3 @@
+ls [path]
+    List the contents of a directory. Directories are shown with a
+    trailing slash. With no argument, lists the current directory.

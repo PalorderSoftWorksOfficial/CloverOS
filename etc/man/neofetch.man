@@ -1,0 +1,11 @@
+NEOFETCH - system summary
+Usage: neofetch
+
+Shows the CloverOS logo next to real system information: version,
+host, computer label, uptime, installed package count, and disk.
+
+Examples:
+  neofetch
+
+Notes:
+- All values are read live from the system.

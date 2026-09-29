@@ -1,6 +1,10 @@
-local args={...}
-local src,dst=args[1],args[2]
-if not src or not dst then print("Usage: move <src> <dst>") return end
-if not fs.exists(src) then print("Source not found.") return end
-fs.move(src,dst)
-print("Moved "..src.." -> "..dst)
+local args = { ... }
+if #args < 2 then
+	print("usage: move <src> <dst>")
+	return 1
+end
+if not fs.exists(args[1]) then
+	printError("move: no such file: " .. args[1])
+	return 1
+end
+fs.move(args[1], args[2])

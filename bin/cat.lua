@@ -1,26 +1,22 @@
---@usage cat <file> [file...]
---@complete 1 file
-
 local args = { ... }
 
 if #args == 0 then
-    io.write("Usage: cat <file> [file...]\n")
-    return
+	print("usage: cat <file> [file...]")
+	return 1
 end
 
-for i = 1, #args do
-    local path = args[i]
-    local f = fs.open(path, "r")
-    if not f then
-        io.write("cat: cannot open " .. tostring(path) .. "\n")
-    else
-        local content = f.readAll()
-        f.close()
-        if content then
-            io.write(content)
-            if content:sub(-1) ~= "\n" then
-                io.write("\n")
-            end
-        end
-    end
+for _, path in ipairs(args) do
+	local h = fs.open(path, "r")
+	if not h then
+		printError("cat: cannot open " .. path)
+	else
+		local content = h.readAll()
+		h.close()
+		if content then
+			io.write(content)
+			if content:sub(-1) ~= "\n" then
+				print()
+			end
+		end
+	end
 end

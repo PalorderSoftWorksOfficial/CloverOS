@@ -702,10 +702,25 @@ while true do
 			drawScreen()
 		elseif ev[2] == keys.c then
 			runShell()
-			drawScreen()
-		elseif ev[2] == keys.e then
-			runEditor()
-			drawScreen()
+			drawScreen()			elseif ev[2] == keys.e then
+				-- pxboot has no built-in entry editor; open the CraftOS editor on
+				-- the boot config when available, otherwise say so and move on
+				if fs.exists("/rom/programs/edit.lua") then
+					term.setTextColor(colors.white)
+					term.setBackgroundColor(colors.black)
+					term.clear()
+					term.setCursorPos(1, 1)
+					os.run({}, "/rom/programs/edit.lua", "boot/config.lua")
+					term.clear()
+					print("config changes apply after reboot")
+					sleep(1.5)
+				else
+					term.setCursorPos(5, h - 4)
+					term.clearLine()
+					print("no editor available for boot config editing")
+					sleep(2)
+				end
+				drawScreen()
 		end
 	elseif ev[1] == "terminate" then
 		break

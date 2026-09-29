@@ -1,0 +1,15 @@
+EXPORT - define a shell variable
+Usage: export NAME=value
+       unset NAME
+       env
+
+Defines variables usable as $NAME or ${NAME} in commands.
+
+Examples:
+  export GREETING=hello
+  echo $GREETING world
+  env
+
+Notes:
+- Special variables: $USER $HOME $PWD $HOSTNAME $SHELL $?
+- $? is the exit status of the previous command.

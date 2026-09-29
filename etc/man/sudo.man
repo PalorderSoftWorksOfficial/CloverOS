@@ -1,0 +1,18 @@
+SUDO - run a command as root
+Usage: sudo <command> [args]
+       echo <password> | sudo -S <command> [args]
+
+Runs a command with administrator privileges. You must be in the
+sudo group (the first user account is added automatically).
+
+Authentication is cached for five minutes. In a window terminal,
+pipe the password with -S.
+
+Examples:
+  sudo apt install fortune
+  sudo useradd bob
+  echo secret | sudo -S whoami
+
+Notes:
+- sudo whoami prints root.
+- File writes under /etc require root.

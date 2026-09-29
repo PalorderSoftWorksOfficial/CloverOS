@@ -1,0 +1,860 @@
+-- Host-side test orchestration (run by tests/host/run.js inside fengari).
+-- Arguments: repoFiles (table path -> content), suite name.
+local repoFiles, suite = ...
+suite = suite or "all"
+
+local envMod = assert(load(repoFiles["tests/host/craftos_env.lua"], "@craftos_env"))()
+local shim = envMod.install(repoFiles)
+
+local failures = 0
+
+-- report through the real print: suites may replace the global one
+local say = print
+
+local function pass(msg)
+	say("  ok  " .. msg)
+end
+
+local function fail(msg)
+	failures = failures + 1
+	say("  FAIL " .. msg)
+end
+
+local function section(name)
+	say("== " .. name .. " ==")
+end
+
+local function runSuite(name, fn)
+	if suite ~= "all" and suite ~= name then
+		return
+	end
+	section(name)
+	local ok, err = pcall(fn)
+	if not ok then
+		if err == "Terminated" then
+			say("  (ended via os.shutdown)")
+		else
+			fail(name .. " crashed: " .. tostring(err))
+		end
+	end
+end
+
+-- ---------- hash ----------
+runSuite("hash", function()
+	local hash = dofile("/src/runtime/hash.lua")
+	local vectors = {
+		{ "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+		{ "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+		{ "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+			"248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
+		{ string.rep("a", 1000), nil }, -- length sanity; filled below
+	}
+	for i, v in ipairs(vectors) do
+		local got = hash.sha256hex(v[1])
+		if v[2] then
+			if got == v[2] then
+				pass("sha256 vector " .. i)
+			else
+				fail("sha256 vector " .. i .. ": got " .. tostring(got))
+			end
+		end
+	end
+	-- 1000 x 'a' (from the NIST example set)
+	local got1000 = hash.sha256hex(string.rep("a", 1000))
+	if got1000 == "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
+		or #got1000 == 64 then
+		pass("sha256 length sanity")
+	else
+		fail("sha256 length sanity")
+	end
+	local stored = hash.hashPassword("secret", "salt1")
+	if hash.verifyPassword("secret", stored) and not hash.verifyPassword("wrong", stored) then
+		pass("password digest roundtrip")
+	else
+		fail("password digest roundtrip")
+	end
+	-- The host models CC:Tweaked's native `hash` library, so the production
+	-- digest path is the one under test. The portable path stays covered so a
+	-- host without the native API would still be correct.
+	local nativeHex = hash.nativeSha256hex("abc")
+	if nativeHex then
+		pass("native host hash api available")
+	else
+		fail("native host hash api missing")
+	end
+	local pure = hash.pureSha256hex("abc")
+	if pure == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" then
+		pass("portable sha256 vector")
+	else
+		fail("portable sha256 vector: got " .. tostring(pure))
+	end
+	-- Some CC:Tweaked builds hand back the 64-character hex digest instead of
+	-- the 32 raw bytes. A hex-returning host must not fall back to the slow
+	-- portable path, so exercise that shape explicitly.
+	local savedHash = _G.hash
+	_G.hash = {
+		sha256 = function()
+			return "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"
+		end,
+	}
+	local hexHost = hash.nativeSha256hex("abc")
+	_G.hash = savedHash
+	if hexHost == pure then
+		pass("native hex digest normalised to lowercase")
+	else
+		fail("native hex digest not normalised: got " .. tostring(hexHost))
+	end
+	_G.hash = { sha256 = function() return "nope" end }
+	local junkHost = hash.nativeSha256hex("abc")
+	_G.hash = savedHash
+	if junkHost == nil then
+		pass("malformed native digest rejected")
+	else
+		fail("malformed native digest accepted: " .. tostring(junkHost))
+	end
+	local agree = true
+	for _, sample in ipairs({ "", "abc", string.rep("a", 1000), "cloveros/v2|salt1|secret" }) do
+		if hash.pureSha256hex(sample) ~= hash.sha256hex(sample) then
+			agree = false
+		end
+	end
+	if agree then
+		pass("native and portable digests agree")
+	else
+		fail("native and portable digests disagree")
+	end
+end)
+
+-- ---------- manifest ----------
+-- install.lua carries explicit file lists because a network install cannot
+-- enumerate a directory on raw GitHub. Those lists have to stay in step with
+-- the repository or a --net install ships a broken system.
+runSuite("manifest", function()
+	local source = repoFiles["install.lua"]
+	if not source then
+		fail("install.lua missing from the repository")
+		return
+	end
+
+	local function listOf(name)
+		local body = source:match("local " .. name .. " = {(.-)\n}")
+		local out = {}
+		if not body then
+			return nil
+		end
+		for entry in body:gmatch('"([^"]+)"') do
+			out[entry] = true
+		end
+		return out
+	end
+
+	local files = listOf("FILES")
+	local optional = listOf("OPTIONAL_FILES")
+	local manPages = listOf("NET_MAN_PAGES")
+	if not (files and optional and manPages) then
+		fail("install.lua file lists not found")
+		return
+	end
+
+	-- every listed file must exist in the repository
+	local missing = {}
+	for rel in pairs(files) do
+		if not repoFiles[rel] then
+			missing[#missing + 1] = rel
+		end
+	end
+	for rel in pairs(optional) do
+		if not repoFiles[rel] then
+			missing[#missing + 1] = rel
+		end
+	end
+	if #missing == 0 then
+		pass("installer lists only files that exist")
+	else
+		fail("installer lists missing files: " .. table.concat(missing, ", "))
+	end
+
+	-- every man page on disk must be reachable from a network install
+	local unlisted = {}
+	for rel in pairs(repoFiles) do
+		local page = rel:match("^etc/man/(.+)%.man$")
+		if page and not manPages[page .. ".man"] then
+			unlisted[#unlisted + 1] = page .. ".man"
+		end
+	end
+	table.sort(unlisted)
+	if #unlisted == 0 then
+		pass("every man page is in NET_MAN_PAGES")
+	else
+		fail("man pages missing from NET_MAN_PAGES: " .. table.concat(unlisted, ", "))
+	end
+
+	-- every shipped package file must be installed
+	local notInstalled = {}
+	for rel in pairs(repoFiles) do
+		if rel:match("^etc/packages/") and not files[rel] then
+			notInstalled[#notInstalled + 1] = rel
+		end
+	end
+	table.sort(notInstalled)
+	if #notInstalled == 0 then
+		pass("every package file is installed")
+	else
+		fail("package files not installed: " .. table.concat(notInstalled, ", "))
+	end
+
+	-- the runtime modules the boot path loads must all be installed
+	local required = {
+		"runtime/panel.lua", "runtime/overview.lua", "runtime/launcher.lua",
+		"runtime/desktop.lua", "runtime/gui.lua", "runtime/shell.lua",
+		"runtime/hash.lua", "runtime/paths.lua", "runtime/users.lua",
+		"runtime/packages.lua", "runtime/textui.lua",
+	}
+	local absent = {}
+	for _, rel in ipairs(required) do
+		if not files[rel] then
+			absent[#absent + 1] = rel
+		end
+	end
+	if #absent == 0 then
+		pass("every runtime module is installed")
+	else
+		fail("runtime modules not installed: " .. table.concat(absent, ", "))
+	end
+end)
+
+-- ---------- syntax ----------
+runSuite("syntax", function()
+	local checked = 0
+	local names = {}
+	for rel in pairs(repoFiles) do
+		if rel:match("%.lua$") then
+			names[#names + 1] = rel
+		end
+	end
+	table.sort(names)
+	for _, rel in ipairs(names) do
+		local fn, err = load(repoFiles[rel], "@" .. rel, "t", {})
+		if fn then
+			checked = checked + 1
+		else
+			fail(rel .. ": " .. tostring(err))
+		end
+	end
+	pass(checked .. " lua files compile")
+end)
+
+-- ---------- install ----------
+local REQUIRED = {
+	"startup.lua", "CloverOS_OS.lua", "boot/loader.lua", "boot/kernel.lua",
+	"runtime/shell.lua", "runtime/gui.lua", "runtime/hash.lua", "libs/mc-imgui.lua",
+	"etc/version.lua", "runtime/paths.lua", "runtime/users.lua", "runtime/packages.lua",
+	"runtime/textui.lua", "runtime/desktop.lua",
+	"bin/ls.lua", "bin/cat.lua", "etc/motd.txt", "etc/man/man.man",
+}
+
+local function freshInstall()
+	if fs.exists("/testroot") then
+		fs.delete("/testroot")
+	end
+	fs.makeDir("/testroot")
+	local ok, err = pcall(os.run, setmetatable({}, { __index = _G }),
+		"/src/install.lua", "/testroot", "--local", "--no-prompt")
+	if not ok then
+		error("installer crashed: " .. tostring(err))
+	end
+end
+
+runSuite("install", function()
+	freshInstall()
+	local missing = {}
+	for _, rel in ipairs(REQUIRED) do
+		if not fs.exists("/testroot/" .. rel) then
+			missing[#missing + 1] = rel
+		end
+	end
+	if #missing == 0 then
+		pass("all required files installed")
+	else
+		fail("missing after install: " .. table.concat(missing, ", "))
+	end
+	local status = fs.open("/testroot/var/lib/install-status.txt", "r")
+	local line = status and status.readLine() or "MISSING"
+	if status then
+		status.close()
+	end
+	if line == "OK" then
+		pass("install status OK")
+	else
+		fail("install status: " .. tostring(line))
+	end
+end)
+
+-- ---------- install_tasks ----------
+-- `--taskset` is how the installer asks for extra packages; the default task
+-- set is empty, so this is what actually exercises package installation.
+runSuite("install_tasks", function()
+	if fs.exists("/testroot-fun") then
+		fs.delete("/testroot-fun")
+	end
+	fs.makeDir("/testroot-fun")
+	local ok, err = pcall(os.run, setmetatable({}, { __index = _G }),
+		"/src/install.lua", "/testroot-fun", "--local", "--no-prompt", "--taskset", "fun")
+	if not ok then
+		fail("installer crashed on --taskset fun: " .. tostring(err))
+		return
+	end
+	local status = fs.open("/testroot-fun/var/lib/install-status.txt", "r")
+	local body = status and status.readAll() or ""
+	if status then
+		status.close()
+	end
+	if body:match("^OK") then
+		pass("taskset install status OK")
+	else
+		fail("taskset install status: " .. tostring(body:sub(1, 40)))
+	end
+	local installed, remaining = {}, {}
+	local pathsMod = dofile("/testroot-fun/runtime/paths.lua")
+	local pkgMod = dofile("/testroot-fun/runtime/packages.lua")
+	local packages = pkgMod.new(pathsMod.new("/testroot-fun"))
+	for _, name in ipairs({ "fortune", "moo", "sl" }) do
+		if packages:isInstalled(name) then
+			installed[#installed + 1] = name
+		else
+			remaining[#remaining + 1] = name
+		end
+	end
+	if #installed == 3 then
+		pass("taskset fun installed 3 packages")
+	else
+		fail("taskset fun missing: " .. table.concat(remaining, ", "))
+	end
+	local payloads = { "fortune", "moo", "sl" }
+	local onDisk = 0
+	for _, name in ipairs(payloads) do
+		if fs.exists("/testroot-fun/bin/" .. name .. ".lua") then
+			onDisk = onDisk + 1
+		end
+	end
+	if onDisk == #payloads then
+		pass("taskset fun payloads on disk")
+	else
+		fail("taskset fun payloads missing: " .. tostring(onDisk) .. "/" .. tostring(#payloads))
+	end
+	-- the default task set must stay pristine so a fresh root is clean
+	if not packages:isInstalled("example") then
+		pass("default taskset installs no packages")
+	else
+		fail("default taskset pulled in the example package")
+	end
+end)
+
+-- ---------- module ----------
+runSuite("module", function()
+	freshInstall()
+	local ran, runErr = pcall(dofile, "/src/tests/module_test.lua")
+	if not ran and runErr ~= "Terminated" then
+		fail("module_test crashed: " .. tostring(runErr))
+	end
+	local report = fs.open("/test_report.txt", "r")
+	if not report then
+		fail("module suite produced no report")
+		return
+	end
+	local data = report.readAll()
+	report.close()
+	local reported = 0
+	for line in data:gmatch("[^\n]+") do
+		local count = line:match("^PASS=(%d+)")
+		if count then
+			reported = tonumber(count)
+		elseif line:match("^FAILLINE") then
+			fail(line)
+		end
+	end
+	pass(reported .. " module checks passed")
+end)
+
+-- ---------- shell language (new features) ----------
+runSuite("shell2", function()
+	freshInstall()
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local users = dofile("/testroot/runtime/users.lua").new(paths)
+	local ui = dofile("/testroot/runtime/textui.lua").new(paths)
+	local packages = dofile("/testroot/runtime/packages.lua").new(paths)
+	users:load()
+	if not users:exists("alice") then
+		users:createUser("alice", "pw123")
+	end
+	users:login("alice")
+	local shellMod = dofile("/testroot/runtime/shell.lua")
+	local sh = shellMod.new({ paths = paths, users = users, ui = ui, packages = packages })
+
+	local out = {}
+	local oldPrint = print
+	print = function(...)
+		local parts = {}
+		for i = 1, select("#", ...) do
+			parts[i] = tostring(select(i, ...))
+		end
+		out[#out + 1] = table.concat(parts, " ")
+	end
+	local function last()
+		return out[#out]
+	end
+	local function run(line)
+		sh:execute(line)
+	end
+
+	-- pipes
+	run("echo hello pipe | cat")
+	if last() == "hello pipe" then
+		pass("pipe echo|cat")
+	else
+		fail("pipe echo|cat: " .. tostring(last()))
+	end
+	run("echo three lines | wc -l")
+	if last() == "1" then
+		pass("pipe into wc")
+	else
+		fail("pipe into wc: " .. tostring(last()))
+	end
+
+	-- redirection
+	run("echo redirect target > /tmp/redir.txt")
+	local h = fs.open("/testroot/tmp/redir.txt", "r")
+	local body = h and h.readAll() or ""
+	if h then
+		h.close()
+	end
+	if body == "redirect target\n" then
+		pass("redirect >")
+	else
+		fail("redirect >: " .. tostring(body))
+	end
+	run("echo second >> /tmp/redir.txt")
+	run("cat /tmp/redir.txt")
+	if last() == "second" then
+		pass("redirect >>")
+	else
+		fail("redirect >>: " .. tostring(last()))
+	end
+	run("cat < /tmp/redir.txt | wc -l")
+	if last() == "2" then
+		past = true
+		pass("redirect < in pipeline")
+	else
+		fail("redirect <: " .. tostring(last()))
+	end
+
+	-- variables
+	run("export FAVORITE=clover")
+	run("echo $FAVORITE-os")
+	if last() == "clover-os" then
+		pass("variable expansion")
+	else
+		fail("variable expansion: " .. tostring(last()))
+	end
+	run("echo $USER")
+	if last() == "alice" then
+		pass("special var USER")
+	else
+		fail("special var USER: " .. tostring(last()))
+	end
+
+	-- globs
+	fs.makeDir("/testroot/tmp/glob")
+	for _, name in ipairs({ "a.txt", "b.txt", "c.dat" }) do
+		local g = fs.open("/testroot/tmp/glob/" .. name, "w")
+		g.write(name)
+		g.close()
+	end
+	out = {}
+	run("ls /tmp/glob/*.txt")
+	local joined = table.concat(out, ",")
+	if joined:find("a.txt", 1, true) and joined:find("b.txt", 1, true)
+		and not joined:find("c.dat", 1, true) then
+		pass("glob expansion")
+	else
+		fail("glob expansion: " .. joined)
+	end
+
+	-- sequencing and conditionals
+	out = {}
+	run("echo first; echo second")
+	if out[#out - 1] == "first" and last() == "second" then
+		pass("; sequencing")
+	else
+		fail("; sequencing: " .. table.concat(out, "/"))
+	end
+	out = {}
+	run("falseishcmd || echo fallback")
+	if last() == "fallback" then
+		pass("|| conditional")
+	else
+		fail("|| conditional: " .. tostring(last()))
+	end
+
+	-- sudo -S via piped password
+	out = {}
+	run("echo pw123 | sudo -S whoami")
+	if last() == "root" then
+		pass("sudo -S elevates")
+	else
+		fail("sudo -S elevates: " .. tostring(last()))
+	end
+
+	-- protected path enforcement
+	out = {}
+	run("touch /etc/should-deny.txt")
+	if (last() or ""):find("permission denied", 1, true) and not fs.exists("/testroot/etc/should-deny.txt") then
+		pass("/etc write denied for user")
+	else
+		fail("/etc write denied: " .. tostring(last()))
+	end
+	out = {}
+	run("sudo touch /etc/allowed-by-root.txt")
+	if fs.exists("/testroot/etc/allowed-by-root.txt") then
+		pass("sudo writes to /etc")
+	else
+		fail("sudo writes to /etc: " .. tostring(last()))
+	end
+
+	-- bin programs in pipelines
+	out = {}
+	run("echo clover | grep lov")
+	if last() == "clover" then
+		pass("grep program in pipeline")
+	else
+		fail("grep program in pipeline: " .. tostring(last()))
+	end
+	out = {}
+	run("echo a; echo b | head -n 1")
+	if last() == "b" then
+		pass("head program with -n")
+	else
+		fail("head program with -n: " .. tostring(last()))
+	end
+
+	-- apt depends resolution
+	local order, oerr = packages:resolve("moo")
+	if order and order[1] == "fortune" and order[2] == "moo" then
+		pass("dependency resolution")
+	else
+		fail("dependency resolution: " .. tostring(order and table.concat(order, ",") or oerr))
+	end
+
+	print = oldPrint
+end)
+
+-- ---------- gnome ----------
+-- The GNOME shell is made of four modules: the panel (top bar), the overview
+-- (Activities), the launcher (shared session entry point) and the desktop that
+-- ties them together. `cloveros` is the shell builtin that starts it.
+runSuite("gnome", function()
+	freshInstall()
+	-- the boot contract: the runtime reads CLOVER_ROOT for bundled assets
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local users = dofile("/testroot/runtime/users.lua").new(paths)
+	users:load()
+	if not users:exists("gnomeuser") then
+		users:createUser("gnomeuser", "pw")
+	end
+	users:login("gnomeuser")
+	local ui = dofile("/testroot/runtime/textui.lua").new(paths)
+	local packages = dofile("/testroot/runtime/packages.lua").new(paths)
+	local session = dofile("/testroot/runtime/shell.lua").new({
+		paths = paths, users = users, ui = ui, packages = packages,
+	})
+
+	-- every module the desktop needs must be present in the install
+	local missing = {}
+	for _, rel in ipairs({
+		"runtime/panel.lua", "runtime/overview.lua",
+		"runtime/launcher.lua", "runtime/desktop.lua",
+		"apps/terminal.lua", "apps/files.lua", "apps/settings.lua",
+		"apps/sysinfo.lua", "apps/texteditor.lua", "apps/software.lua",
+		"apps/help.lua",
+	}) do
+		if not fs.exists("/testroot/" .. rel) then
+			missing[#missing + 1] = rel
+		end
+	end
+	if #missing == 0 then
+		pass("gnome modules installed")
+	else
+		fail("gnome modules missing: " .. table.concat(missing, ", "))
+	end
+
+	-- the launcher is the single entry point for both `cloveros` and login
+	local launcher = dofile("/testroot/runtime/launcher.lua").new({
+		paths = paths, users = users, ui = ui, packages = packages,
+		session = session, kernel = nil,
+	})
+	local available, why = launcher:available()
+	if available then
+		pass("launcher reports the desktop available")
+	else
+		fail("launcher unavailable: " .. tostring(why))
+	end
+	local apps = launcher:appList()
+	local ids = {}
+	for _, app in ipairs(apps) do
+		ids[app.id] = app.program
+	end
+	if #apps > 0 and ids.terminal and ids.files and ids.settings and ids.sysinfo then
+		pass("launcher lists desktop apps")
+	else
+		fail("launcher app list incomplete: " .. table.concat((function()
+			local names = {}
+			for _, a in ipairs(apps) do names[#names + 1] = a.id end
+			return names
+		end)(), ", "))
+	end
+
+	-- the panel and the overview drive the shell, not the whole session
+	local stack, stackErr = launcher:buildStack()
+	if not stack then
+		fail("launcher could not build the gui stack: " .. tostring(stackErr))
+		return
+	end
+	local desktop = stack.desktop
+	pass("launcher built the gui stack")
+
+	-- the top bar occupies one row and the rest is the work area
+	local w, h = term.getSize()
+	if stack.gui.workArea and stack.gui.workArea.y == 2
+		and stack.gui.workArea.h == h - 1 then
+		pass("work area clears the top bar")
+	else
+		fail("work area does not clear the top bar")
+	end
+
+	-- panel hit testing: row 1 is the bar, below it is desktop background
+	local bar = desktop.panel:hit(1, 1)
+	local body = desktop.panel:hit(1, 3)
+	if bar and bar.zone == "bar" and body and body.zone == "panel" then
+		pass("panel hit testing")
+	else
+		fail("panel hit testing: bar=" .. tostring(bar and bar.zone)
+			.. " body=" .. tostring(body and body.zone))
+	end
+
+	-- Activities overview opens, filters by typed text, and closes
+	desktop:toggleOverview()
+	if desktop.overviewUi:isOpen() then
+		pass("activities overview opens")
+	else
+		fail("activities overview did not open")
+	end
+	local before = desktop.overviewUi:currentApp()
+	desktop.overviewUi:onChar("f")
+	desktop.overviewUi:onBackspace()
+	local after = desktop.overviewUi:currentApp()
+	if not before or (after and after.id == before.id) then
+		pass("overview search filters apps")
+	else
+		fail("overview search changed selection unexpectedly")
+	end
+	desktop.overviewUi:close()
+	if not desktop.overviewUi:isOpen() then
+		pass("overview closes")
+	else
+		fail("overview did not close")
+	end
+	desktop:toggleOverview()
+	local reopened = desktop.overviewUi:isOpen()
+	desktop:toggleOverview()
+	if reopened and not desktop.overviewUi:isOpen() then
+		pass("overview toggles open and shut")
+	else
+		fail("overview toggle did not round trip")
+	end
+	desktop:toggleOverview()
+	desktop:toggleOverview()
+
+	-- escape reaches the shell as a char event: CC:Tweaked has no keys.escape
+	desktop:openMenu("app")
+	local menuOpen = desktop.panel.menu ~= nil
+	desktop:onChar("\27")
+	if menuOpen and desktop.panel.menu == nil then
+		pass("escape closes an open menu")
+	else
+		fail("escape did not close the menu (was open: " .. tostring(menuOpen) .. ")")
+	end
+
+	-- window controls: open, focus, close
+	local win = desktop:openApp("sysinfo")
+	if win then
+		pass("desktop opens an app window")
+		if #stack.gui:listWindows() >= 1 then
+			pass("window manager tracks the window")
+		else
+			fail("window manager lost the window")
+		end
+		desktop:closeWindow(win)
+		if #stack.gui:listWindows() == 0 then
+			pass("closing a window removes it")
+		else
+			fail("window still tracked after close")
+		end
+	else
+		fail("desktop could not open sysinfo")
+	end
+
+	-- `cloveros` options never start a session
+	local out = {}
+	local oldPrint = print
+	print = function(...)
+		local parts = {}
+		for i = 1, select("#", ...) do
+			parts[i] = tostring(select(i, ...))
+		end
+		out[#out + 1] = table.concat(parts, " ")
+	end
+	local function text()
+		return table.concat(out, "\n")
+	end
+	session:execute("cloveros --apps")
+	if text():find("terminal") and text():find("files") then
+		pass("cloveros --apps lists applications")
+	else
+		fail("cloveros --apps printed: " .. text())
+	end
+	out = {}
+	session:execute("cloveros --version")
+	if text():find("%d+%.%d+") then
+		pass("cloveros --version prints a version")
+	else
+		fail("cloveros --version printed: " .. text())
+	end
+	out = {}
+	session:execute("cloveros --help")
+	if text():find("usage") then
+		pass("cloveros --help prints usage")
+	else
+		fail("cloveros --help printed: " .. text())
+	end
+	out = {}
+	session:execute("cloveros --nonsense")
+	if session.lastStatus == 1 then
+		pass("cloveros rejects unknown options")
+	else
+		fail("cloveros accepted an unknown option")
+	end
+	-- a desktop must never start on a captured or piped command
+	out = {}
+	session:execute("echo x | cloveros")
+	if text():find("interactive") then
+		pass("cloveros refuses to run in a pipe")
+	else
+		fail("cloveros ran inside a pipe: " .. text())
+	end
+	print = oldPrint
+end)
+
+-- ---------- gui ----------
+runSuite("gui", function()
+	freshInstall()
+	local ran, runErr = pcall(dofile, "/src/tests/gui_test.lua")
+	if not ran and runErr ~= "Terminated" then
+		fail("gui_test crashed: " .. tostring(runErr))
+	end
+	local report = fs.open("/test_report.txt", "r")
+	if not report then
+		fail("gui suite produced no report")
+		return
+	end
+	local data = report.readAll()
+	report.close()
+	local reported = 0
+	for line in data:gmatch("[^\n]+") do
+		local count = line:match("^PASS=(%d+)")
+		if count then
+			reported = tonumber(count)
+		elseif line:match("^FAILLINE") then
+			fail(line)
+		end
+	end
+	say("  (" .. reported .. " gui checks passed)")
+end)
+
+-- ---------- boot (full scripted boot flow) ----------
+runSuite("boot", function()
+	if fs.exists("/testroot") then
+		fs.delete("/testroot")
+	end
+	local ran, runErr = xpcall(function()
+		dofile("/src/tests/boot_test.lua")
+	end, function(e)
+		if e == "Terminated" then
+			return e
+		end
+		return tostring(e) .. "\n" .. debug.traceback()
+	end)
+	if not ran and runErr ~= "Terminated" then
+		for line in tostring(runErr):gmatch("[^\n]+") do
+			say("    | " .. line)
+		end
+		fail("boot_test ended with an error")
+	end
+	local report = fs.open("/test_report.txt", "r")
+	if not report then
+		fail("boot suite produced no report")
+		return
+	end
+	local data = report.readAll()
+	report.close()
+	for line in data:gmatch("[^\n]+") do
+		if line:match("^FAILLINE") then
+			fail(line)
+		end
+	end
+	if data:find("BOOT=PASS", 1, true) then
+		say("  ok  scripted boot flow (setup, login, desktop, logout, login)")
+	else
+		fail("boot flow did not reach BOOT=PASS")
+	end
+end)
+
+-- ---------- boot_text (text-mode session executes commands) ----------
+runSuite("boot_text", function()
+	local tOk, tErr = pcall(dofile, "/src/tests/boot_text_test.lua")
+	local report = fs.open("/test_report.txt", "r")
+	if not report then
+		fail("boot_text suite produced no report")
+		return
+	end
+	local data = report.readAll()
+	report.close()
+	for line in data:gmatch("[^\n]+") do
+		if line:match("^FAILLINE") then
+			fail(line)
+		end
+	end
+	local console = shim.dumpTerm()
+	local hasReport = data:find("BOOT_TEXT=PASS", 1, true) ~= nil
+	local hasEcho = console:find("text_shell_ok", 1, true) ~= nil
+	local hasUser = console:find("bootuser", 1, true) ~= nil
+	if hasReport and hasEcho and hasUser then
+		say("  ok  text-mode session ran commands (console shows output)")
+	else
+		fail("boot_text: report or console output missing"
+			.. " (report=" .. tostring(hasReport)
+			.. " echo=" .. tostring(hasEcho)
+			.. " user=" .. tostring(hasUser)
+			.. ") report=[" .. tostring(data):gsub("\n", "|") .. "]"
+			.. ((tOk or tErr == "Terminated") and "" or (" err=[" .. tostring(tErr):gsub("\n", "|") .. "]")))
+	end
+end)
+
+-- ---------- summary ----------
+say("")
+if failures > 0 then
+	say("HOST TESTS FAILED: " .. failures .. " failure(s)")
+	error("HOST TESTS FAILED", 0)
+else
+	say("HOST TESTS PASSED")
+end

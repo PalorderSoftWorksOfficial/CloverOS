@@ -1,0 +1,2 @@
+Welcome to CloverOS 2.1 "Numbat"
+Type help for commands, man <topic> for manuals, neofetch for system info.

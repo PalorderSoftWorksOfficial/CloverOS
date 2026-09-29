@@ -1,0 +1,34 @@
+CLOVEROS - start the CloverOS desktop
+Usage: cloveros [--help] [--version] [--apps]
+
+Leaves the text shell and starts the CloverOS GNOME-style desktop for the
+current user. The session is the same one the graphical login screen starts,
+so anything you can do there you can do from here.
+
+Options:
+  --help, -h   show this help and exit
+  --version, -v  print the CloverOS version and exit
+  --apps      list the applications available to the desktop and exit
+
+Examples:
+  cloveros            start the desktop
+  cloveros --apps     show what is installed
+  cloveros --version  print the version
+
+Desktop keys:
+  F1..F4      terminal, files, settings, system information
+  F5          Activities overview (application grid and window switcher)
+  F6 / F7     snap the focused window left or right
+  F8          maximise or restore the focused window
+  F10         log out and return to this shell
+  alt+tab     cycle between open windows
+  ctrl+alt+t  open a terminal window
+  escape      close a menu or the overview
+
+Notes:
+- The command cannot run when the shell is captured, piped or backgrounded;
+  a desktop needs the whole terminal.
+- Logging out with F10 ends the session and logs you out of CloverOS, because
+  the desktop took over the shell you started it from.
+- If the desktop files are not installed, the command says so and leaves you
+  in the text shell; run the installer again to add them.

@@ -1,0 +1,24 @@
+APT - package manager
+Usage: apt <action> [package]
+
+Actions:
+  list          list available packages
+  installed     list installed packages
+  search <t>    search name and description
+  info <pkg>    show package metadata
+  depends <pkg> show install order (dependencies first)
+  update        refresh package lists from sources
+  upgrade       install newer versions of installed packages
+  install <pkg> install a package and its dependencies
+  remove <pkg>  remove a package
+  autoremove    remove unneeded automatic dependencies
+  verify        check installed files against recorded checksums
+
+Examples:
+  apt update
+  apt install moo
+  apt verify
+
+Notes:
+- Sources are listed in /etc/apt/sources.list.
+- Installed files are verified with SHA-256 checksums.
