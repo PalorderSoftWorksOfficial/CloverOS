@@ -11,6 +11,10 @@ local APPS = {
 	{ id = "software", title = "Software", program = "apps/software.lua" },
 	{ id = "settings", title = "Settings", program = "apps/settings.lua" },
 	{ id = "sysinfo", title = "System Info", program = "apps/sysinfo.lua" },
+	{ id = "imageviewer", title = "Image Viewer", program = "apps/imageviewer.lua" },
+	{ id = "clocks", title = "Clocks", program = "apps/clocks.lua" },
+	{ id = "media", title = "Media Player", program = "apps/media.lua" },
+	{ id = "calculator", title = "Calculator", program = "apps/calculator.lua" },
 	{ id = "help", title = "Help", program = "apps/help.lua" },
 }
 
@@ -42,13 +46,31 @@ function M.new(deps)
 		windows = {},
 		ctrl = false,
 		alt = false,
-		wallpaper = colors.purple,
 	}
 	local okSize, tw, th = pcall(term.getSize)
 	self.screenW = okSize and tw or 51
 	self.screenH = okSize and th or 19
 	self.overview = false
 	self.contextMenu = false
+
+	-- theme and notifications follow the same pattern as panel/overview:
+	-- pure modules the desktop constructs and owns. They come first because
+	-- the panel's bell and quick-settings toggles need their references.
+	local themeOk, themeModule = pcall(dofile, self.paths:join("runtime", "theme.lua"))
+	local notifyOk, notifyModule = pcall(dofile, self.paths:join("runtime", "notifications.lua"))
+	if not (themeOk and notifyOk) then
+		return nil, "CloverOS desktop: theme or notification modules missing"
+	end
+	self.theme = themeModule
+	local userName = nil
+	if self.users and type(self.users.currentName) == "function" then
+		userName = self.users:currentName()
+	end
+	self.themeCfg = themeModule.load(self.paths, userName)
+	self.notifications = notifyModule.new({ kernel = self.kernel })
+	self.toast = nil
+	self.toastUntil = 0
+	self.volumeLevel = 50
 
 	local panelOk, panelModule = pcall(dofile, self.paths:join("runtime", "panel.lua"))
 	local overviewOk, overviewModule = pcall(dofile, self.paths:join("runtime", "overview.lua"))
@@ -61,6 +83,9 @@ function M.new(deps)
 		kernel = self.kernel,
 		apps = APPS,
 		system = self.system,
+		notifications = self.notifications,
+		theme = self.theme,
+		themeCfg = self.themeCfg,
 	})
 	self.overviewUi = overviewModule.new({
 		apps = APPS,
@@ -89,6 +114,39 @@ function M.new(deps)
 		if self.kernel and self.kernel.info then
 			self.kernel.info("desktop: " .. tostring(text))
 		end
+		-- internal events are notifications too, so the center tells the
+		-- same story as the journal
+		if self.notifications then
+			self.notifications:notifyText("desktop", text)
+		end
+	end
+
+	-- Raise a user-facing notification: filed in the center, shown as a
+	-- toast unless do-not-disturb is on, and journaled so text sessions can
+	-- read what happened. This is the seam apps receive as deps.notify.
+	function self:raise(item)
+		local entry
+		if type(item) == "table" then
+			entry = self.notifications:notify(item)
+		else
+			entry = self.notifications:notifyText("system", item)
+		end
+		if entry then
+			self.toast = entry
+			self.toastUntil = os.clock() + 4
+		end
+		return entry
+	end
+
+	-- hardware hotplug becomes a notification, not a silent rescan
+	if self.system and type(self.system.subscribe) == "function" then
+		self.system:subscribe(function(topic, detail)
+			if topic == "peripheral" then
+				self:raise({ app = "hardware", title = "Device attached: " .. tostring(detail or "?") })
+			elseif topic == "peripheral_detach" then
+				self:raise({ app = "hardware", title = "Device removed: " .. tostring(detail or "?") })
+			end
+		end)
 	end
 
 	-- the application grid contents (dash), also used by the launcher
@@ -144,6 +202,11 @@ function M.new(deps)
 			session = self.session,
 			kernel = self.kernel,
 			desktop = self,
+			notify = function(item)
+				return self:raise(item)
+			end,
+			theme = self.theme,
+			themeCfg = self.themeCfg,
 			args = args or {},
 		})
 		if not created then
@@ -193,8 +256,51 @@ function M.new(deps)
 		if type(item) ~= "table" then
 			return
 		end
+		-- clicking a notification in the center dismisses it
+		if item.notificationId then
+			self.notifications:remove(item.notificationId)
+			return
+		end
 		local action = item.action
-		if action == "launch" and item.appId then
+		if action == "dnd" then
+			self.panel:toggleDnd()
+			self:refreshMenu()
+		elseif action == "clearNotifications" then
+			self.notifications:clear()
+			self:refreshMenu()
+		elseif action == "themeMode" then
+			self.panel:toggleMode()
+			self:saveTheme()
+			self:refreshMenu()
+		elseif action == "accentCycle" then
+			if self.themeCfg then
+				self.themeCfg.accent = self.theme.nextAccent(self.themeCfg.accent)
+				self:saveTheme()
+				self:refreshMenu()
+			end		elseif action == "rednetToggle" then
+			local state = self.system and self.system.state
+			if state and state.rednet and state.rednet.present then
+				if state.rednet.open > 0 then
+					self.system:rednetClose()
+					self:raise({ app = "network", title = "Rednet closed" })
+				else
+					local ok = self.system:rednetOpen()
+					if ok then
+						self:raise({ app = "network", title = "Rednet opened" })
+					end
+				end
+				self:refreshMenu()
+			end
+		elseif action == "gpsToggle" then
+			local state = self.system and self.system.state
+			if state and state.gps and state.gps.present then
+				state.gps.open = not state.gps.open
+				self:refreshMenu()
+			end
+		elseif action == "volumeUp" then
+			self.volumeLevel = ((self.volumeLevel or 50) + 25) % 125
+			self:refreshMenu()
+		elseif action == "launch" and item.appId then
 			self:closeMenus()
 			self:openApp(item.appId)
 		elseif action == "applications" then
@@ -221,6 +327,33 @@ function M.new(deps)
 		end
 	end
 
+	-- Re-render the open menu after a toggle changed its labels. panel:openMenu
+	-- would close a menu reopened under the same name, so the item lists are
+	-- rebuilt through openMenuAt instead.
+	function self:refreshMenu()
+		local name = self.panel.menu
+		if name == "bell" then
+			self.menuOpen = self.panel:openMenuAt("bell", self.panel:bellMenuItems())
+		elseif name == "quickset" then
+			self.menuOpen = self.panel:openMenuAt("quickset", self.panel:quicksetMenuItems())
+		elseif name == "status" then
+			self.menuOpen = self.panel:openMenuAt("status", self.panel:statusMenuItems())
+		end
+	end
+
+	-- Persist the theme for the signed-in user. Best effort: a failed write
+	-- only costs the user their preference until the next change.
+	function self:saveTheme()
+		if not (self.theme and self.themeCfg) then
+			return false
+		end
+		local name = nil
+		if self.users and type(self.users.currentName) == "function" then
+			name = self.users:currentName()
+		end
+		return self.theme.save(self.paths, name, self.themeCfg)
+	end
+
 	function self:closeMenus()
 		self.panel:closeMenu()
 		self.contextMenu = false
@@ -240,8 +373,12 @@ function M.new(deps)
 
 	-- ---------- drawing ----------
 	function self:drawWallpaper()
+		if self.theme then
+			self.theme.draw(self.paths, self.themeCfg, self.screenW, self.screenH)
+			return
+		end
 		local w, h = term.getSize()
-		term.setBackgroundColor(self.wallpaper)
+		term.setBackgroundColor(colors.black)
 		term.setTextColor(colors.white)
 		for y = 2, h do
 			term.setCursorPos(1, y)
@@ -249,6 +386,25 @@ function M.new(deps)
 			term.write(string.rep(" ", w))
 		end
 		term.setBackgroundColor(colors.black)
+	end
+
+	-- GNOME-style toast: one banner row directly under the panel, gone
+	-- after its time expires (the run loop clears it) or the next click.
+	function self:drawToast()
+		local entry = self.toast
+		if not entry or os.clock() >= self.toastUntil then
+			return
+		end
+		local w = self.screenW
+		local text = " " .. tostring(entry.app or "system") .. ": " .. tostring(entry.title or "")
+		local width = math.min(#text, w - 2)
+		local x = math.max(1, math.floor((w - width) / 2) + 1)
+		term.setCursorPos(x, 2)
+		term.setBackgroundColor(colors.white)
+		term.setTextColor(colors.black)
+		term.write(text:sub(1, width) .. string.rep(" ", math.max(0, width - #text:sub(1, width))))
+		term.setBackgroundColor(colors.black)
+		term.setTextColor(colors.white)
 	end
 
 	function self:render()
@@ -268,6 +424,7 @@ function M.new(deps)
 			self.overviewUi:draw()
 		end
 		self.panel:draw()
+		self:drawToast()
 		if self.ui and self.ui.drawNotify then
 			self.ui:drawNotify(self.screenH)
 		end
@@ -290,6 +447,10 @@ function M.new(deps)
 				self:openMenu("user")
 			elseif hit and hit.zone == "status" then
 				self:openMenu("status")
+			elseif hit and hit.zone == "bell" then
+				self:openMenu("bell")
+			elseif hit and hit.zone == "quickset" then
+				self:openMenu("quickset")
 			elseif hit and hit.zone == "bar" then
 				self:openMenu("app")
 			end
@@ -430,7 +591,7 @@ function M.new(deps)
 	-- ---------- main loop ----------
 	function self:run()
 		local w, h = term.getSize()
-		term.setBackgroundColor(self.wallpaper)
+		term.setBackgroundColor(colors.black)
 		term.setTextColor(colors.white)
 		term.clear()
 
@@ -494,7 +655,11 @@ function M.new(deps)
 					self.gui:pump(ev)
 				end
 			elseif kind == "timer" then
-				-- nothing to do; keeps the loop shape uniform
+				-- the toast's expiry: once its time is up, drop it so the
+				-- next render repaints the desktop without the banner
+				if self.toast and os.clock() >= self.toastUntil then
+					self.toast = nil
+				end
 			elseif self.system and self.system:dispatch(ev) then
 				-- hardware event (modem, wifi, gps, rednet, hotplug): the
 				-- system layer took it, so the window manager must not.

@@ -32,12 +32,45 @@ function M.new(deps)
 		kernel = deps.kernel,
 		system = deps.system,
 		apps = deps.apps or {},
+		notifications = deps.notifications,
+		theme = deps.theme,
+		themeCfg = deps.themeCfg,
 		focusedTitle = "",
 		menu = nil,
 		items = {},
 		zones = {},
 		height = 1,
 	}
+
+	function self:bellText()
+		if self.notifications and type(self.notifications.bellText) == "function" then
+			local text = self.notifications:bellText()
+			return "(" .. text .. ")"
+		end
+		return "(0)"
+	end
+
+	-- Short label for the Quick Settings toggle in the bar: the current
+	-- theme mode and accent, e.g. "dark/orange".
+	function self:quicksetText()
+		local cfg = self.themeCfg or {}
+		return tostring(cfg.mode or "dark") .. "/" .. tostring(cfg.accent or "orange")
+	end
+
+	function self:toggleDnd()
+		if self.notifications then
+			return self.notifications:toggleDnd()
+		end
+		return false
+	end
+
+	function self:toggleMode()
+		if self.theme and self.themeCfg then
+			self.themeCfg.mode = (self.themeCfg.mode == "dark") and "light" or "dark"
+			return self.themeCfg.mode
+		end
+		return nil
+	end
 
 	-- ---------- system status ----------
 	function self:statusLines()
@@ -198,6 +231,69 @@ function M.new(deps)
 		return items
 	end
 
+	-- The notification center dropdown: newest first, mirroring GNOME.
+	function self:bellMenuItems()
+		local items = {
+			{ label = "Notifications", header = true },
+		}
+		if self.notifications then
+			local list = self.notifications:list()
+			for i = #list, 1, -1 do
+				local entry = list[i]
+				items[#items + 1] = {
+					label = entry.app .. ": " .. entry.title,
+					info = true,
+					notificationId = entry.id,
+				}
+			end
+			if #list == 0 then
+				items[#items + 1] = { label = "No notifications", info = true }
+			end
+			items[#items + 1] = { separator = true }
+			items[#items + 1] = {
+				label = "Do Not Disturb: " .. (self.notifications.dnd and "on" or "off"),
+				action = "dnd",
+			}
+			items[#items + 1] = { label = "Clear All", action = "clearNotifications" }
+		else
+			items[#items + 1] = { label = "Notifications unavailable", info = true }
+		end
+		return items
+	end
+
+	-- GNOME 4x-style Quick Settings: the switches users reach for most,
+	-- each bound to real state rather than a mock.
+	function self:quicksetMenuItems()
+		local items = {
+			{ label = "Quick Settings", header = true },
+			{ label = "Do Not Disturb: " .. (self.notifications and self.notifications.dnd and "on" or "off"), action = "dnd" },
+			{ label = "Style: " .. tostring((self.themeCfg and self.themeCfg.mode) or "dark"), action = "themeMode" },
+			{ label = "Accent: " .. tostring((self.themeCfg and self.themeCfg.accent) or "orange"), action = "accentCycle" },
+		}
+		local state = self.system and self.system.state
+		if state and state.rednet and state.rednet.present then
+			items[#items + 1] = {
+				label = "Rednet: " .. (state.rednet.open > 0 and "open" or "closed"),
+				action = "rednetToggle",
+			}
+		end
+		if state and state.gps and state.gps.present then
+			items[#items + 1] = {
+				label = "GPS: " .. (state.gps.open and "open" or "closed"),
+				action = "gpsToggle",
+			}
+		end
+		if state and state.audio and state.audio.present then
+			items[#items + 1] = {
+				label = "Volume: " .. tostring(self.volumeLevel or 50) .. "%",
+				action = "volumeUp",
+			}
+		end
+		items[#items + 1] = { separator = true }
+		items[#items + 1] = { label = "All Settings", action = "launch", appId = "settings" }
+		return items
+	end
+
 	function self:openMenu(name)
 		if self.menu == name then
 			self:closeMenu()
@@ -209,6 +305,10 @@ function M.new(deps)
 			return self:openMenuAt("user", self:userMenuItems())
 		elseif name == "status" then
 			return self:openMenuAt("status", self:statusMenuItems())
+		elseif name == "bell" then
+			return self:openMenuAt("bell", self:bellMenuItems())
+		elseif name == "quickset" then
+			return self:openMenuAt("quickset", self:quicksetMenuItems())
 		end
 		return false
 	end
@@ -255,6 +355,9 @@ function M.new(deps)
 		local x0 = 1
 		if self.menu == "user" or self.menu == "status" then
 			x0 = math.max(1, screenW - w)
+		elseif self.menu == "bell" or self.menu == "quickset" then
+			-- anchored just left of the user block, where the toggles sit
+			x0 = math.max(1, screenW - w - 14)
 		end
 		return x0, w
 	end
@@ -268,20 +371,32 @@ function M.new(deps)
 		local clock = self:clockText()
 		local user = self:userName()
 		local status = self:statusText()
-		-- shrink the optional parts until the right-hand block fits
-		local available = w - #activities - 2
-		if #status + #clock + #user + 6 > available then
-			status = truncate(status, math.max(0, math.min(#status, available - #clock - #user - 6)))
-		end
-		if #status + #clock + #user + 6 > available then
-			user = truncate(user, math.max(0, available - #status - #clock - 6))
-		end
-		local right = status .. "  " .. clock .. "  " .. user .. " "
+		local bell = self:bellText()
+		local quickset = self:quicksetText()
+		-- The right-hand block is status + clock + user + bell + quickset with
+		-- two-space separators after status/clock and single spaces after
+		-- user/bell plus one trailing space. When the screen is too narrow
+		-- the parts yield in this order: status readout, user name, quick
+		-- settings label, bell. Each keeps at least one character so the
+		-- zones the user can click never disappear entirely.
+		local SEPARATORS = 8
+		local available = math.max(0, w - #activities - 2)
+		local fixed = #clock + #user + #bell + #quickset + SEPARATORS
+		status = truncate(status, math.max(1, math.min(#status, available - fixed)))
+		fixed = #clock + #bell + #quickset + #status + SEPARATORS
+		user = truncate(user, math.max(0, math.min(#user, available - fixed)))
+		fixed = #clock + #user + #bell + #status + SEPARATORS
+		quickset = truncate(quickset, math.max(1, math.min(#quickset, available - fixed)))
+		fixed = #clock + #user + #quickset + #status + SEPARATORS
+		bell = truncate(bell, math.max(1, math.min(#bell, available - fixed)))
+		local right = status .. "  " .. clock .. "  " .. user .. " " .. bell .. " " .. quickset .. " "
 		return {
 			activities = activities,
 			status = status,
 			clock = clock,
 			user = user,
+			bell = bell,
+			quickset = quickset,
 			x = math.max(#activities + 2, w - #right + 1),
 		}
 	end
@@ -314,6 +429,16 @@ function M.new(deps)
 		term.setTextColor(self.menu == "user" and colors.lightGray or colors.white)
 		term.write(layout.user .. " ")
 		self.zones.user = { x1 = ux, x2 = ux + #layout.user }
+		local bx = ux + #layout.user + 1
+		term.setCursorPos(bx, 1)
+		term.setTextColor(self.menu == "bell" and colors.lightGray or colors.white)
+		term.write(layout.bell)
+		self.zones.bell = { x1 = bx, x2 = bx + #layout.bell - 1 }
+		local qx = bx + #layout.bell + 1
+		term.setCursorPos(qx, 1)
+		term.setTextColor(self.menu == "quickset" and colors.lightGray or colors.white)
+		term.write(layout.quickset .. " ")
+		self.zones.quickset = { x1 = qx, x2 = qx + #layout.quickset }
 		term.setTextColor(colors.white)
 
 		-- centre: focused window title
@@ -380,6 +505,10 @@ function M.new(deps)
 				return { zone = "activities" }
 			elseif z.user and x >= z.user.x1 and x <= z.user.x2 then
 				return { zone = "user" }
+			elseif z.bell and x >= z.bell.x1 and x <= z.bell.x2 then
+				return { zone = "bell" }
+			elseif z.quickset and x >= z.quickset.x1 and x <= z.quickset.x2 then
+				return { zone = "quickset" }
 			elseif z.status and x >= z.status.x1 and x <= z.status.x2 then
 				return { zone = "status" }
 			elseif z.clock and x >= z.clock.x1 and x <= z.clock.x2 then

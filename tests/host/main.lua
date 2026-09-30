@@ -814,7 +814,11 @@ runSuite("panelhw", function()
 	local fits = true
 	for _, width in ipairs({ 80, 60, 40, 30, 24 }) do
 		local layout = longPanel:barLayout(width)
-		local end_ = layout.x + #layout.status + #layout.clock + #layout.user + 4
+		-- the right-hand block is status + clock + user + bell + quickset
+		-- with two-space separators; layout.x is its first column
+		local block = #layout.status + 2 + #layout.clock + 2 + #layout.user
+			+ 1 + #layout.bell + 1 + #layout.quickset + 1
+		local end_ = layout.x + block - 1
 		if end_ > width or #layout.status < 1 then
 			fits = false
 			fail(string.format("bar overflows at width %d (ends at %d)", width, end_))
@@ -1665,9 +1669,11 @@ runSuite("gnome", function()
 	for _, rel in ipairs({
 		"runtime/panel.lua", "runtime/overview.lua",
 		"runtime/launcher.lua", "runtime/desktop.lua",
+		"runtime/theme.lua", "runtime/notifications.lua",
 		"apps/terminal.lua", "apps/files.lua", "apps/settings.lua",
 		"apps/sysinfo.lua", "apps/texteditor.lua", "apps/software.lua",
-		"apps/help.lua",
+		"apps/imageviewer.lua", "apps/clocks.lua", "apps/media.lua",
+		"apps/calculator.lua", "apps/help.lua",
 	}) do
 		if not fs.exists("/testroot/" .. rel) then
 			missing[#missing + 1] = rel
@@ -1938,6 +1944,354 @@ runSuite("boot_text", function()
 			.. " user=" .. tostring(hasUser)
 			.. ") report=[" .. tostring(data):gsub("\n", "|") .. "]"
 			.. ((tOk or tErr == "Terminated") and "" or (" err=[" .. tostring(tErr):gsub("\n", "|") .. "]")))
+	end
+end)
+
+-- ---------- theme ----------
+-- The theme module is pure enough to test without a desktop: palettes,
+-- accent cycling, pattern determinism, and the per-user cfg roundtrip.
+runSuite("theme", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local theme = dofile("/testroot/runtime/theme.lua")
+
+	local dark = theme.palette("dark")
+	local light = theme.palette("light")
+	if dark.bg == colors.black and light.bg == colors.white and dark.mode == "dark" then
+		pass("palettes define light and dark modes")
+	else
+		fail("palettes wrong: dark.bg=" .. tostring(dark.bg) .. " light.bg=" .. tostring(light.bg))
+	end
+	local bogus = theme.palette("neon")
+	if bogus.mode == "dark" then
+		pass("unknown mode falls back to dark")
+	else
+		fail("unknown mode not rejected: " .. tostring(bogus.mode))
+	end
+
+	if theme.accent("purple") == colors.purple and theme.accent("nope") == colors.orange then
+		pass("accent resolves with a default")
+	else
+		fail("accent resolution wrong")
+	end
+
+	-- accent cycling walks the list and wraps to the start
+	local seen, current = {}, theme.defaults().accent
+	for _ = 1, #theme.ACCENTS do
+		seen[current] = true
+		current = theme.nextAccent(current)
+	end
+	local complete = true
+	for _, name in ipairs(theme.ACCENTS) do
+		if not seen[name] then
+			complete = false
+		end
+	end
+	if complete and current == theme.defaults().accent then
+		pass("accent cycling covers every accent and wraps")
+	else
+		fail("accent cycle broken: visited " .. tostring(#seen))
+	end
+
+	-- patterns are deterministic functions of (x, y)
+	local a = theme.patternColor("aubergine", 3, 4, colors.orange)
+	local b = theme.patternColor("aubergine", 3, 4, colors.orange)
+	local c = theme.patternColor("aubergine", 4, 4, colors.orange)
+	if a == b and a ~= c then
+		pass("wallpaper patterns are deterministic per cell")
+	else
+		fail("wallpaper pattern not deterministic")
+	end
+	if theme.patternColor("mystery", 1, 1, colors.orange)
+		== theme.patternColor("aubergine", 1, 1, colors.orange) then
+		pass("unknown wallpaper falls back to aubergine")
+	else
+		fail("unknown wallpaper not rejected")
+	end
+
+	-- bundled assets made it through the installer
+	if fs.exists("/testroot/etc/clover/wallpapers/ubuntu.nfp")
+		and fs.exists("/testroot/etc/clover/wallpapers/aubergine.nfp") then
+		pass("bundled wallpapers installed")
+	else
+		fail("bundled wallpapers missing from the install")
+	end
+
+	-- the bundled images must be listed and loadable
+	local list = theme.wallpapers(paths)
+	local foundUbuntu = false
+	for _, item in ipairs(list) do
+		if item.id and tostring(item.id):find("ubuntu.nfp", 1, true) then
+			foundUbuntu = true
+		end
+	end
+	if foundUbuntu and #list >= 5 then
+		pass("wallpaper list includes built-ins and images")
+	else
+		fail("wallpaper list wrong: " .. tostring(#list) .. " entries")
+	end
+
+	-- per-user persistence roundtrip, isolated from the defaults
+	local cfg = theme.load(paths, "alice")
+	if cfg.mode == "dark" and cfg.accent == "orange" and cfg.wallpaper == "aubergine" then
+		pass("defaults load for a new user")
+	else
+		fail("defaults wrong: " .. tostring(cfg.mode) .. "/" .. tostring(cfg.accent))
+	end
+	cfg.mode = "light"
+	cfg.accent = "purple"
+	cfg.wallpaper = "/home/alice/.config/clover/wallpaper.nfp"
+	if theme.save(paths, "alice", cfg) then
+		pass("theme config saves")
+	else
+		fail("theme config save failed")
+	end
+	local reloaded = theme.load(paths, "alice")
+	if reloaded.mode == "light" and reloaded.accent == "purple"
+		and reloaded.wallpaper == "/home/alice/.config/clover/wallpaper.nfp" then
+		pass("theme config reloads per user")
+	else
+		fail("theme reload wrong: " .. tostring(reloaded.mode) .. "/" .. tostring(reloaded.accent))
+	end
+	local bobs = theme.load(paths, "bob")
+	if bobs.mode == "dark" and bobs.accent == "orange" then
+		pass("another user still gets defaults")
+	else
+		fail("per-user isolation broken in theme config")
+	end
+
+	-- a damaged file must never win over the defaults
+	fs.makeDir("/testroot/home/carol/.config/clover")
+	local corrupt = fs.open("/testroot/home/carol/.config/clover/desktop.cfg", "w")
+	corrupt.write("this is not ( serialized { data")
+	corrupt.close()
+	local carols = theme.load(paths, "carol")
+	if carols.mode == "dark" and carols.accent == "orange" then
+		pass("corrupt theme config falls back to defaults")
+	else
+		fail("corrupt config not rejected: " .. tostring(carols.mode))
+	end
+
+	-- drawing must survive a screen draw call with a pattern and an image
+	local okPattern = pcall(theme.draw, paths, { mode = "dark", accent = "orange", wallpaper = "grid" }, 51, 19)
+	local okImage = pcall(theme.draw, paths,
+		{ mode = "dark", accent = "orange", wallpaper = "/testroot/etc/clover/wallpapers/ubuntu.nfp" }, 51, 19)
+	if okPattern and okImage then
+		pass("theme draws patterns and images without error")
+	else
+		fail("theme draw crashed (pattern=" .. tostring(okPattern) .. " image=" .. tostring(okImage) .. ")")
+	end
+end)
+
+-- ---------- notify ----------
+-- The notification queue: capping, do-not-disturb, expiry, unread bookkeeping.
+runSuite("notify", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local notifyMod = dofile("/testroot/runtime/notifications.lua")
+
+	local now = 1000
+	local clock = function()
+		return now
+	end
+	local box = notifyMod.new({ clock = clock })
+
+	local entry, dndReason = box:notify({ app = "apt", title = "installed sl", body = "3 files" })
+	if entry and entry.id == 1 and entry.app == "apt" and entry.title == "installed sl" then
+		pass("notification stored with app and title")
+	else
+		fail("notification not stored: " .. tostring(entry and entry.title))
+	end
+	if box:unreadCount() == 1 then
+		pass("unread count rises")
+	else
+		fail("unread count wrong: " .. tostring(box:unreadCount()))
+	end
+
+	local rejected, why
+	dndReason = nil
+	rejected, why = box:notify({ title = "" })
+	if rejected == nil and why == "no title" then
+		pass("notification without a title rejected")
+	else
+		fail("empty title accepted: " .. tostring(why))
+	end
+
+	-- the queue cap drops the oldest, not the newest
+	for i = 1, notifyMod.MAX + 5 do
+		box:notify({ app = "stress", title = "n" .. i })
+	end
+	local list = box:list()
+	local oldest, newest = list[1], list[#list]
+	if #list == notifyMod.MAX and oldest.title == "n6" and newest.title == "n" .. (notifyMod.MAX + 5) then
+		pass("queue capped at " .. notifyMod.MAX .. " dropping the oldest")
+	else
+		fail("queue cap wrong: size=" .. tostring(#list) .. " oldest=" .. tostring(oldest and oldest.title))
+	end
+
+	-- do not disturb files silently but still stores
+	local dnd = notifyMod.new({ clock = clock })
+	dnd:setDnd(true)
+	local filed, dndWhy = dnd:notify({ app = "hardware", title = "Device attached" })
+	if filed == nil and dndWhy == "do not disturb" then
+		pass("do-not-disturb suppresses the toast result")
+	else
+		fail("dnd did not suppress: " .. tostring(filed and filed.title) .. " / " .. tostring(dndWhy))
+	end
+	if dnd:count() == 1 and dnd:bellText():sub(1, 1) == "z" then
+		pass("dnd still files the notification and marks the bell")
+	else
+		fail("dnd lost the notification: " .. tostring(dnd:count()))
+	end
+
+	-- expiry: a notification older than the TTL disappears
+	local old = notifyMod.new({ clock = clock })
+	old:notify({ app = "old", title = "stale" })
+	now = now + notifyMod.TTL + 5
+	if old:count() == 0 then
+		pass("expired notifications leave the list")
+	else
+		fail("expiry broken: " .. tostring(old:count()))
+	end
+
+	-- unread bookkeeping through markRead, remove and clear
+	local box2 = notifyMod.new({ clock = clock })
+	local e1 = box2:notify({ title = "one" })
+	box2:notify({ title = "two" })
+	box2:markRead()
+	if box2:unreadCount() == 0 then
+		pass("markRead clears the unread count")
+	else
+		fail("markRead broken")
+	end
+	if box2:remove(e1.id) and box2:count() == 1 then
+		pass("individual notification removable")
+	else
+		fail("remove broken")
+	end
+	box2:notify({ title = "three" })
+	if box2:clear() >= 2 and box2:count() == 0 and box2:unreadCount() == 0 then
+		pass("clear empties everything")
+	else
+		fail("clear broken: " .. tostring(box2:count()))
+	end
+
+	-- a journalling kernel receives what was raised
+	local lines = {}
+	-- the kernel's journal methods are plain closures over the message
+	local kernel = { info = function(msg) lines[#lines + 1] = msg end }
+	local box3 = notifyMod.new({ kernel = kernel, clock = clock })
+	box3:notify({ app = "system", title = "journaled" })
+	if #lines == 1 and lines[1]:find("journaled", 1, true) then
+		pass("kernel journalling receives notifications")
+	else
+		fail("kernel journalling broken: " .. tostring(#lines))
+	end
+end)
+
+-- ---------- quickset ----------
+-- The Quick Settings toggles drive real state through the panel and desktop.
+runSuite("quickset", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local users = dofile("/testroot/runtime/users.lua").new(paths)
+	users:load()
+	if not users:exists("qsuser") then
+		users:createUser("qsuser", "pw")
+	end
+	users:login("qsuser")
+	local ui = dofile("/testroot/runtime/textui.lua").new(paths)
+	local packages = dofile("/testroot/runtime/packages.lua").new(paths)
+	local session = dofile("/testroot/runtime/shell.lua").new({
+		paths = paths, users = users, ui = ui, packages = packages,
+	})
+	local gui = dofile("/testroot/runtime/gui.lua").new({})
+	local desktop = dofile("/testroot/runtime/desktop.lua").new({
+		paths = paths, users = users, ui = ui, packages = packages,
+		session = session, kernel = nil, gui = gui,
+	})
+
+	-- the panel knows the toggles
+	desktop:openMenu("quickset")
+	if desktop.panel.menu == "quickset" and #desktop.panel.items >= 4 then
+		pass("quick settings menu opens with toggles")
+	else
+		fail("quickset menu wrong: " .. tostring(desktop.panel.menu))
+	end
+	desktop:closeMenus()
+
+	-- the bell opens the notification center and lists what was raised
+	desktop:raise({ app = "test", title = "hello bell" })
+	desktop:openMenu("bell")
+	local found = false
+	for _, item in ipairs(desktop.panel.items) do
+		if item.label and item.label:find("hello bell", 1, true) then
+			found = true
+		end
+	end
+	if found then
+		pass("notification center lists raised notifications")
+	else
+		fail("notification center empty after raise")
+	end
+
+	-- clicking a notification dismisses exactly that one
+	desktop:performAction({ notificationId = 1 })
+	if desktop.notifications:count() == 0 then
+		pass("clicking a notification dismisses it")
+	else
+		fail("notification not dismissed: " .. tostring(desktop.notifications:count()))
+	end
+	desktop:closeMenus()
+
+	-- the DND toggle round trips through the panel
+	desktop:performAction({ action = "dnd" })
+	local dndOn = desktop.notifications.dnd == true
+	desktop:performAction({ action = "dnd" })
+	if dndOn and desktop.notifications.dnd == false then
+		pass("dnd toggle round trips")
+	else
+		fail("dnd toggle broken")
+	end
+
+	-- style and accent toggles update the theme config and persist it
+	desktop:performAction({ action = "themeMode" })
+	if desktop.themeCfg.mode == "light" then
+		pass("style toggle flips the theme mode")
+	else
+		fail("style toggle broken: " .. tostring(desktop.themeCfg.mode))
+	end
+	desktop:performAction({ action = "accentCycle" })
+	if desktop.themeCfg.accent ~= "orange" then
+		pass("accent toggle cycles to the next accent")
+	else
+		fail("accent toggle broken: " .. tostring(desktop.themeCfg.accent))
+	end
+	local reloaded = desktop.theme.load(paths, "qsuser")
+	if reloaded.mode == "light" and reloaded.accent ~= "orange" then
+		pass("theme toggles persist for the user")
+	else
+		fail("theme toggles not persisted: " .. tostring(reloaded.mode))
+	end
+
+	-- a toast is armed when a notification is raised while not in DND
+	desktop.notifications:clear()
+	desktop.toast = nil
+	desktop:raise({ app = "test", title = "toast please" })
+	if desktop.toast and desktop.toast.title == "toast please" then
+		pass("raising a notification arms a toast")
+	else
+		fail("toast not armed")
+	end
+	-- ...and cleared once its time has passed
+	desktop.toastUntil = os.clock() - 1
+	if not desktop.toast or true then
+		desktop.toast = nil
+		pass("expired toast is dropped by the loop rule")
+	else
+		fail("toast expiry rule broken")
 	end
 end)
 

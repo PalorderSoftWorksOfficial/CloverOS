@@ -65,6 +65,18 @@ terminal.
 The top bar menus open applications, the session and system actions; the
 status area shows the peripherals the kernel found.
 
+Notifications and Quick Settings work like GNOME 4x: notifications appear
+as toasts under the top bar and collect behind the bell in the panel, with a
+do-not-disturb switch that files them silently; the Quick Settings menu next
+to it carries the DND, light/dark style, accent color, and rednet/GPS/volume
+toggles bound to the real hardware state. Appearance — style, accent, and
+wallpaper — is per user and also editable in Settings (`D` style, `A`
+accent); wallpapers are built-in patterns or `.nfp` images from
+`etc/clover/wallpapers`, and Files (`w` on a selected image) or the Image
+Viewer (`w`) can set any image as the wallpaper. Four more first-party apps
+ship with the desktop: Image Viewer, Clocks (with stopwatch and timer),
+Media Player (needs a speaker peripheral) and Calculator.
+
 The GUI is built on the vendored MC-ImGui (MIT) layer. Windows support
 minimize/close, focus, live edge-snapping while dragging (top = maximize,
 sides = half-tile) and double-click the title bar to maximize/restore.

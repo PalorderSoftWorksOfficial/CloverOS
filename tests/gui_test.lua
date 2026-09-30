@@ -155,6 +155,33 @@ local ok, guiErr = pcall(function()
 	-- winA (from the fork-shell section) plus the four app windows
 	check("all windows tracked", #gui:listWindows() == 5, tostring(#gui:listWindows()))
 
+	-- notifications: raising files one and arms a toast
+	desktop:raise({ app = "gui", title = "toast_smoke" })
+	check("raise arms a toast", desktop.toast ~= nil and desktop.toast.title == "toast_smoke",
+		tostring(desktop.toast and desktop.toast.title))
+	check("notification filed in the center", desktop.notifications:count() >= 1,
+		tostring(desktop.notifications:count()))
+
+	-- quick settings: the toggles drive real state
+	desktop:openMenu("quickset")
+	check("quick settings menu opens", desktop.panel.menu == "quickset", tostring(desktop.panel.menu))
+	desktop:performAction({ action = "themeMode" })
+	check("style toggle flips the mode", desktop.themeCfg.mode == "light", tostring(desktop.themeCfg.mode))
+	desktop:performAction({ action = "dnd" })
+	check("dnd toggle turns on", desktop.notifications.dnd == true)
+	desktop:performAction({ action = "dnd" })
+	desktop:closeMenus()
+
+	-- the new first-party apps open and the shell survives drawing them
+	for _, id in ipairs({ "imageviewer", "clocks", "media", "calculator" }) do
+		local appWin = desktop:openApp(id)
+		check("desktop opens " .. id, appWin ~= nil)
+	end
+	local okNewApps = pcall(function()
+		gui:render()
+	end)
+	check("render with new apps ok", okNewApps)
+
 	local okFinal = pcall(function()
 		gui:render()
 	end)
