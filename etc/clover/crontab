@@ -1,0 +1,8 @@
+# CloverOS crontab: min hour dom mon dow  command
+# Fields: * any, */n every n, number exactly. Day of week: 1 = Sunday.
+# Shorthands: @reboot, @hourly, @daily.
+#
+# Examples (remove the # to enable):
+# @reboot  echo system started
+# */15 * * * *  echo quarter hour
+# 0 9 * * 2     echo tuesday morning

@@ -19,6 +19,7 @@ local candidates = {
 	"runtime/access.lua",
 	"runtime/cloverd.lua",
 	"runtime/init.lua",
+	"runtime/cron.lua",
 	"runtime/ssh.lua",
 	"runtime/theme.lua",
 	"runtime/notifications.lua",

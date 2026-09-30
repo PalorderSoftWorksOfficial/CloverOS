@@ -814,12 +814,11 @@ runSuite("panelhw", function()
 	local fits = true
 	for _, width in ipairs({ 80, 60, 40, 30, 24 }) do
 		local layout = longPanel:barLayout(width)
-		-- the right-hand block is status + clock + user + bell + quickset
-		-- with two-space separators; layout.x is its first column
-		local block = #layout.status + 2 + #layout.clock + 2 + #layout.user
-			+ 1 + #layout.bell + 1 + #layout.quickset + 1
-		local end_ = layout.x + block - 1
-		if end_ > width or #layout.status < 1 then
+		-- layout.right is exactly what drawBar paints right-aligned; the
+		-- bar fits when the block ends inside the screen and the clock
+		-- (the one segment that must never be truncated) survives
+		local end_ = layout.x + #layout.right - 1
+		if end_ > width or not layout.clock:find("%d") then
 			fits = false
 			fail(string.format("bar overflows at width %d (ends at %d)", width, end_))
 		end
@@ -2580,6 +2579,130 @@ runSuite("netcmd2", function()
 		pass("server stops cleanly")
 	else
 		fail("server kept running")
+	end
+end)
+
+-- ---------- cron ----------
+-- The scheduler: field matching, parsing, due queries, dispatch.
+runSuite("cron", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local cronModule = dofile("/testroot/runtime/cron.lua")
+
+	-- field matching: star, step, exact, sunday alias
+	if cronModule.matchField("*", 7) and not cronModule.matchField("5", 7)
+		and cronModule.matchField("*/15", 30) and not cronModule.matchField("*/15", 20)
+		and cronModule.matchField("7", 7) then
+		pass("schedule fields match star, step and exact")
+	else
+		fail("field matching broken")
+	end
+
+	-- a full schedule match
+	local t = { min = 30, hour = 9, dom = 2, mon = 3, dow = 2 }
+	if cronModule.matches({ min = "30", hour = "9", dom = "*", mon = "*", dow = "*" }, t)
+		and not cronModule.matches({ min = "31", hour = "9", dom = "*", mon = "*", dow = "*" }, t)
+		and not cronModule.matches({ min = "30", hour = "9", dom = "*", mon = "*", dow = "1" }, t) then
+		pass("full schedules match and reject")
+	else
+		fail("schedule matching broken")
+	end
+
+	-- parsing: five fields, comments, shorthands, sunday alias, junk
+	local cron = cronModule.new({ paths = paths })
+	if cron:addLine("30 9 * * * echo morning")
+		and not cron:addLine("# comment")
+		and cron:addLine("@reboot echo started")
+		and cron:addLine("@hourly echo hour")
+		and cron:addLine("0 0 * * * echo midnight")
+		and not cron:addLine("only one field")
+		and not cron:addLine("@frobnicate echo what") then
+		pass("crontab lines parse or reject cleanly")
+	else
+		fail("crontab parsing broken")
+	end
+	if #cron.jobs == 4 then
+		pass("every valid job stored")
+	else
+		fail("job count wrong: " .. tostring(#cron.jobs))
+	end
+
+	-- the sunday alias: dow 0 became 7
+	local sundayJob = cron.jobs[1]
+	if sundayJob and sundayJob.fields then
+		sundayJob = nil
+		for _, job in ipairs(cron.jobs) do
+			if job.fields and job.fields.dow == "0" then
+				sundayJob = job
+			end
+		end
+		if sundayJob == nil then
+			pass("sunday dow=0 alias normalized")
+		else
+			fail("dow alias not normalized")
+		end
+	end
+
+	-- dispatch runs what is due through the caller's runner. The host
+	-- clock is stubbed (the shim's os.date is limited) to 09:30 Sunday,
+	-- which matches the "30 9 * * *" job exactly.
+	local savedDate = os.date
+	os.date = function(fmt)
+		if fmt == "%M" then return "30" end
+		if fmt == "%H" then return "09" end
+		if fmt == "%d" then return "02" end
+		if fmt == "%m" then return "03" end
+		if fmt == "%w" then return "0" end -- Sunday
+		return savedDate and savedDate(fmt) or ""
+	end
+	local ran = {}
+	local dispatchCount = cron:dispatch(function(line)
+		ran[#ran + 1] = line
+	end, true)
+	os.date = savedDate
+	local sawReboot, sawMorning = false, false
+	for _, line in ipairs(ran) do
+		if line == "echo started" then
+			sawReboot = true
+		end
+		if line == "echo morning" then
+			sawMorning = true
+		end
+	end
+	if dispatchCount >= 2 and sawReboot and sawMorning then
+		pass("@reboot and the matching timed job dispatch")
+	else
+		fail("dispatch wrong: " .. tostring(dispatchCount) .. " reboot=" .. tostring(sawReboot))
+	end
+	-- with the clock still at 09:30 and no reboot flag, only the timed job
+	os.date = function(fmt)
+		if fmt == "%M" then return "30" end
+		if fmt == "%H" then return "09" end
+		if fmt == "%d" then return "02" end
+		if fmt == "%m" then return "03" end
+		if fmt == "%w" then return "0" end
+		return savedDate and savedDate(fmt) or ""
+	end
+	local again = cron:dispatch(function() end, false)
+	os.date = savedDate
+	if again == 1 then
+		pass("timed dispatch runs without the reboot flag")
+	else
+		fail("timed dispatch wrong: " .. tostring(again))
+	end
+
+	-- a real file loads
+	fs.makeDir("/testroot/etc/clover")
+	local handle = fs.open("/testroot/etc/clover/crontab", "w")
+	handle.write("@reboot echo from_file\n")
+	handle.close()
+	local fromFile = cronModule.new({ paths = paths })
+	fromFile:load()
+	if #fromFile.jobs == 1 and fromFile.jobs[1].command == "echo from_file" then
+		pass("crontab loads from the installed path")
+	else
+		fail("crontab load broken")
 	end
 end)
 

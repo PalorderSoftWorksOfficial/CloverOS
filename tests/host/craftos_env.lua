@@ -257,6 +257,7 @@ function M.install(repoFiles)
 	local owned = {} -- [co] = { name = ..., queue = { ... } }
 
 	local osShim = {}
+	local _realOS = os -- the host's real os table, before _G.os is replaced
 
 	function osShim.epoch(unit)
 		epochCounter = epochCounter + 1
@@ -271,8 +272,14 @@ function M.install(repoFiles)
 		return 1700000000
 	end
 
+	-- date must not recurse into the shimmed os table (osShim.date would
+	-- call itself forever); go straight to the host's os.date
 	function osShim.date(fmt)
-		return os.date and os.date(fmt) or "1970-01-01"
+		local ok, value = pcall(_realOS.date, fmt or "%Y-%m-%d %H:%M:%S")
+		if ok and type(value) == "string" then
+			return value
+		end
+		return "1970-01-01"
 	end
 
 	function osShim.getComputerID()

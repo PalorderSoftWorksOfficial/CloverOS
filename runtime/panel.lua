@@ -192,6 +192,11 @@ function M.new(deps)
 		return dateString("%a %d %b  %H:%M")
 	end
 
+	-- The short form the bar degrades to when the full date cannot fit.
+	function self:shortClockText()
+		return dateString("%H:%M")
+	end
+
 	-- ---------- menus ----------
 	function self:appMenuItems()
 		local items = {
@@ -373,23 +378,36 @@ function M.new(deps)
 		local status = self:statusText()
 		local bell = self:bellText()
 		local quickset = self:quicksetText()
-		-- The right-hand block is status + clock + user + bell + quickset with
-		-- two-space separators after status/clock and single spaces after
-		-- user/bell plus one trailing space. When the screen is too narrow
-		-- the parts yield in this order: status readout, user name, quick
-		-- settings label, bell. Each keeps at least one character so the
-		-- zones the user can click never disappear entirely.
-		local SEPARATORS = 8
+		-- The right-hand block is status, clock, user, bell, quickset joined
+		-- with single spaces. On a narrow screen the segments yield in that
+		-- order, dropping out entirely once they no longer fit, so the bar
+		-- can never overflow a row no matter how long the clock or the
+		-- status text grows. The clock is the last to go; empty segments
+		-- leave no clickable zone behind.
+		local SEPARATORS = 4 -- four single-space joins
 		local available = math.max(0, w - #activities - 2)
-		local fixed = #clock + #user + #bell + #quickset + SEPARATORS
-		status = truncate(status, math.max(1, math.min(#status, available - fixed)))
-		fixed = #clock + #bell + #quickset + #status + SEPARATORS
-		user = truncate(user, math.max(0, math.min(#user, available - fixed)))
-		fixed = #clock + #user + #bell + #status + SEPARATORS
-		quickset = truncate(quickset, math.max(1, math.min(#quickset, available - fixed)))
-		fixed = #clock + #user + #quickset + #status + SEPARATORS
-		bell = truncate(bell, math.max(1, math.min(#bell, available - fixed)))
-		local right = status .. "  " .. clock .. "  " .. user .. " " .. bell .. " " .. quickset .. " "
+		status = truncate(status, math.max(0, math.min(#status, available - (#clock + #user + #bell + #quickset + SEPARATORS))))
+		user = truncate(user, math.max(0, math.min(#user, available - (#clock + #bell + #quickset + #status + SEPARATORS))))
+		quickset = truncate(quickset, math.max(0, math.min(#quickset, available - (#clock + #user + #bell + #status + SEPARATORS))))
+		bell = truncate(bell, math.max(0, math.min(#bell, available - (#clock + #user + #quickset + #status + SEPARATORS))))
+		-- the clock is the last to yield: first the date, then time-only,
+		-- then truncation, so even a tiny screen shows the time
+		local others = #user + #bell + #quickset + #status + SEPARATORS
+		if available - others < #clock then
+			local short = self:shortClockText()
+			if available - others >= #short then
+				clock = short
+			else
+				clock = truncate(clock, math.max(0, available - others))
+			end
+		end
+		local parts = {}
+		for _, part in ipairs({ status, clock, user, bell, quickset }) do
+			if #part > 0 then
+				parts[#parts + 1] = part
+			end
+		end
+		local right = table.concat(parts, " ")
 		return {
 			activities = activities,
 			status = status,
@@ -397,6 +415,8 @@ function M.new(deps)
 			user = user,
 			bell = bell,
 			quickset = quickset,
+			right = right,
+			width = #right,
 			x = math.max(#activities + 2, w - #right + 1),
 		}
 	end

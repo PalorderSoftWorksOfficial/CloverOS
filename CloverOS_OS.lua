@@ -182,7 +182,13 @@ while true do
 	-- GUI preference is a persisted setting; text mode stays available.
 	-- session = "gnome" is the default desktop, "text" forces the shell.
 	local cfg = kernel.config.loadOrCreate("settings", { gui = true, session = "gnome" })
-	local wantDesktop = cfg.gui and cfg.session ~= "text"
+	-- the boot menu can force text or safe mode for this boot only; the
+	-- persisted preference is untouched
+	local bootMode = _G.CLOVER_BOOT_MODE or "normal"
+	local wantDesktop = cfg.gui and cfg.session ~= "text" and bootMode == "normal"
+	if bootMode ~= "normal" then
+		print("CloverOS " .. bootMode .. " mode (this boot only)")
+	end
 
 	local logoutRequested = false
 
@@ -256,7 +262,12 @@ while true do
 					daemon = (cloverdOk and cloverd) or nil,
 				})
 				if init then
-					init:boot()
+					-- safe mode skips session units entirely
+					if _G.CLOVER_BOOT_MODE == "safe" then
+						bootInfo("safe mode: units not started")
+					else
+						init:boot()
+					end
 				end
 			end)
 			if not initOk then

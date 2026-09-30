@@ -1581,6 +1581,26 @@ function M.new(deps)
 			else
 				println(state.enabled and "enabled" or "disabled")
 			end
+		elseif action == "boot-menu" then
+			-- opt-in GRUB-style menu at the next boots; a flag file, because
+		-- the loader must not own the keyboard on machines that boot
+		-- headless or scripted
+			local flag = self.paths:join("etc", "clover", "boot-menu")
+			if name == "on" then
+				local handle = fs.open(flag, "w")
+				if handle then
+					handle.write("1")
+					handle.close()
+				end
+				println("boot menu enabled for the next boots")
+			elseif name == "off" then
+				if fs.exists(flag) then
+					fs.delete(flag)
+				end
+				println("boot menu disabled")
+			else
+				println("boot menu is " .. (fs.exists(flag) and "on" or "off"))
+			end
 		elseif action == "set-default" then
 			if not (name and initModule.units[name]) then
 				println("systemctl: unknown target: " .. tostring(name))
@@ -1591,7 +1611,7 @@ function M.new(deps)
 			initModule:persist()
 			println("default target set to " .. name)
 		else
-			println("usage: systemctl <list-units|status|start|stop|restart|enable|disable|is-active|is-enabled|set-default> [unit]")
+			println("usage: systemctl <list-units|status|start|stop|restart|enable|disable|is-active|is-enabled|boot-menu|set-default> [unit|on|off]")
 		end
 	end
 
@@ -1630,14 +1650,31 @@ function M.new(deps)
 	-- ssh into another computer (thin wrapper; see bin/ssh.lua too)
 	builtins.ssh = function(host, ...)
 		local parts = { ... }
-		if not host or #parts == 0 then
-			println("usage: ssh <computer id> <command>")
+		local interactive = (host == "-i")
+		if interactive then
+			host = parts[1]
+		end
+		if not host or (not interactive and #parts == 0) then
+			println("usage: ssh [-i] <computer id> [command]")
+			println("  -i    interactive session (exit or ctrl+T to leave)")
 			return
 		end
 		local sshModule = sshModule()
 		if not sshModule then
 			println("ssh: runtime/ssh.lua unavailable")
 			self.lastStatus = 1
+			return
+		end
+		if interactive then
+			local okI, errI = sshModule.interactive({
+				user = users and users.currentName and users:currentName() or nil,
+				system = self.system,
+				ui = self.ui,
+			}, host)
+			if not okI then
+				println("ssh: " .. tostring(errI))
+				self.lastStatus = 1
+			end
 			return
 		end
 		local command = table.concat(parts, " ")
@@ -2018,6 +2055,25 @@ function M.new(deps)
 		if motd and trim(motd) ~= "" then
 			printLines(motd)
 		end
+		-- cron: load the schedule once, ask it what is due on the minute.
+		-- The session is the dispatcher because a daemon cannot own the
+		-- event queue; jobs run through this shell, so access rules hold.
+		local cron = nil
+		do
+			local okCron, module = pcall(dofile, self.paths:join("runtime", "cron.lua"))
+			if okCron and type(module) == "table" and type(module.attach) == "function" then
+				cron = module.attach(kernel, self.paths)
+			end
+		end
+		if cron then
+			cron:dispatch(function(line)
+				local okJob, jobErr = pcall(self.execute, self, line)
+				if not okJob then
+					println("cron: " .. tostring(jobErr))
+				end
+			end, true)
+		end
+		local cronMinute = nil
 		while self.running do
 			local prompt = self:promptLine()
 			local line = self.ui:prompt(prompt, false, self.history, function(before, after)
@@ -2025,6 +2081,20 @@ function M.new(deps)
 			end)
 			if line == nil then
 				return
+			end
+			-- cron's minute tick: before the prompt read returns we may have
+			-- crossed into a new minute, so check cheaply once per line
+			if cron then
+				local now = os.date("%M")
+				if now ~= cronMinute then
+					cronMinute = now
+					cron:dispatch(function(jobLine)
+						local okJob, jobErr = pcall(self.execute, self, jobLine)
+						if not okJob then
+							println("cron: " .. tostring(jobErr))
+						end
+					end)
+				end
 			end
 			local ok, err = pcall(self.execute, self, line)
 			if not ok then
