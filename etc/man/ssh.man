@@ -1,0 +1,15 @@
+SSH - run a command on another computer
+Usage: ssh <computer id> <command>
+
+Connects to another CloverOS machine over rednet, prompts for the remote
+user's password, runs the command there, prints the output, closes the
+session. The remote machine serves connections when its sshd unit runs:
+
+  systemctl start sshd        (on the remote machine)
+
+Failed logins are journaled on the server; sessions time out after five
+idle minutes.
+
+Examples:
+  ssh 12 df
+  ssh 3 "cat /etc/motd"

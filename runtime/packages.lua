@@ -37,6 +37,47 @@ end
 -- Compose a URL under a repository root. A source is written by a human
 -- ("https://host/repo/") so it usually already ends in a slash, and naively
 -- gluing "/index.lua" onto that asks the server for a path with "//" in it.
+-- ---------- rednet transport ----------
+-- A CloverOS apt server (bin/aptserver.lua) serves the same index.lua and
+-- package files a GitHub source does, over rednet. A rednet source is a
+-- table { kind = "rednet", host = <computer id> }; fetching is one
+-- request/reply exchange per file with a bounded wait, and integrity is
+-- unchanged: sha256 digests published in the index are still enforced by
+-- installRemote before anything is written.
+M.REDNET_TIMEOUT = 8
+M.REDNET_PROTOCOL = "clover/apt"
+
+-- One request/reply exchange. Returns the payload table, or nil plus a
+-- reason. Kept out of installRemote so the wait loop is testable.
+function M:rednetFetch(host, request)
+	if type(rednet) ~= "table" or type(rednet.send) ~= "function"
+		or type(rednet.receive) ~= "function" then
+		return nil, "rednet is not available"
+	end
+	host = tonumber(host)
+	if not host then
+		return nil, "rednet source needs a numeric host id"
+	end
+	rednet.send(host, request, M.REDNET_PROTOCOL)
+	local deadline = os.clock() + M.REDNET_TIMEOUT
+	while os.clock() < deadline do
+		local senderId, message, protocol = rednet.receive(M.REDNET_PROTOCOL, deadline - os.clock())
+		if senderId == host then
+			local ok, payload = pcall(textutils.unserialize, tostring(message or ""))
+			if ok and type(payload) == "table" then
+				if payload.kind == "file" then
+					return payload
+				elseif payload.kind == "missing" then
+					return nil, "server does not have " .. tostring(request.name) .. "/" .. tostring(request.file)
+				elseif payload.kind == "error" then
+					return nil, "server error: " .. tostring(payload.why or "?")
+				end
+			end
+		end
+	end
+	return nil, "no answer from computer " .. tostring(host)
+end
+
 local function repoUrl(base, ...)
 	-- parentheses matter: gsub also returns a count, and inside a table
 	-- constructor that count would become a path segment
@@ -298,6 +339,31 @@ function M:update()
 						counts.packages = counts.packages + 1
 					end
 				end
+			end
+		elseif source.kind == "rednet" then
+			counts.rednet_sources = (counts.rednet_sources or 0) + 1
+			local reply, err = self:rednetFetch(source.host, { kind = "index" })
+			if reply then
+				local index_data = reply.data
+				if type(index_data) == "table" then
+					for name, meta in pairs(index_data) do
+						if type(meta) == "table" then
+							meta.name = meta.name or name
+							meta.version = tostring(meta.version or "0")
+							meta.files = meta.files or {}
+							meta.depends = meta.depends or {}
+							meta.source = "rednet"
+							meta.origin = source.host
+							if not index[name] or self:compareVersions(meta.version, index[name].version) > 0 then
+								index[name] = meta
+							end
+							counts.packages = counts.packages + 1
+						end
+					end
+				end
+			else
+				counts.errors = counts.errors or {}
+				counts.errors[#counts.errors + 1] = "computer " .. tostring(source.host) .. ": " .. tostring(err)
 			end
 		elseif source.kind == "net" then
 			counts.net_sources = counts.net_sources + 1
@@ -566,7 +632,17 @@ function M:installRemote(name, meta, options)
 	local published = meta.sha256 or {}
 	local copied, sums, unverified = {}, {}, {}
 	for _, file in ipairs(meta.files) do
-		local body, err = self:fetch(repoUrl(base, name, file))
+		local body, err
+		if meta.source == "rednet" then
+			local reply, rednetErr = self:rednetFetch(meta.origin, { kind = "file", name = name, file = file })
+			if reply then
+				body = reply.data
+			else
+				err = rednetErr
+			end
+		else
+			body, err = self:fetch(repoUrl(base, name, file))
+		end
 		if not body then
 			for _, done in ipairs(copied) do
 				fs.delete(done)

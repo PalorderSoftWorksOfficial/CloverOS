@@ -1,0 +1,25 @@
+SYSTEMCTL - control the CloverOS init system
+Usage: systemctl <action> [unit]
+
+Manages session units: dependencies, targets, enable/disable state and
+the default boot target, over the kernel service table.
+
+list-units      (default) table of every unit and its state
+status [unit]   detail for one unit, or the default target
+start <unit>    start a unit and everything it depends on
+stop <unit>     stop a unit
+restart <unit>  stop then start a unit
+enable <unit>   start the unit at session boot
+disable <unit>  leave the unit out of the boot
+is-active <u>   print active/inactive
+is-enabled <u>  print enabled/disabled
+set-default <target>  change the boot target
+
+Units: network, cloverd, sshd, multi-user.target, graphical.target.
+Enabled units start with the session; wants fail without failing their
+target. Enable state persists in /etc/clover/init.cfg.
+
+Examples:
+  systemctl start sshd
+  systemctl disable cloverd
+  systemctl set-default graphical.target

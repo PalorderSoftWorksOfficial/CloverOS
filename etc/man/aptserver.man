@@ -1,0 +1,17 @@
+APTSERVER - serve the apt catalog over rednet
+Usage: aptserver [--dir <catalog dir>] [--quiet]
+
+Publishes this computer's package catalog (etc/packages) to every other
+CloverOS machine on the rednet. Clients add it as a source:
+
+  apt add-source rednet <computer id>
+  apt update
+  apt install <package>
+
+The same sha256 integrity rules apply as for GitHub sources: digests are
+published in the index and enforced before anything is written. The server
+runs until terminated (ctrl+T).
+
+Examples:
+  aptserver
+  aptserver --quiet

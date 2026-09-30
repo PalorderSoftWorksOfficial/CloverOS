@@ -249,7 +249,7 @@ local REQUIRED = {
 	"startup.lua", "CloverOS_OS.lua", "boot/loader.lua", "boot/kernel.lua",
 	"runtime/shell.lua", "runtime/gui.lua", "runtime/hash.lua", "libs/mc-imgui.lua",
 	"etc/version.lua", "runtime/paths.lua", "runtime/users.lua", "runtime/packages.lua",
-	"runtime/textui.lua", "runtime/desktop.lua",
+	"runtime/textui.lua", "runtime/desktop.lua", "runtime/init.lua", "runtime/ssh.lua",
 	"bin/ls.lua", "bin/cat.lua", "etc/motd.txt", "etc/man/man.man",
 }
 
@@ -1673,7 +1673,7 @@ runSuite("gnome", function()
 		"apps/terminal.lua", "apps/files.lua", "apps/settings.lua",
 		"apps/sysinfo.lua", "apps/texteditor.lua", "apps/software.lua",
 		"apps/imageviewer.lua", "apps/clocks.lua", "apps/media.lua",
-		"apps/calculator.lua", "apps/help.lua",
+		"apps/calculator.lua", "apps/sysmon.lua", "apps/notes.lua", "apps/help.lua",
 	}) do
 		if not fs.exists("/testroot/" .. rel) then
 			missing[#missing + 1] = rel
@@ -2292,6 +2292,294 @@ runSuite("quickset", function()
 		pass("expired toast is dropped by the loop rule")
 	else
 		fail("toast expiry rule broken")
+	end
+end)
+
+-- ---------- init ----------
+-- The systemd-style unit manager: dependency order, targets, enable
+-- persistence, journal filtering.
+runSuite("init", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local initModule = dofile("/testroot/runtime/init.lua")
+
+	-- kernel stub: services remember their state, journal captures lines
+	local services, journal = {}, {}
+	local LEVELS = { debug = 1, info = 2, warn = 3, error = 4 }
+	local kernel = {
+		info = function(msg) journal[#journal + 1] = "[info] " .. tostring(msg) end,
+		warn = function(msg) journal[#journal + 1] = "[warn] " .. tostring(msg) end,
+		journal = function(minLevel)
+			local min = LEVELS[tostring(minLevel or "debug")] or 1
+			local out = {}
+			for _, line in ipairs(journal) do
+				local level = line:match("^%[([%a]+)%]")
+				if (LEVELS[level or "info"] or 2) >= min then
+					out[#out + 1] = line
+				end
+			end
+			return out
+		end,
+		service = {
+			register = function() return true end,
+			start = function(name) services[name] = true return true end,
+			stop = function(name) services[name] = nil return true end,
+			isRunning = function(name) return services[name] == true end,
+		},
+	}
+
+	-- fake units with a dependency chain c -> b -> a plus a target
+	local calls = {}
+	local units = {
+		a = { description = "a", enabled = true, start = function() calls[#calls + 1] = "a" return true end },
+		b = { description = "b", enabled = true, after = { "a" }, start = function() calls[#calls + 1] = "b" return true end },
+		c = { description = "c", enabled = true, after = { "b" }, start = function() calls[#calls + 1] = "c" return true end },
+		["multi-user.target"] = {
+			description = "target",
+			wants = { "c", "missing-unit" },
+			target = true,
+			start = function() calls[#calls + 1] = "target" return true end,
+		},
+	}
+	local init = initModule.new({ kernel = kernel, paths = paths })
+	for name, unit in pairs(units) do
+		init.units[name] = unit
+	end
+	init.defaultTarget = "multi-user.target"
+
+	local ok = init:boot()
+	if ok then
+		pass("default target boots")
+	else
+		fail("boot failed: " .. tostring(_))
+	end
+	local position = {}
+	for i, name in ipairs(calls) do
+		position[name] = i
+	end
+	if position.a and position.b and position.c and position.a < position.b and position.b < position.c then
+		pass("dependencies start in after-order")
+	else
+		fail("dependency order wrong: " .. table.concat(calls, ","))
+	end
+	if position.target and position.c < position.target then
+		pass("wants start before their target")
+	else
+		fail("wants order wrong: " .. table.concat(calls, ","))
+	end
+	if init.started["missing-unit"] == nil then
+		pass("a missing want does not fail the target")
+	else
+		fail("missing want got started")
+	end
+
+	-- a dependency cycle is reported, not hung
+	local loopy = initModule.new({ kernel = kernel, paths = paths })
+	loopy.units.x = { start = function() return true end, after = { "y" } }
+	loopy.units.y = { start = function() return true end, after = { "x" } }
+	local cycleOk, cycleWhy = loopy:startUnit("x")
+	if not cycleOk and tostring(cycleWhy):find("loop", 1, true) then
+		pass("dependency cycles are reported")
+	else
+		fail("cycle not detected: " .. tostring(cycleWhy))
+	end
+
+	-- enable/disable round trips through etc/clover/init.cfg
+	local en = initModule.new({ kernel = kernel, paths = paths })
+	en.units.mine = { description = "mine", start = function() return true end }
+	en:enable("mine")
+	local fresh = initModule.new({ kernel = kernel, paths = paths })
+	fresh.units.mine = { description = "mine", start = function() return true end }
+	fresh:load()
+	if fresh:isEnabled("mine") then
+		pass("enable state persists to init.cfg")
+	else
+		fail("enable state lost between instances")
+	end
+	en:disable("mine")
+	local re = initModule.new({ kernel = kernel, paths = paths })
+	re.units.mine = { description = "mine", start = function() return true end }
+	re:load()
+	if not re:isEnabled("mine") then
+		pass("disable state persists too")
+	else
+		fail("disable not persisted")
+	end
+
+	-- status and list reflect the boot
+	local state = init:status("c")
+	if state.running and state.enabled then
+		pass("status reflects a started unit")
+	else
+		fail("status wrong for a started unit")
+	end
+	local rows = init:listUnits()
+	if #rows >= 5 then
+		pass("list-units covers every unit")
+	else
+		fail("list-units short: " .. tostring(#rows))
+	end
+
+	-- journalctl filtering over the kernel journal
+	kernel.info("unit started: sshd")
+	kernel.warn("unit sshd failed to greet")
+	local all = init:journalctl({ unit = "sshd" })
+	local onlyWarn = init:journalctl({ unit = "sshd", level = "warn" })
+	local tail = init:journalctl({ lines = 1 })
+	if #all >= 2 and #onlyWarn == 1 and #tail == 1 then
+		pass("journalctl filters by unit, level and tail")
+	else
+		fail("journalctl filters wrong: " .. tostring(#all) .. "/" .. tostring(#onlyWarn) .. "/" .. tostring(#tail))
+	end
+end)
+
+-- ---------- netcmd2 ----------
+-- The ssh client and the rednet apt transport.
+runSuite("netcmd2", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local ssh = dofile("/testroot/runtime/ssh.lua")
+	local packages = dofile("/testroot/runtime/packages.lua").new(paths)
+
+	-- client arg validation needs no hardware
+	local noHost = ssh.run({}, nil, "ls")
+	local noCmd = ssh.run({}, "1", "")
+	local badHost = ssh.run({}, "not-a-number", "ls")
+	if noHost == nil and noCmd == nil and badHost == nil then
+		pass("ssh client rejects empty and malformed requests")
+	else
+		fail("ssh client validation wrong")
+	end
+
+	-- the transport refuses to work without rednet
+	local savedRednet = _G.rednet
+	_G.rednet = nil
+	local noNet = packages:rednetFetch(5, { kind = "index" })
+	_G.rednet = savedRednet
+	if noNet == nil then
+		pass("rednet apt transport refuses a rednet-less host")
+	else
+		fail("rednet transport worked without rednet")
+	end
+
+	-- a full ssh session against an in-memory server, with a rednet stub
+	-- capturing everything the server puts on the wire
+	local replies = {}
+	local savedRednet = _G.rednet
+	_G.rednet = {
+		sent = {},
+		open = function() return true end,			send = function(target, payload, protocol)
+				if type(payload) == "table" then
+					replies[#replies + 1] = payload
+				else
+					local okMsg, msg = pcall(textutils.unserialize, tostring(payload))
+					replies[#replies + 1] = okMsg and msg or { kind = "unparseable" }
+				end
+			end,
+		receive = function(protocol, timeout) return nil end,
+	}
+	local users = dofile("/testroot/runtime/users.lua").new(paths)
+	users:load()
+	if not users:exists("remote") then
+		users:createUser("remote", "secret")
+	end
+	users:login("remote")
+	local ui = dofile("/testroot/runtime/textui.lua").new(paths)
+	local session = dofile("/testroot/runtime/shell.lua").new({
+		paths = paths, users = users, ui = ui, packages = packages,
+	})
+	local kernel = {
+		info = function() end,
+		warn = function() end,
+	}
+	local server = ssh.server({ kernel = kernel, paths = paths, users = users, session = session })
+	local started = server:start()
+	if started then
+		pass("ssh server starts")
+	else
+		fail("ssh server did not start")
+	end
+
+	-- authenticate through the real password path
+	local handled = server:handleOpen("client-computer", {
+		kind = "open", user = "remote", password = "secret", session = "c1",
+		proto = ssh.PROTOCOL,
+	})
+	local sessionIds = {}
+	for id in pairs(server.sessions) do
+		sessionIds[#sessionIds + 1] = id
+	end
+	if handled and #sessionIds == 1 then
+		pass("authenticated open creates a session")
+	else
+		fail("open did not create a session")
+	end
+	local sid = sessionIds[1]
+
+	-- a wrong password is denied and journaled
+	local denied = server:handleOpen("client-computer", {
+		kind = "open", user = "remote", password = "wrong", session = "c2",
+	})
+	local still = 0
+	for _ in pairs(server.sessions) do
+		still = still + 1
+	end
+	if denied and still == 1 then
+		pass("wrong password denied")
+	else
+		fail("wrong password accepted")
+	end
+
+	-- run a command through the forked shell
+	local sid = next(server.sessions)
+	server:handleCommand("client-computer", {
+		kind = "command", session = sid, line = "echo remote_ok",
+	})
+	local out
+	for i = #replies, 1, -1 do
+		if replies[i] and replies[i].kind == "output" then
+			out = replies[i]
+			break
+		end
+	end
+	if type(out) == "table" and out.kind == "output" then
+		local body = table.concat(out.lines or {}, "|")
+		if body:find("remote_ok", 1, true) then
+			pass("command output reaches the wire")
+		else
+			fail("output wrong: " .. body)
+		end
+	else
+		local kinds = {}
+		for _, r in ipairs(replies) do
+			kinds[#kinds + 1] = tostring(r and r.kind)
+		end
+		fail("no output reply captured (got " .. type(out) .. ") kinds=[" .. table.concat(kinds, ",") .. "]")
+	end
+	-- the fork reports what it buffered
+	local fork = server.sessions[sid] and server.sessions[sid].sh
+	if fork and type(fork.execute) == "function" and type(fork.drainOutput) == "function" then
+		pass("sessions run in forked shells with captured output")
+	else
+		fail("session shell is not a fork")
+	end
+
+	-- close and idle reaping
+	server:handleCommand("client-computer", { kind = "command", session = "nope", line = "x" })
+	server:dispatch({ "rednet_message", "rednet", 7, textutils.serialize({ kind = "close", session = sid, proto = ssh.PROTOCOL }) })
+	if next(server.sessions) == nil then
+		pass("close tears the session down")
+	else
+		fail("session not closed")
+	end
+	server:stop()
+	_G.rednet = savedRednet
+	if not server.running then
+		pass("server stops cleanly")
+	else
+		fail("server kept running")
 	end
 end)
 

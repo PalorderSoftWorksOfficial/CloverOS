@@ -30,6 +30,8 @@ local FILES = {
 	"runtime/system.lua",
 	"runtime/access.lua",
 	"runtime/cloverd.lua",
+	"runtime/init.lua",
+	"runtime/ssh.lua",
 	"runtime/theme.lua",
 	"runtime/notifications.lua",
 	"runtime/packages.lua",
@@ -64,6 +66,8 @@ local FILES = {
 	"bin/wget.lua",
 	"bin/gps.lua",
 	"bin/rednet.lua",
+	"bin/ssh.lua",
+	"bin/aptserver.lua",
 	"bin/df.lua",
 	"etc/packages/example/package.lua",
 	"etc/packages/example/bin/hello.lua",
@@ -89,6 +93,8 @@ local OPTIONAL_FILES = {
 	"apps/clocks.lua",
 	"apps/media.lua",
 	"apps/calculator.lua",
+	"apps/sysmon.lua",
+	"apps/notes.lua",
 	"apps/help.lua",
 }
 
@@ -96,16 +102,16 @@ local OPTIONAL_FILES = {
 -- cannot be missed); net mode fetches this explicit list because raw GitHub
 -- cannot enumerate directories. Keep it in step with etc/man.
 local NET_MAN_PAGES = {
-	"ae2.man", "alias.man", "apt.man", "cat.man", "cd.man",
+	"ae2.man", "alias.man", "apt.man", "aptserver.man", "cat.man", "cd.man",
 	"chmod.man", "clear.man", "cloveros.man", "cls.man", "copy.man",
 	"cp.man", "date.man", "df.man", "del.man", "dmesg.man", "echo.man",
 	"export.man", "gps.man", "grep.man", "groups.man", "head.man",
-	"history.man", "hostname.man", "install.man", "ls.man", "man.man",
-	"mkdir.man", "mv.man", "neofetch.man", "net.man", "ping.man",
+	"history.man", "hostname.man", "install.man", "journalctl.man", "ls.man",
+	"man.man", "mkdir.man", "mv.man", "neofetch.man", "net.man", "ping.man",
 	"pwd.man", "reboot.man", "rednet.man", "ren.man", "rm.man",
-	"rmdir.man", "run.man", "sleep.man", "stat.man", "sudo.man",
-	"tail.man", "time.man", "touch.man", "type.man", "unalias.man",
-	"wget.man", "which.man", "whoami.man",
+	"rmdir.man", "run.man", "sleep.man", "ssh.man", "stat.man", "sudo.man",
+	"systemctl.man", "tail.man", "time.man", "touch.man", "type.man",
+	"unalias.man", "wget.man", "which.man", "whoami.man",
 }
 
 local DIRS = {

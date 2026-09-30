@@ -1419,6 +1419,48 @@ function M.new(deps)
 		end
 	end
 
+	-- the init system is built lazily on first use and lives for the life
+	-- of the shell session, the same way the package manager does
+	local initInstance = nil
+	local function initModule()
+		if initInstance ~= nil then
+			return initInstance or nil
+		end
+		if not (kernel and self.paths) then
+			initInstance = false
+			return nil
+		end
+		local okInit, module = pcall(dofile, self.paths:join("runtime", "init.lua"))
+		if not okInit or type(module) ~= "table" or type(module.new) ~= "function" then
+			initInstance = false
+			return nil
+		end
+		local built, instance = pcall(module.new, {
+			kernel = kernel,
+			paths = self.paths,
+		})
+		if not built or type(instance) ~= "table" then
+			initInstance = false
+			return nil
+		end
+		initInstance = instance
+		return instance
+	end
+
+	local sshInstance = nil
+	local function sshModule()
+		if sshInstance ~= nil then
+			return sshInstance or nil
+		end
+		local okSsh, module = pcall(dofile, self.paths:join("runtime", "ssh.lua"))
+		if not okSsh or type(module) ~= "table" or type(module.run) ~= "function" then
+			sshInstance = false
+			return nil
+		end
+		sshInstance = module
+		return module
+	end
+
 	builtins.service = function(action, name)
 		if not kernel or not kernel.service then
 			println("service: kernel unavailable")
@@ -1442,6 +1484,172 @@ function M.new(deps)
 			println(tostring(name) .. ": " .. (kernel.service.isRunning(name) and "running" or "stopped"))
 		else
 			println("usage: service <list|start|stop|restart|status> [name]")
+		end
+	end
+
+	-- systemctl: the init unit manager over the kernel service table
+	builtins.systemctl = function(action, name)
+		local initModule = initModule()
+		if not initModule then
+			println("systemctl: init system unavailable")
+			self.lastStatus = 1
+			return
+		end
+		action = tostring(action or "list-units")
+		if action == "list-units" or action == "list-unit-files" or action == "list" then
+			println(string.format("%-20s %-9s %-9s %-9s %s", "UNIT", "LOAD", "ACTIVE", "ENABLED", "DESCRIPTION"))
+			for _, row in ipairs(initModule:listUnits()) do
+				println(string.format("%-20s %-9s %-9s %-9s %s",
+					row.name, row.loaded, row.active, row.enabled, row.description))
+			end
+		elseif action == "status" then
+			if not name then
+				println("default target: " .. tostring(initModule.defaultTarget))
+				println("units: " .. tostring(#initModule:unitNames()))
+				return
+			end
+			local state, why = initModule:status(name)
+			if not state then
+				println("systemctl: " .. tostring(why))
+				self.lastStatus = 1
+				return
+			end
+			println(state.name .. " - " .. state.description)
+			println("   Loaded: loaded (" .. (state.enabled and "enabled" or "disabled") .. ")")
+			println("   Active: " .. (state.running and "active" or "inactive"))
+			if #state.after > 0 then
+				println("     After: " .. table.concat(state.after, " "))
+			end
+			if #state.wants > 0 then
+				println("     Wants: " .. table.concat(state.wants, " "))
+			end
+		elseif action == "start" or action == "stop" then
+			if not name then
+				println("systemctl: which unit?")
+				self.lastStatus = 1
+				return
+			end
+			local ok, why
+			if action == "start" then
+				ok, why = initModule:startUnit(name)
+			else
+				ok, why = initModule:stopUnit(name)
+			end
+			if not ok then
+				println("systemctl: " .. tostring(why))
+				self.lastStatus = 1
+			else
+				println(tostring(name) .. " " .. action .. "ed")
+			end
+		elseif action == "restart" then
+			if not name then
+				println("systemctl: which unit?")
+				self.lastStatus = 1
+				return
+			end
+			initModule:stopUnit(name)
+			local ok, why = initModule:startUnit(name)
+			if not ok then
+				println("systemctl: " .. tostring(why))
+				self.lastStatus = 1
+			end
+		elseif action == "enable" or action == "disable" then
+			if not name then
+				println("systemctl: which unit?")
+				self.lastStatus = 1
+				return
+			end
+			local ok, why = initModule[action](initModule, name)
+			if not ok then
+				println("systemctl: " .. tostring(why))
+				self.lastStatus = 1
+			else
+				println(tostring(name) .. " " .. action .. "d")
+			end
+		elseif action == "is-active" or action == "is-enabled" then
+			if not name then
+				println("systemctl: which unit?")
+				self.lastStatus = 1
+				return
+			end
+			local state = initModule:status(name)
+			if not state then
+				println("unknown unit: " .. tostring(name))
+				self.lastStatus = 1
+			elseif action == "is-active" then
+				println(state.running and "active" or "inactive")
+			else
+				println(state.enabled and "enabled" or "disabled")
+			end
+		elseif action == "set-default" then
+			if not (name and initModule.units[name]) then
+				println("systemctl: unknown target: " .. tostring(name))
+				self.lastStatus = 1
+				return
+			end
+			initModule.defaultTarget = name
+			initModule:persist()
+			println("default target set to " .. name)
+		else
+			println("usage: systemctl <list-units|status|start|stop|restart|enable|disable|is-active|is-enabled|set-default> [unit]")
+		end
+	end
+
+	-- journalctl: query the kernel journal with systemd-style filters
+	builtins.journalctl = function(opts)
+		local initModule = initModule()
+		if not initModule then
+			println("journalctl: init system unavailable")
+			self.lastStatus = 1
+			return
+		end
+		opts = tostring(opts or "")
+		local query = {}
+		for token in opts:gmatch("%S+") do
+			local key, value = token:match("^%-%-(%w+)=(.+)$")
+			if key then
+				query[key] = value
+			else
+				query.unit = token
+			end
+		end
+		local entries = initModule:journalctl({
+			unit = query.unit,
+			level = query.level or "debug",
+			lines = tonumber(query.lines or query.n or 0),
+			})
+		if #entries == 0 then
+			println("-- No entries --")
+			return
+		end
+		for _, line in ipairs(entries) do
+			println(line)
+		end
+	end
+
+	-- ssh into another computer (thin wrapper; see bin/ssh.lua too)
+	builtins.ssh = function(host, ...)
+		local parts = { ... }
+		if not host or #parts == 0 then
+			println("usage: ssh <computer id> <command>")
+			return
+		end
+		local sshModule = sshModule()
+		if not sshModule then
+			println("ssh: runtime/ssh.lua unavailable")
+			self.lastStatus = 1
+			return
+		end
+		local command = table.concat(parts, " ")
+		local ok, err = sshModule.run({
+			user = users and users.currentName and users:currentName() or nil,
+			ui = self.ui,
+		}, host, command, function(line)
+			println(line)
+		end)
+		if not ok then
+			println("ssh: " .. tostring(err))
+			self.lastStatus = 1
 		end
 	end
 

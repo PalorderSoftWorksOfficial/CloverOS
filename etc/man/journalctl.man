@@ -1,0 +1,15 @@
+JOURNALCTL - query the session journal
+Usage: journalctl [--unit=<name>] [--level=<lvl>] [--lines=<n>] [unit]
+
+Reads the kernel journal the way journalctl reads the systemd one. With
+no arguments it prints everything since boot.
+
+--unit=<name>   only entries mentioning <name>
+--level=<lvl>   minimum level: debug, info, warn, error
+--lines=<n>     only the last n entries
+[unit]          shorthand for --unit=<unit>
+
+Examples:
+  journalctl --unit=sshd
+  journalctl --level=warn --lines=20
+  journalctl cloverd

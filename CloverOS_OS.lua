@@ -244,6 +244,24 @@ while true do
 					bootInfo("cloverd unavailable: " .. tostring(why))
 				end
 			end
+			-- bring the session's units up the systemd way: dependencies,
+			-- wants, the default target, and a journal entry per unit. A
+			-- failure here must never cost the session, so it stays pcall'd.
+			local initOk, initErr = pcall(function()
+				local initModule = dofile(fs.combine(CLOVER_ROOT, "runtime/init.lua"))
+				local pathsModule = dofile(fs.combine(CLOVER_ROOT, "runtime/paths.lua"))
+				local init = initModule.attach(kernel, pathsModule.new(CLOVER_ROOT), {
+					system = system,
+					users = users,
+					daemon = (cloverdOk and cloverd) or nil,
+				})
+				if init then
+					init:boot()
+				end
+			end)
+			if not initOk then
+				bootInfo("init system unavailable: " .. tostring(initErr))
+			end
 		end
 		session.running = true
 		session.logoutRequested = nil
