@@ -6,6 +6,7 @@ function M.new(deps)
 	deps = deps or {}
 	local win = deps.window
 	local paths = deps.paths
+	local desktop = deps.desktop
 
 	local cwd = "/"
 	local entries = {}
@@ -70,7 +71,7 @@ function M.new(deps)
 		end
 		term.setTextColor(colors.lightGray)
 		term.setCursorPos(1, win.frame.h - 1)
-		term.write("enter:open  bs:up  del:rm  c:new  click:select")
+		term.write("enter:open  bs:up  del:rm  c:new  w:wallpaper  click:select")
 		term.setTextColor(colors.white)
 	end
 
@@ -127,6 +128,24 @@ function M.new(deps)
 				refresh()
 			elseif key == keys.enter and selected then
 				openEntry(selected)
+			elseif key == keys.w and selected and not selected.isDir
+				and selected.name:sub(-4) == ".nfp" and desktop and desktop.themeCfg then
+				-- set as wallpaper: the desktop persists the choice per user
+				local targetDir = paths and paths:join("home", ".config", "clover")
+					or ".config/clover"
+				fs.makeDir(targetDir)
+				local destination = fs.combine(targetDir, "wallpaper.nfp")
+				if pcall(fs.copy, absPath(selected.name), destination) then
+					desktop.themeCfg.wallpaper = destination
+					if desktop.saveTheme then
+						desktop.saveTheme()
+					end
+					status = "wallpaper set: " .. selected.name
+				else
+					status = "could not copy " .. selected.name
+				end
+			elseif key == keys.w then
+				status = "select an .nfp image first"
 			end
 		end,
 		onChar = function(w, ch) end,
