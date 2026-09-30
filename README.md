@@ -132,6 +132,13 @@ The installer is a Linux-style program: it builds a plan, asks for anything
 missing, copies and verifies the files, writes the configuration an
 installed system needs, and logs everything it did.
 
+Interactive installs run in a flicker-free buffered menu: arrow keys or
+`w`/`s` to move, `Enter` to confirm. Every menu line and message is wrapped
+or truncated to the terminal width, so nothing runs off screen. Editions:
+Full, Soft (lightweight) and Turtle (adds `rturtle` and `autominer`); the
+theme, accent, wallpaper and auto-login menus write the desktop
+configuration they describe.
+
 ```
 install                          guided installation
 install /disk                    install to a mounted disk

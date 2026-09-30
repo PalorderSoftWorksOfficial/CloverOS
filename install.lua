@@ -1,23 +1,9 @@
--- CloverOS installer: installs CloverOS onto a CraftOS computer.
---
--- The installer is Linux-like: it builds a plan (target, filesystem layout,
--- task set, account), asks for anything missing, copies and verifies the
--- files, writes /etc/fstab and the boot loader configuration, and records
--- everything in /var/log/install.log plus /var/lib/install-status.txt.
---
--- Usage (from a clean computer, inside a repository checkout):
---   install                       guided installation
---   install /disk                 install to a mounted disk
---   install --local               install from repository files on this computer
---   install --net                 install from GitHub (requires HTTP)
---   install --local-source <root> [target]    install from an explicit source
---   install --no-prompt           unattended, with defaults
---   install disks | tasks | status | verify    installer utilities
---   install --help                full option list
 local BASE = "https://raw.githubusercontent.com/PalorderSoftWorksOfficial/CloverOS/main/"
+local CDN_BASE = "https://endpoint.palorderhosting.net/"
+local MANIFEST_NAME = "files.manifest"
+local MAX_CONCURRENT = 16
+local VERSION_FALLBACK = "3.0.0"
 
--- Canonical runtime file list. The installer installs exactly this list.
--- Keep in sync with the repository; tests/syntax_check.lua verifies coverage.
 local FILES = {
 	"startup.lua",
 	"CloverOS_OS.lua",
@@ -82,8 +68,6 @@ local FILES = {
 	"etc/packages/sl/bin/sl.lua",
 }
 
--- Desktop applications are optional: the OS boots and stays in text mode
--- without them (the `cloveros` command simply reports them missing).
 local OPTIONAL_FILES = {
 	"apps/desktop.lua",
 	"apps/terminal.lua",
@@ -101,9 +85,6 @@ local OPTIONAL_FILES = {
 	"apps/help.lua",
 }
 
--- man pages: local mode copies the whole etc/man directory (so new pages
--- cannot be missed); net mode fetches this explicit list because raw GitHub
--- cannot enumerate directories. Keep it in step with etc/man.
 local NET_MAN_PAGES = {
 	"ae2.man", "alias.man", "apt.man", "aptserver.man", "cat.man", "cd.man",
 	"chmod.man", "clear.man", "cloveros.man", "cls.man", "copy.man",
@@ -140,12 +121,15 @@ local DIRS = {
 	"tmp",
 }
 
--- Task sets, the installer's answer to Debian's package selections. Each
--- task lists the catalog packages that belong to it.
--- Task sets mirror what a real distribution ships in the base image: the
--- core tools are already on disk, so most tasks add nothing. `example` is a
--- demonstration package and is deliberately not part of any task; install it
--- yourself with `apt install example`.
+local TURTLE_PACKAGE_FILES = {
+	"etc/apt/packages/rturtle/package.json",
+	"etc/apt/packages/rturtle/rturtle.exe",
+	"etc/apt/packages/rturtle/turtlelib.exe",
+	"etc/apt/packages/rturtle/d1.lua",
+	"etc/apt/packages/autominer/package.json",
+	"etc/apt/packages/autominer/autominer.exe",
+}
+
 local TASKS = {
 	minimal = { description = "text shell only", packages = {} },
 	terminal = { description = "full shell, editors and core tools", packages = {} },
@@ -165,42 +149,197 @@ do
 	TASK_NAMES = names
 end
 
--- ---------- tiny output helpers ----------
-local function colorWrite(text, color)
-	local old = term.getTextColor()
-	term.setTextColor(color or colors.white)
-	term.write(text)
-	term.setTextColor(old)
+local ogTerm = term.current()
+local termX, termY = 51, 19
+if ogTerm and type(ogTerm.getSize) == "function" then
+	local ok, w, h = pcall(ogTerm.getSize)
+	if ok and type(w) == "number" and type(h) == "number" then
+		termX, termY = w, h
+	end
+end
+local bufferWindow
+if window and type(window.create) == "function" and ogTerm then
+	bufferWindow = window.create(ogTerm, 1, 1, termX, termY)
 end
 
-local function line(text)
-	term.write(tostring(text or "") .. "\n")
+local function truncate(text, width)
+	text = tostring(text or "")
+	width = tonumber(width) or termX
+	if width < 1 then
+		width = 1
+	end
+	return text:sub(1, width)
+end
+
+local menuMode = false
+
+local function menuSetup()
+	if not bufferWindow then
+		return
+	end
+	if type(bufferWindow.setVisible) == "function" then
+		bufferWindow.setVisible(false)
+	end
+	term.redirect(bufferWindow)
+	term.clear()
+	term.setCursorPos(1, 1)
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.white)
+end
+
+local function menuRedraw()
+	if menuMode and bufferWindow then
+		if type(bufferWindow.setVisible) == "function" then
+			bufferWindow.setVisible(true)
+		end
+		term.redirect(ogTerm)
+	end
+end
+
+local function wrapLine(text, width)
+	local words = {}
+	for word in tostring(text or ""):gmatch("%S+") do
+		words[#words + 1] = word
+	end
+	local lines, current = {}, ""
+	for _, word in ipairs(words) do
+		if current == "" then
+			current = word
+		elseif #current + 1 + #word <= width then
+			current = current .. " " .. word
+		else
+			lines[#lines + 1] = current
+			current = word
+		end
+	end
+	if current ~= "" or #lines == 0 then
+		lines[#lines + 1] = current
+	end
+	return lines
 end
 
 local function say(text)
-	colorWrite(tostring(text or "") .. "\n", colors.white)
+	if bufferWindow then
+		menuRedraw()
+	end
+	for _, row in ipairs(wrapLine(text, termX)) do
+		print(truncate(row, termX))
+	end
 end
 
 local function good(text)
-	colorWrite(tostring(text or "") .. "\n", colors.green)
+	if bufferWindow then
+		menuRedraw()
+	end
+	term.setTextColor(colors.lime)
+	for _, row in ipairs(wrapLine(text, termX)) do
+		print(truncate(row, termX))
+	end
+	term.setTextColor(colors.white)
 end
 
 local function bad(text)
-	colorWrite(tostring(text or "") .. "\n", colors.red)
+	if bufferWindow then
+		menuRedraw()
+	end
+	term.setTextColor(colors.red)
+	for _, row in ipairs(wrapLine(text, termX)) do
+		print(truncate(row, termX))
+	end
+	term.setTextColor(colors.white)
 end
 
 local function warn(text)
-	colorWrite("warning: " .. tostring(text or "") .. "\n", colors.orange)
+	if bufferWindow then
+		menuRedraw()
+	end
+	term.setTextColor(colors.orange)
+	for _, row in ipairs(wrapLine("warning: " .. tostring(text), termX)) do
+		print(truncate(row, termX))
+	end
+	term.setTextColor(colors.white)
 end
 
 local function step(number, total, text)
+	if bufferWindow then
+		menuRedraw()
+	end
 	local prefix = "[" .. tostring(number) .. "/" .. tostring(total) .. "] "
-	colorWrite(prefix, colors.lightGray)
-	term.write(tostring(text or ""))
+	term.write(prefix .. truncate(text, termX - #prefix))
 end
 
 local function pass()
-	colorWrite("OK\n", colors.green)
+	if bufferWindow then
+		menuRedraw()
+	end
+	print("OK")
+end
+
+local function menuOptions(title, choices, actions)
+	local check = true
+	local nSelection = 1
+	menuMode = true
+	repeat
+		if bufferWindow then
+			menuSetup()
+		else
+			term.clear()
+			term.setCursorPos(1, 1)
+			term.setBackgroundColor(colors.black)
+			term.setTextColor(colors.white)
+		end
+		local w, height = termX, termY
+		if bufferWindow and type(term.getSize) == "function" then
+			local okSize, sw, sh = pcall(term.getSize)
+			if okSize and type(sw) == "number" and type(sh) == "number" then
+				w, height = sw, sh
+			end
+		end
+		if paintutils and type(paintutils.drawLine) == "function" then
+			paintutils.drawLine(1, 1, w, 1, colors.gray)
+		else
+			term.setBackgroundColor(colors.gray)
+			term.setCursorPos(1, 1)
+			term.write(string.rep(" ", w))
+		end
+		term.setCursorPos(1, 1)
+		term.setBackgroundColor(colors.gray)
+		term.setTextColor(colors.white)
+		term.write(truncate(title, w))
+		term.setBackgroundColor(colors.black)
+		for nLine = 1, #choices do
+			local row = (nLine == nSelection and "> " or "  ") .. tostring(choices[nLine])
+			term.setCursorPos(1, 2 + nLine)
+			if nLine == nSelection then
+				term.setTextColor(colors.lightGray)
+			else
+				term.setTextColor(colors.white)
+			end
+			term.write(truncate(row, w))
+		end
+		if height >= 4 then
+			term.setTextColor(colors.gray)
+			term.setCursorPos(1, height)
+			term.write(truncate("[arrows] select   [Enter] confirm", w))
+		end
+		menuRedraw()
+		local _, nKey = os.pullEvent("key")
+		if nKey == keys.up or nKey == keys.w then
+			if choices[nSelection - 1] then
+				nSelection = nSelection - 1
+			end
+		elseif nKey == keys.down or nKey == keys.s then
+			if choices[nSelection + 1] then
+				nSelection = nSelection + 1
+			end
+		elseif nKey == keys.enter then
+			if actions and actions[nSelection] then
+				actions[nSelection]()
+				check = false
+			end
+		end
+	until check == false
+	menuMode = false
 end
 
 local function readAll(path)
@@ -224,11 +363,8 @@ local function writeAll(path, data)
 	return true
 end
 
--- ---------- install log ----------
 local logLines = {}
 
--- CC:Tweaked has no textutils.date (it arrived in later CC:Tweaked versions
--- and is absent from CraftOS-PC 1.9), so the log is stamped with os.date.
 local function stamp()
 	local ok, value = pcall(os.date, "%Y-%m-%d %H:%M:%S")
 	if ok and type(value) == "string" then
@@ -248,7 +384,6 @@ local function flushLog(target)
 	return path
 end
 
--- ---------- argument parsing ----------
 local ACTIONS = { install = true, verify = true, status = true, disks = true, tasks = true }
 
 local VALUE_OPTIONS = {
@@ -325,43 +460,40 @@ local function parseArgs(argv)
 end
 
 local function usage()
-	line("CloverOS installer")
-	line("")
-	line("usage: install [options] [target]")
-	line("")
-	line("actions:")
-	line("  (default)        guided installation")
-	line("  verify           check installed files against the sha256 manifest")
-	line("  status           print what is installed")
-	line("  disks            list installation targets")
-	line("  tasks            list available task sets")
-	line("")
-	line("options:")
-	line("  --local          install from repository files on this computer")
-	line("  --net            install from GitHub (requires HTTP)")
-	line("  --local-source <root>   install from an explicit repository root")
-	line("  --target <path>  install target (default: /)")
-	line("  --type erase|alongside|manual")
-	line("  --root <path>    manual layout: root mount point")
-	line("  --home <path>    manual layout: home mount point")
-	line("  --boot <path>    manual layout: boot mount point")
-	line("  --erase-data     allow the installer to erase existing data")
-	line("  --taskset <list> comma separated task sets")
-	line("  --user <name>    initial account")
-	line("  --password <pw>  initial account password (unattended only)")
-	line("  --hostname <name> system hostname")
-	line("  --lang <code>    locale, e.g. en-US")
-	line("  --session <name> gnome (default) or text")
-	line("  --dry-run        show the plan without writing anything")
-	line("  --no-prompt      never ask; use defaults")
-	line("  --force          do not ask for confirmation")
-	line("  --quiet          less output")
+	say("CloverOS installer")
+	say("")
+	say("usage: install [options] [target]")
+	say("")
+	say("actions:")
+	say("  (default)        guided installation")
+	say("  verify           check installed files against the sha256 manifest")
+	say("  status           print what is installed")
+	say("  disks            list installation targets")
+	say("  tasks            list available task sets")
+	say("")
+	say("options:")
+	say("  --local          install from repository files on this computer")
+	say("  --net            install from GitHub (requires HTTP)")
+	say("  --local-source <root>   install from an explicit repository root")
+	say("  --target <path>  install target (default: /)")
+	say("  --type erase|alongside|manual")
+	say("  --root <path>    manual layout: root mount point")
+	say("  --home <path>    manual layout: home mount point")
+	say("  --boot <path>    manual layout: boot mount point")
+	say("  --erase-data     allow the installer to erase existing data")
+	say("  --taskset <list> comma separated task sets")
+	say("  --user <name>    initial account")
+	say("  --password <pw>  initial account password (unattended only)")
+	say("  --hostname <name> system hostname")
+	say("  --lang <code>    locale, e.g. en-US")
+	say("  --session <name> gnome (default) or text")
+	say("  --dry-run        show the plan without writing anything")
+	say("  --no-prompt      never ask; use defaults")
+	say("  --force          do not ask for confirmation")
+	say("  --quiet          less output")
 end
 
--- ---------- source discovery ----------
 local function localSource()
-	-- The repository checkout itself is the local source when running from it.
-	-- A read-only mounted checkout (e.g. /src in the test harness) also counts.
 	if fs.exists("/src/startup.lua") and fs.exists("/src/boot/kernel.lua") and fs.exists("/src/runtime/shell.lua") then
 		return "/src"
 	end
@@ -384,8 +516,8 @@ local function sourceRoot()
 	return localSource()
 end
 
-local function fetch(relPath)
-	local url = BASE .. relPath
+local function fetch(relPath, baseURL)
+	local url = (baseURL or BASE) .. relPath
 	local res = http.get(url)
 	if not res then
 		return nil, "download failed: " .. url
@@ -400,7 +532,6 @@ local function fetch(relPath)
 	return data
 end
 
--- bytes of a repository file, from disk or over HTTP
 local function sourceBytes(relPath)
 	if options.mode == "net" then
 		return fetch(relPath)
@@ -412,9 +543,16 @@ local function sourceBytes(relPath)
 	return readAll(fs.combine(root, relPath))
 end
 
--- ---------- filesystem layout ----------
+local function sizeOf(path)
+	local ok, value = pcall(fs.getSize, path)
+	if ok and type(value) == "number" then
+		return value
+	end
+	return 0
+end
+
 local function listDisks()
-	local disks = { { name = "root filesystem", path = "/", free = fs.getSize("/") } }
+	local disks = { { name = "root filesystem", path = "/", free = sizeOf("/") } }
 	local ok, names = pcall(fs.list, "/")
 	if ok and type(names) == "table" then
 		for _, name in ipairs(names) do
@@ -423,7 +561,7 @@ local function listDisks()
 				disks[#disks + 1] = {
 					name = name,
 					path = path,
-					free = (fs.isDir(path) and fs.getSize(path) or 0),
+					free = sizeOf(path),
 				}
 			end
 		end
@@ -439,12 +577,14 @@ local function defaultHostname()
 	return "clover-" .. tostring(os.getComputerID())
 end
 
--- ---------- prompting ----------
 local function ask(label, default)
 	if options.noPrompt then
 		return default
 	end
-	term.write(label)
+	if bufferWindow then
+		menuRedraw()
+	end
+	term.write(truncate(label, termX - 8))
 	if default ~= nil and default ~= "" then
 		term.write(" [" .. tostring(default) .. "] ")
 	else
@@ -461,20 +601,32 @@ local function ask(label, default)
 	return answer
 end
 
-local function askChoice(label, choices, defaultIndex)
+local function askSecret(label)
 	if options.noPrompt then
-		return defaultIndex
+		return nil
 	end
-	line("")
-	line(label)
-	for i, choice in ipairs(choices) do
-		line("  " .. i .. ") " .. tostring(choice))
+	if bufferWindow then
+		menuRedraw()
 	end
-	local answer = tonumber(ask("Choice", tostring(defaultIndex)))
-	if not answer or answer < 1 or answer > #choices then
-		return defaultIndex
+	term.write(truncate(label, termX - 2))
+	return read("*")
+end
+
+local function askMenu(label, choices, values, defaultIndex)
+	local index = defaultIndex or 1
+	if options.noPrompt then
+		return values[index]
 	end
-	return answer
+	local picked = nil
+	menuOptions(label, choices, {
+		function()
+			picked = values[index]
+		end,
+	})
+	if picked == nil then
+		picked = values[index]
+	end
+	return picked
 end
 
 local function confirm(label, defaultYes)
@@ -489,7 +641,6 @@ local function confirm(label, defaultYes)
 	return first == "y"
 end
 
--- ---------- plan ----------
 local function parseTaskList(text)
 	local tasks = {}
 	if not text or text == "" then
@@ -521,11 +672,58 @@ local function taskPackages(tasks)
 	return list
 end
 
+local function chooseType(plan)
+	if options.type and options.type ~= "erase" and options.type ~= "alongside" and options.type ~= "manual" then
+		return nil, "unknown installation type: " .. tostring(options.type)
+	end
+	local chosen = options.type
+	if not chosen then
+		if options.noPrompt then
+			chosen = "alongside"
+		else
+			chosen = askMenu("How should CloverOS use this drive?", {
+				"Alongside existing data",
+				"Erase the target",
+				"Manual layout",
+			}, { "alongside", "erase", "manual" }, 1)
+		end
+	end
+	if chosen == "erase" and not options.eraseData then
+		if options.noPrompt then
+			chosen = "alongside"
+			warn("erase requires --erase-data; keeping existing data instead")
+		elseif not confirm("Erase all data on " .. tostring(plan.target) .. "?") then
+			chosen = "alongside"
+		end
+	end
+	plan.type = chosen
+	return plan
+end
+
+local function chooseTarget(plan)
+	if not options.target and not options.noPrompt then
+		local disks = listDisks()
+		if #disks > 1 then
+			local labels, paths = {}, {}
+			for i, disk in ipairs(disks) do
+				labels[i] = disk.name .. " (" .. tostring(disk.free) .. " bytes)"
+				paths[i] = disk.path
+			end
+			local picked = askMenu("Select target disk", labels, paths, 1)
+			if picked then
+				plan.target = picked
+			end
+		end
+	end
+	plan.target = plan.target or "/"
+	return plan
+end
+
 local function buildPlan()
 	local plan = {
 		target = options.target or "/",
 		mode = options.mode,
-		type = options.type,
+		type = nil,
 		tasks = {},
 		mounts = {},
 		hostname = options.hostname,
@@ -535,55 +733,15 @@ local function buildPlan()
 		password = options.password,
 		erase = options.eraseData,
 		dryRun = options.dryRun,
+		edition = "default",
 	}
 
-	if plan.type and plan.type ~= "erase" and plan.type ~= "alongside" and plan.type ~= "manual" then
-		return nil, "unknown installation type: " .. tostring(plan.type)
+	local okType, typeErr = chooseType(plan)
+	if not okType then
+		return nil, typeErr
 	end
+	chooseTarget(plan)
 
-	-- installation type: never destructive unless explicitly requested
-	if not plan.type then
-		if options.noPrompt then
-			plan.type = "alongside"
-		else
-			local choice = askChoice("How should CloverOS use this drive?", {
-				"Install alongside existing data (keeps your files)",
-				"Erase the target and install (removes existing data)",
-				"Manual layout (choose the mount points yourself)",
-			}, 1)
-			plan.type = ({ "alongside", "erase", "manual" })[choice]
-		end
-	end
-	if plan.type == "erase" and not options.eraseData then
-		-- unattended installs never destroy data without --erase-data
-		if options.noPrompt then
-			plan.type = "alongside"
-			warn("erase requires --erase-data; keeping existing data instead")
-		elseif not confirm("Erase all data on " .. tostring(plan.target) .. "?") then
-			plan.type = "alongside"
-		end
-	end
-
-	-- target
-	if not options.target and not options.noPrompt then
-		local disks = listDisks()
-		if #disks > 1 then
-			line("")
-			line("Available targets:")
-			for i, disk in ipairs(disks) do
-				line("  " .. i .. ") " .. disk.name .. "  " .. disk.path ..
-					"  (" .. tostring(disk.free) .. " bytes free)")
-			end
-			local choice = tonumber(ask("Target", "1")) or 1
-			if choice < 1 or choice > #disks then
-				choice = 1
-			end
-			plan.target = disks[choice].path
-		end
-	end
-	plan.target = plan.target or "/"
-
-	-- filesystem layout
 	if plan.type == "manual" then
 		plan.mounts["/"] = options.rootMount or ask("Root mount point", "/")
 		plan.mounts["/home"] = options.homeMount or ask("Home mount point (blank to share)", "/home")
@@ -594,41 +752,27 @@ local function buildPlan()
 		plan.mounts["/boot"] = fs.combine(plan.target, "boot")
 	end
 
-	-- task sets
 	local taskset = options.taskset
 	if not taskset then
 		if options.noPrompt then
 			taskset = "terminal,utilities"
 		else
-			line("")
-			line("Task sets:")
-			for _, name in ipairs(TASK_NAMES) do
-				line("  " .. name .. " - " .. TASKS[name].description)
-			end
 			taskset = ask("Tasks to install (comma separated)", "terminal")
 		end
 	end
-	local tasks, err = parseTaskList(taskset)
+	local tasks, taskErr = parseTaskList(taskset)
 	if not tasks then
-		return nil, err
+		return nil, taskErr
 	end
 	plan.tasks = tasks
 
-	-- account
 	plan.hostname = plan.hostname or ask("Hostname", defaultHostname())
 	if not plan.user and not options.noPrompt then
-		line("")
-		line("Create the first account (administrator).")
-		plan.user = ask("Username", os.getComputerLabel() or "clover")
-	end
-	if not plan.user and options.noPrompt then
-		plan.user = nil -- the OS runs first-run setup on first boot
+		plan.user = ask("Username for the first account", os.getComputerLabel() or "clover")
 	end
 	if plan.user and not plan.password and not options.noPrompt then
-		write("Password: ")
-		plan.password = read("*") or ""
-		write("Confirm:  ")
-		local again = read("*") or ""
+		plan.password = askSecret("Password: ")
+		local again = askSecret("Confirm:  ")
 		if plan.password ~= again then
 			plan.password = nil
 			warn("passwords did not match; the account will be set up on first boot")
@@ -647,6 +791,7 @@ local function planSummary(plan)
 		"hostname:      " .. tostring(plan.hostname),
 		"language:      " .. plan.lang,
 		"session:       " .. plan.session,
+		"edition:       " .. plan.edition,
 		"tasks:         " .. (plan.tasks[1] and table.concat(plan.tasks, ", ") or "none"),
 		"packages:      " .. (plan.packages[1] and table.concat(plan.packages, ", ") or "none"),
 		"account:       " .. (plan.user and (plan.user .. " (administrator)") or "created on first boot"),
@@ -657,29 +802,6 @@ local function planSummary(plan)
 		end
 	end
 	return lines
-end
-
--- ---------- system configuration ----------
-local function fstabText(plan)
-	local rows = {
-		"# CloverOS filesystem table",
-		"# device        mountpoint  type   options        dump  pass",
-	}
-	local pass = 1
-	local function row(device, mount, kind, order)
-		rows[#rows + 1] = string.format("%-14s %-12s %-6s %-14s %-5d %d",
-			device, mount, kind, "defaults", 0, order)
-		pass = pass + 1
-	end
-	row(plan.mounts["/"] or plan.target, "/", "cloverfs", pass)
-	if plan.mounts["/home"] then
-		row(plan.mounts["/home"], "/home", "cloverfs", pass)
-	end
-	if plan.mounts["/boot"] then
-		row(plan.mounts["/boot"], "/boot", "cloverfs", pass)
-	end
-	rows[#rows + 1] = string.format("%-14s %-12s %-6s %-14s %-5d %d", "none", "none", "swap", "sw", 0, 0)
-	return table.concat(rows, "\n") .. "\n"
 end
 
 local function writeSystemConfig(plan, results)
@@ -694,7 +816,15 @@ local function writeSystemConfig(plan, results)
 		end
 	end
 
-	write("etc/fstab", fstabText(plan))
+	write("etc/fstab", table.concat({
+		"# CloverOS filesystem table",
+		"# device        mountpoint  type   options        dump  pass",
+		string.format("%-14s %-12s %-6s %-14s %-5d %d", plan.mounts["/"] or plan.target, "/", "cloverfs", "defaults", 0, 1),
+		string.format("%-14s %-12s %-6s %-14s %-5d %d", plan.mounts["/home"], "/home", "cloverfs", "defaults", 0, 2),
+		string.format("%-14s %-12s %-6s %-14s %-5d %d", plan.mounts["/boot"], "/boot", "cloverfs", "defaults", 0, 3),
+		string.format("%-14s %-12s %-6s %-14s %-5d %d", "none", "none", "swap", "sw", 0, 0),
+	}, "\n") .. "\n")
+
 	write("etc/clover/mounts.cfg", textutils.serialize({
 		root = plan.mounts["/"] or plan.target,
 		home = plan.mounts["/home"],
@@ -702,45 +832,67 @@ local function writeSystemConfig(plan, results)
 		type = plan.type,
 		erase = plan.erase and true or false,
 	}))
+
 	write("etc/clover/install.cfg", textutils.serialize({
-		version = plan.version or "2.1.0",
+		version = plan.version or VERSION_FALLBACK,
 		installed = os.epoch("utc"),
 		type = plan.type,
 		tasks = plan.tasks,
 		source = plan.mode,
+		edition = plan.edition,
+		envType = plan.envType,
 		hostname = plan.hostname,
 		lang = plan.lang,
-		session = plan.session,
 		user = plan.user,
 	}))
-	-- boot loader: CloverOS boots straight into the chosen session
+
 	write("var/lib/clover/loader.cfg", textutils.serialize({
 		timeout = 5,
 		entry = "CloverOS",
 		session = plan.session,
 		quiet = false,
 	}))
-	-- the graphical session is the default one after installation
+
 	write("var/lib/clover/settings.cfg", textutils.serialize({
 		gui = plan.session ~= "text",
 		session = plan.session,
+		autoLogin = plan.autoLogin == true or nil,
+		envType = plan.envType,
+		edition = plan.edition,
 	}))
 
-	-- the first account, when one was given on the command line
+	if plan.autoLogin == true then
+		write("etc/clover/autologin", plan.user and (plan.user .. "\n") or "\n")
+	end
+
+	if plan.user then
+		fs.makeDir(fs.combine(target, fs.combine("home", plan.user)))
+	end
+
 	if plan.user and plan.password then
 		local userOk, usersModule = pcall(dofile, fs.combine(target, "runtime/users.lua"))
 		local pathsOk, pathsModule = pcall(dofile, fs.combine(target, "runtime/paths.lua"))
-		if userOk and pathsOk and type(usersModule) == "table" then
-			local users = usersModule.new(pathsModule.new(target))
-			users:load()
-			if not users:exists(plan.user) then
-				users:createUser(plan.user, plan.password)
-			else
-				users:setPassword(plan.user, plan.password)
+		if userOk and pathsOk and type(usersModule) == "table" and type(pathsModule) == "table" then
+			local okPaths, paths = pcall(function()
+				return pathsModule.new(target)
+			end)
+			if okPaths and paths then
+				local okUsers, users = pcall(function()
+					local u = usersModule.new(paths)
+					u:load()
+					return u
+				end)
+				if okUsers and users then
+					if not users:exists(plan.user) then
+						users:createUser(plan.user, plan.password)
+					else
+						users:setPassword(plan.user, plan.password)
+					end
+					users:save()
+					log("account " .. plan.user)
+					written = written + 1
+				end
 			end
-			users:save()
-			log("account " .. plan.user)
-			written = written + 1
 		else
 			warn("could not create '" .. plan.user .. "'; first-run setup will ask")
 		end
@@ -748,7 +900,34 @@ local function writeSystemConfig(plan, results)
 	return written
 end
 
--- ---------- file copy + verification ----------
+local function writeDesktopConfig(plan)
+	local okTheme, theme = pcall(dofile, fs.combine(plan.target, "runtime/theme.lua"))
+	local okPaths, pathsModule = pcall(dofile, fs.combine(plan.target, "runtime/paths.lua"))
+	if not (okTheme and type(theme) == "table" and type(theme.save) == "function") then
+		return false
+	end
+	if not (okPaths and type(pathsModule) == "table") then
+		return false
+	end
+	local okNew, paths = pcall(function()
+		return pathsModule.new(plan.target)
+	end)
+	if not okNew then
+		return false
+	end
+	local cfg = {
+		mode = plan.theme or "dark",
+		accent = plan.accent or "orange",
+		wallpaper = plan.wallpaper or "aubergine",
+	}
+	if plan.user then
+		local userHome = fs.combine(plan.target, fs.combine("home", plan.user))
+		fs.makeDir(userHome)
+		return theme.save(paths, plan.user, cfg) and true or false
+	end
+	return theme.save(paths, nil, cfg) and true or false
+end
+
 local function copyAndVerify(target, rel, data)
 	local dst = fs.combine(target, rel)
 	fs.makeDir(fs.getDir(dst))
@@ -792,8 +971,6 @@ local function installFiles(plan, results)
 		end
 	end
 
-	-- man pages: local mode copies the whole source directory so new pages
-	-- cannot drift out of a file list; net mode uses the explicit list.
 	if plan.mode == "local" and root then
 		local manSrc = fs.combine(root, "etc/man")
 		if fs.isDir(manSrc) then
@@ -821,7 +998,6 @@ local function installFiles(plan, results)
 		end
 	end
 
-	-- desktop applications: a missing one only costs a grid entry
 	for _, rel in ipairs(OPTIONAL_FILES) do
 		local data = sourceBytes(rel)
 		if data and copyAndVerify(plan.target, rel, data) then
@@ -834,9 +1010,6 @@ local function installFiles(plan, results)
 	return results.installed
 end
 
--- ---------- sha256 manifest ----------
--- runtime/hash.lua is loaded once per run, not once per file: on a host
--- without the native `hash` API the portable digest is the expensive part.
 local manifestHash
 
 local function loadManifestHash(root)
@@ -877,7 +1050,6 @@ local function writeManifest(plan, results)
 	return hashed
 end
 
--- ---------- task packages ----------
 local function installTaskPackages(plan, results)
 	if not plan.packages or #plan.packages == 0 then
 		return 0
@@ -904,7 +1076,6 @@ local function installTaskPackages(plan, results)
 	return installed
 end
 
--- ---------- status ----------
 local function writeStatus(plan, results)
 	local lines = {}
 	if #results.failed == 0 then
@@ -915,10 +1086,11 @@ local function writeStatus(plan, results)
 			lines[#lines + 1] = "FAILED " .. path
 		end
 	end
-	lines[#lines + 1] = "version " .. tostring(plan.version or "2.1.0")
+	lines[#lines + 1] = "version " .. tostring(plan.version or VERSION_FALLBACK)
 	lines[#lines + 1] = "target " .. tostring(plan.target)
 	lines[#lines + 1] = "type " .. tostring(plan.type)
 	lines[#lines + 1] = "session " .. tostring(plan.session)
+	lines[#lines + 1] = "edition " .. tostring(plan.edition)
 	lines[#lines + 1] = "hostname " .. tostring(plan.hostname)
 	lines[#lines + 1] = "files " .. tostring(results.installed)
 	lines[#lines + 1] = "verified " .. tostring(results.verified)
@@ -928,7 +1100,6 @@ local function writeStatus(plan, results)
 	writeAll(fs.combine(plan.target, "var/lib/install-status.txt"), table.concat(lines, "\n") .. "\n")
 end
 
--- ---------- installer utilities ----------
 local function actionDisks()
 	say("installation targets:")
 	for _, disk in ipairs(listDisks()) do
@@ -982,7 +1153,422 @@ local function actionVerify(target)
 	return 1
 end
 
--- ---------- main ----------
+local function runLocalInstall(plan, results)
+	installFiles(plan, results)
+end
+
+local function readManifestLines(baseURL)
+	local text = nil
+	if options.mode == "local" then
+		local root = sourceRoot()
+		if root then
+			text = readAll(fs.combine(root, MANIFEST_NAME))
+		end
+	else
+		text = fetch(MANIFEST_NAME, baseURL)
+	end
+	if not text then
+		return nil
+	end
+	local list, seen = {}, {}
+	for row in text:gmatch("[^\r\n]+") do
+		local entry = row:gsub("^%s+", ""):gsub("%s+$", "")
+		if entry ~= "" and not entry:match("^#") and not seen[entry] then
+			if entry ~= "netinstall.lua" and entry ~= "files.manifest" and entry ~= "install.lua" then
+				seen[entry] = true
+				list[#list + 1] = entry
+			end
+		end
+	end
+	return list
+end
+
+local function slimList(fileList, edition)
+	local keep = {
+		"startup.lua", "CloverOS_OS.lua", "boot/loader.lua", "boot/kernel.lua",
+		"runtime/paths.lua", "runtime/hash.lua", "runtime/users.lua",
+		"runtime/textui.lua", "runtime/packages.lua", "runtime/shell.lua",
+		"etc/version.lua", "etc/motd.txt", "etc/apt/sources.list",
+		"bin/clear.lua", "bin/ls.lua", "bin/cat.lua", "bin/copy.lua",
+		"bin/move.lua", "bin/delete.lua", "bin/mkdir.lua", "bin/which.lua",
+		"bin/sleep.lua", "bin/stat.lua", "bin/wget.lua", "bin/grep.lua",
+		"bin/head.lua", "bin/tail.lua", "bin/net.lua", "bin/ping.lua",
+		"bin/wget.lua", "bin/aptserver.lua",
+	}
+	local set = {}
+	for _, rel in ipairs(keep) do
+		set[rel] = true
+	end
+	local out = {}
+	for _, rel in ipairs(fileList) do
+		if set[rel] then
+			out[#out + 1] = rel
+		end
+	end
+	if edition == "turtle" then
+		for _, rel in ipairs(TURTLE_PACKAGE_FILES) do
+			out[#out + 1] = rel
+		end
+	end
+	return out
+end
+
+local function filterExisting(target, list, installMode)
+	local queue, skipped = {}, 0
+	for _, file in ipairs(list) do
+		local destination = fs.combine(target, file)
+		if installMode == "reinstall" or not fs.exists(destination) then
+			queue[#queue + 1] = file
+		else
+			skipped = skipped + 1
+		end
+	end
+	return queue, skipped
+end
+
+local function netDownload(baseURL, target, queue)
+	local createdDirs = {}
+	local function ensureDir(file)
+		local dir = file:match("(.*/)")
+		if dir and not createdDirs[dir] then
+			fs.makeDir(fs.combine(target, dir))
+			createdDirs[dir] = true
+		end
+	end
+
+	local total = #queue
+	local done, failed = 0, {}
+	local active = {}
+	local running = 0
+	local queueIndex = 0
+
+	local function startNext()
+		if queueIndex >= #queue or running >= MAX_CONCURRENT then
+			return
+		end
+		queueIndex = queueIndex + 1
+		local file = queue[queueIndex]
+		local url = baseURL .. file
+		http.request(url)
+		active[url] = file
+		running = running + 1
+	end
+
+	for _ = 1, math.min(MAX_CONCURRENT, #queue) do
+		startNext()
+	end
+
+	while running > 0 do
+		local event, url, data = os.pullEvent()
+		if event == "http_success" and active[url] then
+			local file = active[url]
+			ensureDir(file)
+			local content = data.readAll()
+			data.close()
+			local okWrite, writeErr = copyAndVerify(target, file, content)
+			if okWrite then
+				done = done + 1
+				step(done, total, file .. " ... ")
+				pass()
+			else
+				failed[#failed + 1] = file .. " (" .. tostring(writeErr) .. ")"
+				bad("FAILED " .. file .. " (" .. tostring(writeErr) .. ")")
+			end
+			active[url] = nil
+			running = running - 1
+			startNext()
+		elseif event == "http_failure" and active[url] then
+			local file = active[url]
+			failed[#failed + 1] = file .. " (" .. tostring(data or "unknown error") .. ")"
+			bad("Failed: " .. file .. " (" .. tostring(data or "unknown error") .. ")")
+			active[url] = nil
+			running = running - 1
+			startNext()
+		end
+	end
+
+	if #failed == 0 then
+		return true, done
+	end
+	bad(#failed .. " downloads failed:")
+	for _, row in ipairs(failed) do
+		bad("  - " .. row)
+	end
+	return false, done
+end
+
+local function finishInstall(plan, results)
+	local configWritten = writeSystemConfig(plan, results)
+	local desktopOk = writeDesktopConfig(plan)
+	local hashed = writeManifest(plan, results)
+	local packages = installTaskPackages(plan, results)
+	results.packages = packages
+	writeStatus(plan, results)
+	log("installed " .. results.installed .. " files, " .. results.verified .. " verified")
+	flushLog(plan.target)
+
+	say("")
+	if #results.failed == 0 then
+		good("Installed and verified " .. results.installed .. " files.")
+		say("  configuration files: " .. configWritten)
+		say("  sha256 manifest:    " .. hashed .. " files")
+		say("  desktop apps:       " .. results.apps)
+		say("  packages:           " .. packages)
+		if desktopOk and plan.theme then
+			say("  desktop theme:      " .. tostring(plan.theme) .. " / " .. tostring(plan.accent))
+		end
+		if not fs.exists(fs.combine(plan.target, "startup.lua")) then
+			bad("startup.lua missing after install; the installation is incomplete.")
+			return
+		end
+		good("CloverOS will start automatically on the next boot.")
+		log("installation complete")
+		if not options.noPrompt and confirm("Reboot now?") then
+			os.reboot()
+		end
+	else
+		bad("Installed " .. results.installed .. " files; " .. #results.failed .. " FAILED:")
+		for _, path in ipairs(results.failed) do
+			bad("  - " .. path)
+		end
+		bad("The installation is INCOMPLETE. Fix the errors above and run install again.")
+		log("installation incomplete")
+	end
+end
+
+local function runInteractive()
+	local envType = "cct"
+	local craftosSetup = false
+	menuOptions("Select your OS environment", { "CC:Tweaked", "CraftOS" }, {
+		function()
+			envType = "cct"
+		end,
+		function()
+			envType = "craftos"
+			craftosSetup = true
+		end,
+	})
+
+	if craftosSetup then
+		say("Setting up CraftOS environment...")
+		pcall(function()
+			if shell and shell.run then
+				shell.run("attach left drive")
+				shell.run("attach right speaker")
+				shell.run("attach back monitor")
+			end
+			if mounter and type(mounter) == "table" and mounter.mount then
+				mounter.mount("/CloverOS_Disks/0", "C:\\CloverOS_Disks\\0")
+			end
+			if disk and type(disk) == "table" and disk.insertDisk then
+				disk.insertDisk("left", "C:\\CloverOS_Disks\\0")
+			end
+		end)
+		say("Environment setup complete.")
+		if type(sleep) == "function" then
+			sleep(1)
+		end
+	end
+
+	local disks = listDisks()
+	if #disks == 0 then
+		bad("No disks detected! Insert one and reboot.")
+		return
+	end
+
+	local plan = {
+		target = "/",
+		mode = options.mode,
+		type = "alongside",
+		tasks = {},
+		mounts = {},
+		edition = "default",
+	}
+	plan.envType = envType
+
+	if #disks > 1 then
+		local labels, paths = {}, {}
+		for i, disk in ipairs(disks) do
+			labels[i] = disk.name .. " (" .. tostring(disk.free) .. " bytes)"
+			paths[i] = disk.path
+		end
+		plan.target = askMenu("Select target disk", labels, paths, 1) or "/"
+	end
+	log("target=" .. plan.target .. " env=" .. envType)
+
+	local sourceChoice = options.mode == "net" and "raw" or nil
+	if not sourceChoice then
+		sourceChoice = askMenu("Select source server", { "Local files", "CDN (recommended)", "Raw GitHub" },
+			{ "local", "pages", "raw" }, 1)
+	end
+
+	local baseURL, manifestURL
+	if sourceChoice == "pages" then
+		baseURL = CDN_BASE
+		manifestURL = CDN_BASE .. MANIFEST_NAME
+		plan.mode = "net"
+	elseif sourceChoice == "raw" then
+		baseURL = BASE
+		manifestURL = BASE .. MANIFEST_NAME
+		plan.mode = "net"
+	else
+		plan.mode = "local"
+	end
+	options.mode = plan.mode
+
+	if plan.mode == "net" and not http then
+		bad("HTTP is disabled on this computer.")
+		bad("Enable http in the CraftOS config, or run: install --local")
+		return
+	end
+
+	local edition = askMenu("Select CloverOS edition", {
+		"Full (recommended)",
+		"Soft (lightweight)",
+		"Turtle (adds rturtle and autominer)",
+		"Emulator",
+	}, { "default", "soft", "turtle", "emulator" }, 1)
+
+	local installMode = askMenu("Installation mode", { "Install", "Reinstall" }, { "install", "reinstall" }, 1)
+
+	plan.edition = edition
+	plan.session = "gnome"
+	plan.lang = "en-US"
+	plan.hostname = defaultHostname()
+	plan.tasks = { "terminal", "utilities" }
+	plan.packages = taskPackages(plan.tasks)
+	plan.mounts["/"] = plan.target
+	plan.mounts["/home"] = fs.combine(plan.target, "home")
+	plan.mounts["/boot"] = fs.combine(plan.target, "boot")
+
+	plan.theme = askMenu("Select theme", {
+		"Dark (default)",
+		"Light",
+	}, { "dark", "light" }, 1)
+	plan.accent = askMenu("Select accent color", {
+		"Orange",
+		"Purple",
+		"Blue",
+		"Green",
+		"Red",
+		"Lime",
+	}, { "orange", "purple", "blue", "green", "red", "lime" }, 1)
+	plan.wallpaper = askMenu("Select wallpaper", {
+		"Aubergine wave",
+		"Solid accent",
+		"Dark grid",
+	}, { "aubergine", "solid", "grid" }, 1)
+	plan.autoLogin = askMenu("Enable auto-login?", { "No", "Yes" }, { false, true }, 1)
+	if plan.autoLogin == true then
+		plan.user = ask("Username for auto-login", os.getComputerLabel() or "clover")
+	end
+
+	say("Installation plan:")
+	for _, row in ipairs(planSummary(plan)) do
+		say("  " .. row)
+	end
+	say("")
+
+	if not confirm("Write the changes above?", true) then
+		say("Installation cancelled; nothing was changed.")
+		log("cancelled by the operator")
+		return
+	end
+
+	for _, dir in ipairs(DIRS) do
+		fs.makeDir(fs.combine(plan.target, dir))
+	end
+
+	local results = { installed = 0, verified = 0, apps = 0, failed = {}, manifest = {} }
+
+	if plan.mode == "net" then
+		local fileList = readManifestLines(manifestURL)
+		if not fileList or #fileList == 0 then
+			warn("could not load " .. MANIFEST_NAME .. "; using the built-in file list")
+			fileList = {}
+			for _, rel in ipairs(FILES) do
+				fileList[#fileList + 1] = rel
+			end
+			for _, rel in ipairs(OPTIONAL_FILES) do
+				fileList[#fileList + 1] = rel
+			end
+		end
+		if edition == "soft" or edition == "turtle" then
+			fileList = slimList(fileList, edition)
+		end
+		local queue, skipped = filterExisting(plan.target, fileList, installMode)
+		if skipped > 0 then
+			say("Skipping " .. skipped .. " existing files.")
+		end
+		if #queue == 0 then
+			say("Nothing to download; the installation is already present.")
+			results.manifest = fileList
+			results.installed = #fileList
+		else
+			local ok, done = netDownload(baseURL, plan.target, queue)
+			if not ok then
+				bad("The installation is INCOMPLETE. Fix the errors above and run install again.")
+				log("download failures")
+				flushLog(plan.target)
+				return
+			end
+			results.manifest = queue
+			results.installed = done
+			results.verified = done
+		end
+	else
+		runLocalInstall(plan, results)
+	end
+
+	finishInstall(plan, results)
+end
+
+local function runUnattended()
+	say("CloverOS Installer")
+	say("This program installs CloverOS onto this computer.")
+	say("")
+	log("installer started (mode=" .. options.mode .. ")")
+	local plan, planErr = buildPlan()
+	if not plan then
+		bad(planErr or "cannot build an installation plan")
+		return
+	end
+
+	pcall(function()
+		local version = dofile(fs.combine(sourceRoot() or ".", "etc/version.lua"))
+		if type(version) == "table" and version.version then
+			plan.version = version.version()
+		end
+	end)
+
+	say("Installation plan:")
+	for _, row in ipairs(planSummary(plan)) do
+		say("  " .. row)
+	end
+	say("")
+
+	if not confirm("Write the changes above?") then
+		say("Installation cancelled; nothing was changed.")
+		log("cancelled by the operator")
+		return
+	end
+
+	if plan.dryRun then
+		good("Dry run: no files were written.")
+		log("dry run complete")
+		return
+	end
+
+	for _, dir in ipairs(DIRS) do
+		fs.makeDir(fs.combine(plan.target, dir))
+	end
+
+	local results = { installed = 0, verified = 0, apps = 0, failed = {}, manifest = {} }
+	log("target=" .. plan.target .. " type=" .. plan.type)
+	runLocalInstall(plan, results)
+	finishInstall(plan, results)
+end
+
 local argv = { ... }
 local opts, parseErr = parseArgs(argv)
 
@@ -1025,99 +1611,9 @@ elseif opts.action == "verify" then
 	return
 end
 
-term.clear()
-term.setCursorPos(1, 1)
-say("CloverOS Installer")
-say("This program installs CloverOS onto this computer.")
-say("")
-
-log("installer started (mode=" .. opts.mode .. ")")
-local plan, planErr = buildPlan()
-if not plan then
-	bad(planErr or "cannot build an installation plan")
-	return
-end
-
--- version string for the status file
-pcall(function()
-	local version = dofile(fs.combine(sourceRoot() or ".", "etc/version.lua"))
-	if type(version) == "table" and version.version then
-		plan.version = version.version()
-	end
-end)
-
-say("Installation plan:")
-for _, row in ipairs(planSummary(plan)) do
-	say("  " .. row)
-end
-say("")
-
-if not confirm("Write the changes above?") then
-	say("Installation cancelled; nothing was changed.")
-	log("cancelled by the operator")
-	return
-end
-
-if plan.dryRun then
-	good("Dry run: no files were written.")
-	log("dry run complete")
-	return
-end
-
-for _, dir in ipairs(DIRS) do
-	fs.makeDir(fs.combine(plan.target, dir))
-end
-
-if plan.erase and plan.type == "erase" then
-	-- only reachable with --erase-data (guarded in buildPlan)
-	local victim = fs.combine(plan.target, "home")
-	if fs.isDir(victim) then
-		for _, entry in ipairs(fs.list(victim)) do
-			local path = fs.combine(victim, entry)
-			if fs.isDir(path) then
-				fs.delete(path)
-			else
-				fs.delete(path)
-			end
-		end
-		log("erased " .. victim)
-		say("Erased existing data in " .. victim)
-	end
-end
-
-local results = { installed = 0, verified = 0, apps = 0, failed = {}, manifest = {} }
-log("target=" .. plan.target .. " type=" .. plan.type)
-installFiles(plan, results)
-
-local configWritten = writeSystemConfig(plan, results)
-local hashed = writeManifest(plan, results)
-local packages = installTaskPackages(plan, results)
-results.packages = packages
-writeStatus(plan, results)
-log("installed " .. results.installed .. " files, " .. results.verified .. " verified")
-flushLog(plan.target)
-
-say("")
-if #results.failed == 0 then
-	good("Installed and verified " .. results.installed .. " files.")
-	say("  configuration files: " .. configWritten)
-	say("  sha256 manifest:    " .. hashed .. " files")
-	say("  desktop apps:       " .. results.apps)
-	say("  packages:           " .. packages)
-	if not fs.exists(fs.combine(plan.target, "startup.lua")) then
-		bad("startup.lua missing after install; the installation is incomplete.")
-		return
-	end
-	good("CloverOS will start automatically on the next boot.")
-	log("installation complete")
-	if not options.noPrompt and confirm("Reboot now?") then
-		os.reboot()
-	end
+if opts.noPrompt or not bufferWindow then
+	runUnattended()
 else
-	bad("Installed " .. results.installed .. " files; " .. #results.failed .. " FAILED:")
-	for _, path in ipairs(results.failed) do
-		bad("  - " .. path)
-	end
-	bad("The installation is INCOMPLETE. Fix the errors above and run install again.")
-	log("installation incomplete")
+	log("installer started (mode=" .. opts.mode .. ")")
+	runInteractive()
 end

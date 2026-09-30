@@ -9,8 +9,9 @@
 //   NODE_PATH=<dir containing fengari> node tests/host/run.js [suite]
 //
 // Suites: all (default) | hash | manifest | syntax | install | install_tasks
-//         | system | netcmd | module | shell2 | gnome | gui | boot | boot_text
-//         | module | shell2 | gnome | gui | boot | boot_text
+//         | install_menu | system | netcmd | module | shell2 | gnome | gui
+//         | boot | boot_text | netcmd2 | cloverd | theme | notify | quickset
+//         | init | cron | aptnet | panelhw | isolation | quickset
 //
 // One-time setup of the Lua VM (any prefix works):
 //   npm install --prefix /tmp/luatool fengari
@@ -19,7 +20,6 @@
 //
 // This runner is a development tool; the authoritative test suite for the
 // platform remains tests/run_tests.sh (CraftOS-PC).
-
 "use strict";
 
 const fs = require("fs");
@@ -140,6 +140,8 @@ for (const [rel, content] of Object.entries(files)) {
 chunk += "}\n";
 
 const suite = process.argv[2] || "all";
+const isProbe = suite === "install_menu";
+const scriptPath = isProbe ? path.join(__dirname, "install_menu_probe.lua") : path.join(__dirname, "main.lua");
 
 const L = lauxlib.luaL_newstate();
 lualib.luaL_openlibs(L);
@@ -161,7 +163,7 @@ try {
 	lua.lua_call(L, 0, 1); // keep the repo files table on the stack
 	const repoTableIndex = lua.lua_gettop(L);
 
-	const mainSrc = fs.readFileSync(path.join(__dirname, "main.lua"), "utf8");
+	const mainSrc = fs.readFileSync(scriptPath, "utf8");
 	if (lauxlib.luaL_loadstring(L, to_luastring(mainSrc)) !== lua.LUA_OK) {
 		throw new Error(`load error in main.lua: ${lua.lua_tojsstring(L, -1)}`);
 	}
