@@ -327,4 +327,88 @@ function M.run(deps, host, command, onOutput)
 	return true, lines
 end
 
+-- ---------- interactive client ----------
+-- A shell-like session: connect once, then run lines until `exit` or
+-- ctrl+T. Reuses the single-exchange protocol but leaves the session open
+-- between commands, so history and cwd persist on the server side.
+function M.interactive(deps, host)
+	deps = deps or {}
+	local system = deps.system
+	local ui = deps.ui or {}
+
+	local hostId = tonumber(host)
+	if not hostId then
+		return nil, "host must be a computer id (numbers only)"
+	end
+
+	local password = deps.password
+	if password == nil and type(ui.readPassword) == "function" then
+		password = ui.readPassword("password: ")
+	elseif password == nil and type(read) == "function" then
+		write("password: ")
+		password = read("*")
+	end
+	if not password or password == "" then
+		return nil, "no password given"
+	end
+
+	if system and type(system.rednetOpen) == "function" then
+		system:rednetOpen()
+	elseif type(rednet) == "table" and type(rednet.open) == "function" then
+		rednet.open("top")
+	else
+		return nil, "no rednet hardware"
+	end
+
+	local function send(payload)
+		rednet.send(hostId, payload, M.PROTOCOL)
+	end
+
+	local function waitReply(kind, timeout)
+		local deadline = os.clock() + (timeout or M.TIMEOUT)
+		while os.clock() < deadline do
+			local ev = { os.pullEventRaw("rednet_message") }
+			if ev[1] == "rednet_message" and ev[3] == hostId then
+				local ok, message = pcall(textutils.unserialize, tostring(ev[4] or ""))
+				if ok and type(message) == "table" and message.kind == kind then
+					return message
+				end
+				if ok and type(message) == "table" and message.kind == "closed" then
+					return nil
+				end
+			end
+		end
+		return nil
+	end
+
+	send({ kind = "open", user = deps.user, password = password, session = "c1" })
+	local welcome = waitReply("welcome")
+	if not welcome then
+		return nil, "no answer from " .. tostring(host)
+	end
+	print("connected to " .. hostId .. " (exit or ctrl+T to leave)")
+
+	while true do
+		write("ssh:" .. hostId .. "> ")
+		local line = read()
+		if line == nil or line == "exit" or line == "logout" then
+			break
+		end
+		if line ~= "" then
+			send({ kind = "command", session = "c1", line = line })
+			local reply = waitReply("output")
+			if not reply then
+				print("ssh: no answer (session may have timed out)")
+				break
+			end
+			for _, out in ipairs(reply.lines or {}) do
+				print(out)
+			end
+		end
+	end
+
+	send({ kind = "close", session = "c1" })
+	return true
+end
+
 return M
