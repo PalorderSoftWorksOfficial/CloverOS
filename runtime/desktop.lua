@@ -15,6 +15,8 @@ local APPS = {
 	{ id = "clocks", title = "Clocks", program = "apps/clocks.lua" },
 	{ id = "media", title = "Media Player", program = "apps/media.lua" },
 	{ id = "calculator", title = "Calculator", program = "apps/calculator.lua" },
+	{ id = "sysmon", title = "System Monitor", program = "apps/sysmon.lua" },
+	{ id = "notes", title = "Notes", program = "apps/notes.lua" },
 	{ id = "help", title = "Help", program = "apps/help.lua" },
 }
 
@@ -204,10 +206,10 @@ function M.new(deps)
 			desktop = self,
 			notify = function(item)
 				return self:raise(item)
-			end,
-			theme = self.theme,
-			themeCfg = self.themeCfg,
-			args = args or {},
+			end,				theme = self.theme,
+				themeCfg = self.themeCfg,
+				system = self.system,
+				args = args or {},
 		})
 		if not created then
 			self.gui:closeWindow(win)
