@@ -253,6 +253,8 @@ function M.install(repoFiles)
 	local sleeping = {} -- [co] = wake time
 	local timers = 0
 	local TERMINATED = "Terminated"
+	-- per-coroutine event queues, as os.queueEvents creates them
+	local owned = {} -- [co] = { name = ..., queue = { ... } }
 
 	local osShim = {}
 
@@ -293,8 +295,50 @@ function M.install(repoFiles)
 		error(TERMINATED, 0)
 	end
 
+	-- CC:Tweaked redirects a coroutine's events with os.queueEvents: from then
+	-- on the program delivers to that coroutine instead of the global queue.
+	-- os.queueEvent is how a program puts an event back on the global queue,
+	-- which is the whole basis of runtime/cloverd.lua's forwarding.
+	function osShim.queueEvents(filter)
+		local co = coroutine.running()
+		if not co then
+			return
+		end
+		owned[co] = owned[co] or { name = filter, queue = {} }
+		if filter then
+			owned[co].name = filter
+		end
+	end
+
 	function osShim.queueEvent(name, ...)
+		-- os.queueEvent is how a program injects an event for the whole
+		-- program to see, so it always lands on the global queue even when
+		-- the caller has redirected its own events. This is the primitive
+		-- runtime/cloverd.lua uses to hand an event back to the shell.
 		eventQueue[#eventQueue + 1] = { name, ... }
+	end
+
+	function osShim.emitEvent(name, ...)
+		-- an event the outside world delivers: always follows the redirect
+		local co = coroutine.running()
+		if co and owned[co] then
+			local queue = owned[co].queue
+			queue[#queue + 1] = { name, ... }
+		else
+			eventQueue[#eventQueue + 1] = { name, ... }
+		end
+	end
+
+	-- pull from a named redirect, from this coroutine's own queue, or from
+	-- the program queue -- whichever the caller's host would use
+	function osShim.pullRedirected(name)
+		local co = coroutine.running()
+		if co and owned[co] and #owned[co].queue > 0 then
+			return table.unpack(table.remove(owned[co].queue, 1))
+		end
+		-- nothing owned yet: this yields, so it must not be wrapped in pcall
+		-- (a coroutine cannot yield across a pcall boundary)
+		return osShim.pullEventRaw()
 	end
 
 	function osShim.startTimer()
@@ -323,6 +367,9 @@ function M.install(repoFiles)
 	end
 
 	function osShim.pullEvent(filter)
+		if type(filter) == "string" and owned[coroutine.running()] then
+			return osShim.pullRedirected(filter)
+		end
 		return osShim.pullEventRaw(filter)
 	end
 
@@ -922,23 +969,35 @@ function M.install(repoFiles)
 	_G.hostShim = {
 		queueInput = function(line)
 			for i = 1, #line do
-				osShim.queueEvent("char", line:sub(i, i))
+				osShim.emitEvent("char", line:sub(i, i))
 			end
-			osShim.queueEvent("key", keys.enter)
+			osShim.emitEvent("key", keys.enter)
 		end,
 		readFile = readFile,
 		writeFile = writeFile,
 		exists = fs.exists,
+		-- suites must not leak queued events into the next one: a stray
+		-- character left behind would be eaten by the next scripted read()
+		drainEvents = function()
+			local dropped = #eventQueue
+			eventQueue = {}
+			for _, entry in pairs(owned) do
+				dropped = dropped + #entry.queue
+				entry.queue = {}
+			end
+			waiting = {}
+			return dropped
+		end,
 		-- hardware: attach/detach models CC:Tweaked hotplug
 		attach = function(name, ptype, methods)
 			hw.attached[name] = { type = ptype, methods = methods or {} }
-			osShim.queueEvent("peripheral", name)
+			osShim.emitEvent("peripheral", name)
 		end,
 		detach = function(name)
 			local entry = hw.attached[name]
 			hw.attached[name] = nil
 			if entry then
-				osShim.queueEvent("peripheral_detach", name)
+				osShim.emitEvent("peripheral_detach", name)
 			end
 		end,
 		hardware = function()

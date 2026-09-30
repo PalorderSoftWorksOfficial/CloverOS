@@ -1456,6 +1456,193 @@ runSuite("aptnet", function()
 	end
 end)
 
+-- ---------- cloverd: hardware events in a text session ----------
+runSuite("cloverd", function()
+	freshInstall()
+	_G.CLOVER_ROOT = "/testroot"
+	local paths = dofile("/testroot/runtime/paths.lua").new("/testroot")
+	local systemMod = dofile("/testroot/runtime/system.lua")
+	local cloverdMod = dofile("/testroot/runtime/cloverd.lua")
+
+	if not fs.exists("/testroot/runtime/cloverd.lua") then
+		fail("cloverd is not installed")
+		return
+	end
+	pass("cloverd installed")
+
+	local sys = systemMod.new({ paths = paths })
+	sys:scan()
+	local daemon = cloverdMod.new({ system = sys })
+
+	if cloverdMod.available() then
+		pass("the host can redirect its event queue")
+	else
+		fail("host cannot redirect its event queue")
+		return
+	end
+
+	-- refuse to start without a system layer rather than silently idling
+	local empty = cloverdMod.new({ system = nil })
+	local started, why = empty:start()
+	if started == nil and why then
+		pass("cloverd refuses to start without a system layer")
+	else
+		fail("cloverd started with no system layer")
+	end
+
+	-- a real rednet message must reach the system layer while the daemon runs.
+	-- deliver(what) stands in for CraftOS handing an event to the coroutine
+	-- parked in pullEvent, which is exactly what the event loop does.
+	local function deliver(...)
+		return coroutine.resume(daemon.thread, ...)
+	end
+
+	shim.attach("rednet3", "rednet", {})
+	local inboxBefore = #sys:inbox()
+	local before = sys.state.rednet.received
+	local started, whyStart = daemon:start()
+	if started == true then
+		pass("cloverd started")
+	else
+		fail("cloverd would not start: " .. tostring(whyStart))
+		return
+	end
+	deliver("rednet_message", "rednet", 42, "hello from a nearby computer")
+	if sys.state.rednet.received == before + 1 then
+		pass("cloverd services a rednet message")
+	else
+		fail("rednet message not handled: " .. tostring(before) .. " -> " .. tostring(sys.state.rednet.received))
+	end
+	if #sys:inbox() == inboxBefore + 1
+		and sys:inbox()[#sys:inbox()].message == "hello from a nearby computer" then
+		pass("the message landed in the inbox")
+	else
+		fail("inbox did not record the message")
+	end
+	local state = daemon:status()
+	if state.handled >= 1 and state.running then
+		pass("cloverd reports what it handled")
+	else
+		fail("cloverd status: " .. tostring(state.handled))
+	end
+
+	-- the important guarantee: input still reaches the shell. A daemon that
+	-- swallowed the user's typing would be far worse than no daemon at all,
+	-- so the whole point of forwarding is proven here end to end.
+	-- the important guarantee: input still reaches the shell. A daemon that
+	-- swallowed the user's typing would be far worse than no daemon at all,
+	-- so the whole point of forwarding is proven here end to end -- with a
+	-- reader parked in read() while the daemon is running, which is the
+	-- arrangement a text session actually has.
+	local typed = "echo survived"
+	-- stand in for the event loop: hand the daemon its events one at a time,
+	-- the way CraftOS resumes a coroutine parked in pullEvent
+	for i = 1, #typed do
+		coroutine.resume(daemon.thread, "char", typed:sub(i, i))
+	end
+	coroutine.resume(daemon.thread, "key", keys.enter)
+	if daemon:status().forwarded >= #typed + 1 then
+		pass("cloverd counted the events it forwarded")
+	else
+		fail("forwarded count: " .. tostring(daemon:status().forwarded))
+	end
+	-- and the shell, which was never told about any of that, reads the line
+	local gotLine
+	parallel.waitForAll(function()
+		gotLine = read()
+	end)
+	if gotLine == typed then
+		pass("a line typed through the daemon still reaches the shell")
+	else
+		fail("the shell read " .. tostring(gotLine))
+	end
+
+	shim.attach("modem3", "modem", {
+		isOpen = function() return true end,
+		getStatus = function() return "online" end,
+		signalStrength = function() return 2 end,
+	})
+	local still = "echo still here"
+	-- a hardware event arrives, and the user keeps typing straight through it
+	coroutine.resume(daemon.thread, "modem")
+	for i = 1, #still do
+		coroutine.resume(daemon.thread, "char", still:sub(i, i))
+	end
+	coroutine.resume(daemon.thread, "key", keys.enter)
+	if sys:network().connected then
+		pass("cloverd picks up a modem transition")
+	else
+		fail("modem event left the link " .. sys:network().state)
+	end
+	local gotAgain
+	parallel.waitForAll(function()
+		gotAgain = read()
+	end)
+	if gotAgain == still then
+		pass("input keeps working across a hardware event")
+	else
+		fail("input stopped working after a hardware event: " .. tostring(gotAgain))
+	end
+
+	-- terminate must be passed on, never swallowed
+	deliver("terminate")
+	if daemon.running == false then
+		pass("cloverd stops on terminate")
+	else
+		fail("cloverd ignored terminate")
+	end
+
+	-- the daemon is describable through the kernel service table
+	local kernelStub = { registered = nil }
+	-- the real kernel's service.register is a plain closure over the
+	-- kernel table, not a method, so the stub must match its signature
+	kernelStub.service = {
+		register = function(name, definition)
+			kernelStub.registered = { name = name, definition = definition }
+		end,
+	}
+	local running = cloverdMod.new({ system = sys })
+	running:start()
+	local registered = cloverdMod.register(kernelStub, sys, running)
+	if registered == running and kernelStub.registered and kernelStub.registered.name == "cloverd" then
+		pass("cloverd registers as a kernel service")
+	else
+		fail("cloverd did not register as a service")
+	end
+	local described = kernelStub.registered.definition.status()
+	if described:find("running", 1, true) and described:find("hardware", 1, true) then
+		pass("service status describes the daemon")
+	else
+		fail("service status: " .. tostring(described))
+	end
+
+	-- a host that returns a forwarded event to the daemon instead of the
+	-- shell would spin on the user's typing, so the daemon must give up
+	local guardSys = systemMod.new({ paths = paths })
+	guardSys:scan()
+	local guard = cloverdMod.new({ system = guardSys })
+	guard.running = true
+	guard.thread = coroutine.create(function()
+		guard:loop()
+	end)
+	coroutine.resume(guard.thread, "char", "x")
+	coroutine.resume(guard.thread, "char", "x")
+	coroutine.resume(guard.thread, "char", "x")
+	coroutine.resume(guard.thread, "char", "x")
+	coroutine.resume(guard.thread, "char", "x")
+	if guard.disabledReason then
+		pass("cloverd disables itself rather than looping the user's input")
+	else
+		fail("cloverd did not notice a loop: repeats=" .. tostring(guard.repeats))
+	end
+
+	shim.detach("rednet3")
+	shim.detach("modem3")
+	-- the loop-guard test deliberately strands forwarded events; clear them
+	-- so the next suite's scripted read() is not fed leftovers
+	shim.drainEvents()
+end)
+
 runSuite("gnome", function()
 	freshInstall()
 	-- the boot contract: the runtime reads CLOVER_ROOT for bundled assets

@@ -218,6 +218,33 @@ while true do
 	if not logoutRequested then
 		-- text-mode shell for the current user (also the GUI failure path)
 		bootInfo("text session started for " .. tostring(users:currentName()))
+		-- The desktop already is an event loop, so it hands hardware events
+		-- to the system layer itself. A text session is parked in read()
+		-- instead, so cloverd owns the queue and hands back what is not
+		-- hardware. It refuses to start on a host that cannot redirect, and
+		-- the session carries on without it.
+		local systemOk, system = pcall(function()
+			local systemModule = dofile(fs.combine(CLOVER_ROOT, "runtime/system.lua"))
+			return systemModule.attach(CLOVER_ROOT)
+		end)
+		if systemOk and system then
+			local cloverdOk, cloverd = pcall(function()
+				local daemonModule = dofile(fs.combine(CLOVER_ROOT, "runtime/cloverd.lua"))
+				return daemonModule.new({ system = system, kernel = kernel })
+			end)
+			if cloverdOk and cloverd then
+				-- make it visible in `service list` and `service status`
+				pcall(function()
+					dofile(fs.combine(CLOVER_ROOT, "runtime/cloverd.lua")).register(kernel, system, cloverd)
+				end)
+				local started, why = cloverd:start()
+				if started then
+					bootInfo("cloverd started for this text session")
+				else
+					bootInfo("cloverd unavailable: " .. tostring(why))
+				end
+			end
+		end
 		session.running = true
 		session.logoutRequested = nil
 		local ran, err = pcall(session.run, session)

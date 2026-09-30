@@ -17,6 +17,7 @@ local candidates = {
 	"runtime/textui.lua",
 	"runtime/system.lua",
 	"runtime/access.lua",
+	"runtime/cloverd.lua",
 	"runtime/packages.lua",
 	"runtime/shell.lua",
 	"runtime/gui.lua",
