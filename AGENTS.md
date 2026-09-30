@@ -27,8 +27,9 @@ CloverOS is a Lua-based operating system for CC:Tweaked and CraftOS. The reposit
 - Prefer APIs and patterns available in CC:Tweaked / CraftOS.
 - Avoid assumptions about native OS features that do not exist in the target runtime.
 - `os.pullEventRaw` cannot be filtered without discarding the events it skips, so never drain the event queue from a command: it would eat the shell's queued keystrokes. Commands read hardware through `runtime/system.lua`'s `attach()` instead.
-- Use Phoenix OS as a reference for shell and boot architecture while preserving CloverOS-specific boot discovery and runtime behavior.
-- Treat filesystem paths, drives, and mounts as part of the runtime contract.
+- Use Phoenix OS as a reference for shell and boot architecture while preserving CloverOS-specific boot discovery and runtime behavior. It is proprietary: never copy its code.
+- Treat filesystem paths, drives, and mounts as part of the runtime contract. `fs.combine` leading-slash behavior differs across hosts; build user-visible paths through `runtime/paths.lua`'s `absolute()`.
+- CraftOS-PC 1.9 has no `os.queueEvents`, so anything using queue redirection (cloverd) must degrade gracefully and log why.
 
 ### Preserve boot and install behavior
 - Do not break `startup.lua` root discovery.
@@ -40,6 +41,7 @@ CloverOS is a Lua-based operating system for CC:Tweaked and CraftOS. The reposit
 - Keep code small and explicit.
 - Use defensive checks around `fs`, `shell`, `http`, `settings`, `term`, and peripheral calls.
 - Prefer readable local helper functions over deeply nested logic.
+- Parenthesize multi-return calls (`gsub`, `find`) used inside table constructors, or the extra returns become extra entries.
 - When editing existing files, match the surrounding style rather than rewriting the whole file.
 
 ### File changes
@@ -63,6 +65,8 @@ Before considering a change complete:
 - Keep error messages clear and actionable.
 - Do not introduce external dependencies unless the project already relies on them.
 - Do not remove legacy paths unless the repo has been updated everywhere they are referenced.
+- Login sets `CLOVER_USER`, sudo sets `CLOVER_ELEVATED`; `runtime/shell.lua`'s `effectiveUser()` reads these globals set by `CloverOS_OS.lua`.
+- Host harness (fengari): `coroutine.yield` cannot cross a `pcall`, so the shim's pull redirect must not wrap `pullEventRaw` in pcall; `parallel.waitForAll` returns when the first coroutine dies; suites must call `shim.drainEvents()` after stranding forwarded events.
 
 ## When in doubt
 
