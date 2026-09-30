@@ -3,7 +3,7 @@
 An operating system environment for CC:Tweaked and CraftOS, with a real
 shell, user system, package manager, and graphical desktop.
 
-Current release: **2.1 "Numbat"** (see `etc/version.lua`).
+Current release: **3.0 "Mandrill"** (see `etc/version.lua`, `CHANGELOG.md`).
 
 ---
 
@@ -75,7 +75,24 @@ accent); wallpapers are built-in patterns or `.nfp` images from
 `etc/clover/wallpapers`, and Files (`w` on a selected image) or the Image
 Viewer (`w`) can set any image as the wallpaper. Four more first-party apps
 ship with the desktop: Image Viewer, Clocks (with stopwatch and timer),
-Media Player (needs a speaker peripheral) and Calculator.
+Media Player (needs a speaker peripheral), Calculator, System Monitor
+(uptime, hardware, units, live journal tail) and Notes (per-user scratch
+pad that saves itself).
+
+## Services and networking
+
+CloverOS machines run services and talk to each other over rednet:
+
+- `systemctl` manages session units (network, cloverd, sshd) with systemd
+  semantics: dependencies, targets, enable/disable persisted in
+  `/etc/clover/init.cfg`. `journalctl` filters the kernel journal by unit,
+  level and tail.
+- `systemctl start sshd` serves remote shells; from another machine,
+  `ssh <computer id> <command>` runs one command there after a password
+  check against the real user database. Failed logins are journaled.
+- `aptserver` publishes the package catalog over rednet; a peer adds it
+  with `apt add-source rednet <computer id>` and installs with the same
+  digest verification a GitHub source gets.
 
 The GUI is built on the vendored MC-ImGui (MIT) layer. Windows support
 minimize/close, focus, live edge-snapping while dragging (top = maximize,

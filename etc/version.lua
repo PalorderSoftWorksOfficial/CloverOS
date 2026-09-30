@@ -1,10 +1,10 @@
 local M = {}
 
-M.major = 2
-M.minor = 1
+M.major = 3
+M.minor = 0
 M.patch = 0
 M.suffix = ""
-M.codename = "Numbat"
+M.codename = "Mandrill"
 M.name = "CloverOS"
 M.vendor = "PalorderSoftWorks"
 
